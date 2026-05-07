@@ -383,6 +383,7 @@ function getZone(x, z) {
 // THREE.JS RENDERING
 function init() {
     console.log('Initializing 3D Engine...');
+    console.log('Three.js version:', THREE?.Version || 'loaded');
     
     const canvas = document.getElementById('game-canvas');
     canvas.width = window.innerWidth;
@@ -643,123 +644,6 @@ function createChunk(cx, cz) {
     
     scene.add(mesh);
     meshes.set(key, mesh);
-    
-    // GENERATE VEGETATION
-    generateVegetation(ox, oz);
-}
-
-let vegetation = new Map();
-
-function createTree(x, y, z) {
-    const group = new THREE.Group();
-    
-    const trunkGeo = new THREE.CylinderGeometry(0.3, 0.5, 3, 6);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.9 });
-    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-    trunk.position.y = 1.5;
-    group.add(trunk);
-    
-    const leavesGeo = new THREE.ConeGeometry(2.5, 5, 8);
-    const leavesMat = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.8 });
-    const leaves = new THREE.Mesh(leavesGeo, leavesMat);
-    leaves.position.y = 5;
-    group.add(leaves);
-    
-    group.position.set(x, y, z);
-    return group;
-}
-
-function createFlower(x, y, z) {
-    const colors = [0xff69b4, 0xffff00, 0xff4500, 0xff1493, 0xffffff];
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    
-    const stemGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 4);
-    const stemMat = new THREE.MeshStandardMaterial({ color: 0x006400 });
-    const stem = new THREE.Mesh(stemGeo, stemMat);
-    
-    const petalGeo = new THREE.SphereGeometry(0.15, 6, 6);
-    const petalMat = new THREE.MeshStandardMaterial({ color: color });
-    const petal = new THREE.Mesh(petalGeo, petalMat);
-    petal.position.y = 0.3;
-    
-    const group = new THREE.Group();
-    group.add(stem);
-    group.add(petal);
-    group.position.set(x, y, z);
-    return group;
-}
-
-function createCactus(x, y, z) {
-    const geo = new THREE.CylinderGeometry(0.3, 0.4, 2, 8);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.7 });
-    const cactus = new THREE.Mesh(geo, mat);
-    cactus.position.set(x, y + 1, z);
-    return cactus;
-}
-
-function createMushroom(x, y, z) {
-    const group = new THREE.Group();
-    
-    const stemGeo = new THREE.CylinderGeometry(0.1, 0.15, 0.4, 6);
-    const stemMat = new THREE.MeshStandardMaterial({ color: 0xF5F5DC });
-    const stem = new THREE.Mesh(stemGeo, stemMat);
-    stem.position.y = 0.2;
-    group.add(stem);
-    
-    const capGeo = new THREE.SphereGeometry(0.25, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2);
-    const capMat = new THREE.MeshStandardMaterial({ color: 0xFF0000 });
-    const cap = new THREE.Mesh(capGeo, capMat);
-    cap.position.y = 0.4;
-    group.add(cap);
-    
-    group.position.set(x, y, z);
-    return group;
-}
-
-function generateVegetation(ox, oz) {
-    const chunkKey = ox + ',' + oz;
-    if (vegetation.has(chunkKey)) return;
-    const items = [];
-    
-    if (params.subworld === 'fractal_forest' || params.subworld === 'simplex_plains') {
-        for (let i = 0; i < 5; i++) {
-            const vx = ox + Math.random() * CHUNK;
-            const vz = oz + Math.random() * CHUNK;
-            const vy = getHeight(vx, vz);
-            if (vy > 5 && vy < 20) {
-                items.push(createTree(vx, vy, vz));
-            }
-        }
-        for (let i = 0; i < 8; i++) {
-            const vx = ox + Math.random() * CHUNK;
-            const vz = oz + Math.random() * CHUNK;
-            const vy = getHeight(vx, vz);
-            if (vy > 3) {
-                items.push(createFlower(vx, vy, vz));
-            }
-        }
-    } else if (params.subworld === 'crystal_cavern') {
-        for (let i = 0; i < 10; i++) {
-            const vx = ox + Math.random() * CHUNK;
-            const vz = oz + Math.random() * CHUNK;
-            const vy = getHeight(vx, vz);
-            if (vy > 2 && vy < 10) {
-                const crystal = createMushroom(vx, vy, vz);
-                crystal.scale.set(1.5, 1.5, 1.5);
-                items.push(crystal);
-            }
-        }
-    } else if (params.subworld === 'sierpinski_temple') {
-        for (let i = 0; i < 3; i++) {
-            const vx = ox + Math.random() * CHUNK;
-            const vz = oz + Math.random() * CHUNK;
-            const vy = getHeight(vx, vz);
-            items.push(createCactus(vx, vy, vz));
-        }
-    }
-    
-    items.forEach(v => scene.add(v));
-    vegetation.set(chunkKey, items);
 }
 
 function updateMinimap() {
