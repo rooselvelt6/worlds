@@ -192,6 +192,85 @@ let subworldFormulas = {
     hybrid_dream: 'hybrid'
 };
 
+// BLOCK TEXTURES (procedural colors for each block type)
+let blockTextures = {
+    grass: { top: 0x4a7c59, side: 0x8B4513, bottom: 0x654321 },
+    stone: 0x808080,
+    dirt: 0x654321,
+    sand: 0xD4A84B,
+    water: 0x0284c7,
+    snow: 0xffffff,
+    forest: { top: 0x2d5a27, side: 0x8B4513 },
+    desert: 0xd4a84b,
+    tundra: 0xc8e6f0,
+    jungle: 0x1b4d1b,
+    volcanic: { top: 0x5c4033, side: 0x2d2d2d },
+    crystal: { color: 0x8b5cf6, glow: true },
+    mandelbrot: 0xdb2777,
+    voronoi: 0x4a5568,
+    default: 0x4a7c59
+};
+
+let subworldMaterials = new Map();
+
+// PROCEDURAL TEXTURE GENERATOR
+function createProceduralTexture(type) {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const tex = blockTextures[type] || blockTextures.default;
+    
+    if (typeof tex === 'number') {
+        ctx.fillStyle = '#' + tex.toString(16).padStart(6, '0');
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        for (let i = 0; i < 20; i++) {
+            ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+        }
+    } else if (tex.top && tex.side) {
+        ctx.fillStyle = '#' + tex.side.toString(16).padStart(6, '0');
+        ctx.fillRect(0, 0, size, size);
+        for (let i = 0; i < 30; i++) {
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            ctx.fillRect(Math.random() * size, Math.random() * size, 3, 3);
+        }
+    } else {
+        ctx.fillStyle = '#' + (tex.color || 0x4a7c59).toString(16).padStart(6, '0');
+        ctx.fillRect(0, 0, size, size);
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    return texture;
+}
+
+// TEXTURE LOADER
+const textureLoader = new THREE.TextureLoader();
+const loadedTextures = {};
+
+function loadBlockTextures() {
+    Object.keys(blockTextures).forEach(type => {
+        loadedTextures[type] = createProceduralTexture(type);
+    });
+}
+
+function getBlockMaterial(subworld) {
+    if (subworldMaterials.has(subworld)) return subworldMaterials.get(subworld);
+    
+    const color = subworldColors[subworld] || 0x2d5a27;
+    const mat = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.8,
+        metalness: 0.1
+    });
+    
+    subworldMaterials.set(subworld, mat);
+    return mat;
+}
+
 let meshes = new Map();
 
 // FORMULA FUNCTIONS
@@ -360,13 +439,24 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x87ceeb);
     
-    // LIGHTS
-    const ambient = new THREE.AmbientLight(0x6699cc, 0.6);
+    // LIGHTING SYSTEM
+    const ambient = new THREE.AmbientLight(0x6699cc, 0.5);
     scene.add(ambient);
+    window.ambientLight = ambient;
     
+    // Sun light with shadow
     const sun = new THREE.DirectionalLight(0xffffdd, 1.0);
     sun.position.set(50, 80, 30);
+    sun.castShadow = true;
+    sun.shadow.mapSize.width = 2048;
+    sun.shadow.mapSize.height = 2048;
     scene.add(sun);
+    window.sunLight = sun;
+    
+    // Hemisphere light for natural ambient
+    const hemi = new THREE.HemisphereLight(0x87ceeb, 0x3d5c35, 0.4);
+    scene.add(hemi);
+    window.hemiLight = hemi;
     
     // AVATAR
     const avatar = new THREE.Mesh(
@@ -481,6 +571,7 @@ function init() {
     };
     
     console.log('Generating terrain...');
+    loadBlockTextures();
     updateFormula();
     regenerate();
     animate();
@@ -557,7 +648,13 @@ function createChunk(cx, cz) {
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     geo.computeVertexNormals();
     
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    const mat = new THREE.MeshStandardMaterial({ 
+        vertexColors: true, 
+        side: THREE.DoubleSide,
+        roughness: 0.85,
+        metalness: 0.05,
+        flatShading: false
+    });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(ox + CHUNK / 2, 0, oz + CHUNK / 2);
