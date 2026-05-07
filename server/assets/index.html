@@ -154,6 +154,9 @@ let keys = {};
 let lastTime = 0;
 let frameCount = 0;
 let fpsTime = 0;
+let dayTime = 0;
+let dayCycleEnabled = true;
+let daySpeed = 0.0005;
 
 let params = {
     seed: 42,
@@ -662,6 +665,47 @@ function updateMinimap() {
     }
 }
 
+function updateDayNightCycle() {
+    if (!dayCycleEnabled || !scene) return;
+    
+    dayTime = (dayTime + daySpeed) % 1;
+    const sunAngle = dayTime * Math.PI * 2;
+    const sinSun = Math.sin(sunAngle);
+    const cosSun = Math.cos(sunAngle);
+    
+    const sunY = sinSun * 80;
+    const sunX = cosSun * 50;
+    const sunZ = cosSun * 30;
+    
+    if (window.sunLight) {
+        window.sunLight.position.set(sunX, Math.max(sunY, 5), sunZ);
+        window.sunLight.intensity = Math.max(0.1, sinSun * 1.2);
+    }
+    
+    if (window.ambientLight) {
+        const nightIntensity = Math.max(0.2, 0.3 + sinSun * 0.4);
+        window.ambientLight.intensity = nightIntensity;
+    }
+    
+    const sky = scene.background;
+    const fog = scene.fog.color;
+    
+    if (sinSun < 0) {
+        sky.setHex(0x0a0a1a);
+        fog.setHex(0x1a1a2a);
+    } else if (sinSun < 0.3) {
+        sky.setHex(0x4a5568);
+        fog.setHex(0x6b7280);
+    } else {
+        const colors = skyColors[params.subworld] || skyColors.fractal_forest;
+        sky.setHex(colors.sky);
+        fog.setHex(colors.fog);
+    }
+    
+    const timeStr = (dayTime < 0.25 ? '🌙 Noche' : dayTime < 0.5 ? '🌅 Mañana' : dayTime < 0.75 ? '☀️ Día' : '🌆 Tarde');
+    document.getElementById('biome').textContent = params.subworld.replace('_', ' ') + ' ' + timeStr;
+}
+
 function updateUI() {
     const zone = getZone(pos.x, pos.z);
     const h = getHeight(pos.x, pos.z);
@@ -718,6 +762,7 @@ function animate(time) {
     
     updateUI();
     updateMinimap();
+    updateDayNightCycle();
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
 }
