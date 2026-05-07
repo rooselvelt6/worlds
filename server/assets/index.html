@@ -150,6 +150,7 @@ let pos = { x: 50, y: 25, z: 50 };
 let yaw = 0.785;
 let pitch = 0;
 let mouseEnabled = false;
+let cameraMode = 'first';
 let keys = {};
 let lastTime = 0;
 let frameCount = 0;
@@ -456,6 +457,7 @@ function init() {
             '9': 'billow_ocean', '0': 'hybrid_dream'
         };
         if (subworldMap[e.key]) { params.subworld = subworldMap[e.key]; updateSubWorld(); regenerate(); }
+        if (e.key.toLowerCase() === 't') { cameraMode = cameraMode === 'first' ? 'third' : 'first'; }
     });
     document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
     
@@ -747,8 +749,18 @@ function animate(time) {
     const groundY = getHeight(pos.x, pos.z);
     pos.y = Math.max(groundY + 3, pos.y);
     
-    camera.position.set(pos.x, pos.y, pos.z);
-    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    // CAMERA MODE (first/third person)
+    if (cameraMode === 'third') {
+        const dist = 10;
+        const camX = pos.x - Math.sin(yaw) * dist;
+        const camZ = pos.z - Math.cos(yaw) * dist;
+        const camY = pos.y + 4;
+        camera.position.set(camX, camY, camZ);
+        camera.lookAt(pos.x, pos.y, pos.z);
+    } else {
+        camera.position.set(pos.x, pos.y, pos.z);
+        camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    }
     
     // LOAD NEARBY CHUNKS
     const cx = Math.floor(pos.x / CHUNK);
