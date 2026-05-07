@@ -213,63 +213,19 @@ let blockTextures = {
 
 let subworldMaterials = new Map();
 
-// PROCEDURAL TEXTURE GENERATOR
-function createProceduralTexture(type) {
-    const size = 64;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    const tex = blockTextures[type] || blockTextures.default;
-    
-    if (typeof tex === 'number') {
-        ctx.fillStyle = '#' + tex.toString(16).padStart(6, '0');
-        ctx.fillRect(0, 0, size, size);
-        ctx.fillStyle = 'rgba(0,0,0,0.1)';
-        for (let i = 0; i < 20; i++) {
-            ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
-        }
-    } else if (tex.top && tex.side) {
-        ctx.fillStyle = '#' + tex.side.toString(16).padStart(6, '0');
-        ctx.fillRect(0, 0, size, size);
-        for (let i = 0; i < 30; i++) {
-            ctx.fillStyle = 'rgba(0,0,0,0.15)';
-            ctx.fillRect(Math.random() * size, Math.random() * size, 3, 3);
-        }
-    } else {
-        ctx.fillStyle = '#' + (tex.color || 0x4a7c59).toString(16).padStart(6, '0');
-        ctx.fillRect(0, 0, size, size);
-    }
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    return texture;
-}
-
-// TEXTURE LOADER
-const textureLoader = new THREE.TextureLoader();
-const loadedTextures = {};
-
-function loadBlockTextures() {
-    Object.keys(blockTextures).forEach(type => {
-        loadedTextures[type] = createProceduralTexture(type);
-    });
-}
-
-function getBlockMaterial(subworld) {
-    if (subworldMaterials.has(subworld)) return subworldMaterials.get(subworld);
-    
-    const color = subworldColors[subworld] || 0x2d5a27;
-    const mat = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: 0.8,
-        metalness: 0.1
-    });
-    
-    subworldMaterials.set(subworld, mat);
-    return mat;
-}
+// DYNAMIC SKY COLORS BY SUBWORLD
+let skyColors = {
+    fractal_forest: { sky: 0x87ceeb, fog: 0xa0d8ef, ambient: 0x6699cc },
+    simplex_plains: { sky: 0x87ceeb, fog: 0xb8e0f0, ambient: 0x77aacc },
+    voronoi_city: { sky: 0x4a5568, fog: 0x2d3748, ambient: 0x4a5568 },
+    ridged_mountains: { sky: 0x64748b, fog: 0x94a3b8, ambient: 0x5c6377 },
+    crystal_cavern: { sky: 0x1e1b4b, fog: 0x2d1b5e, ambient: 0x3b2d8b },
+    mandelbrot_realm: { sky: 0x1a0a2e, fog: 0x2d1b4e, ambient: 0x4a2d7b },
+    sierpinski_temple: { sky: 0xd97706, fog: 0xfbbf24, ambient: 0xd97706 },
+    domain_warp_void: { sky: 0x0f172a, fog: 0x1e293b, ambient: 0x334155 },
+    billow_ocean: { sky: 0x0369c1, fog: 0x0ea5e9, ambient: 0x0284c7 },
+    hybrid_dream: { sky: 0x7c2d12, fog: 0xea580c, ambient: 0x9a3412 }
+};
 
 let meshes = new Map();
 
@@ -582,6 +538,18 @@ function updateSubWorld() {
     document.querySelector(`[data-subworld="${params.subworld}"]`)?.classList.add('active');
     params.formula = subworldFormulas[params.subworld] || 'fbm';
     updateFormula();
+    updateSky();
+}
+
+function updateSky() {
+    const colors = skyColors[params.subworld] || skyColors.fractal_forest;
+    if (scene) {
+        scene.background = new THREE.Color(colors.sky);
+        scene.fog.color = new THREE.Color(colors.fog);
+    }
+    if (window.ambientLight) {
+        window.ambientLight.color = new THREE.Color(colors.ambient);
+    }
 }
 
 function updateFormula() {
@@ -605,6 +573,8 @@ function regenerate() {
     console.log('Regenerating chunks...');
     meshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
     meshes.clear();
+    loadBlockTextures();
+    updateSky();
     
     const cx = Math.floor(pos.x / CHUNK);
     const cz = Math.floor(pos.z / CHUNK);
