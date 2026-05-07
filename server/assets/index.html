@@ -18,10 +18,31 @@
         .slider { -webkit-appearance: none; width: 100%; height: 6px; background: linear-gradient(to right, var(--cyan), var(--purple)); border-radius: 3px; }
         .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--cyan); cursor: pointer; box-shadow: 0 0 10px var(--cyan); }
         #game-canvas { display: block; width: 100vw; height: 100vh; }
+        #crosshair {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            pointer-events: none; z-index: 100;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(255,255,255,0.8);
+        }
+        #crosshair::before { width: 20px; height: 2px; left: -10px; top: -1px; }
+        #crosshair::after { width: 2px; height: 20px; left: -1px; top: -10px; }
+        #minimap {
+            position: fixed; bottom: 20px; right: 20px; width: 120px; height: 120px;
+            border: 2px solid var(--cyan); border-radius: 8px; z-index: 100;
+            background: rgba(0,0,0,0.5); overflow: hidden;
+        }
+        #minimap canvas { width: 100%; height: 100%; }
+        #minimap-marker {
+            position: absolute; width: 6px; height: 6px; background: red;
+            border-radius: 50%; transform: translate(-50%, -50%);
+        }
     </style>
 </head>
 <body>
     <canvas id="game-canvas"></canvas>
+    <div id="crosshair"></div>
+    <div id="minimap"><canvas id="minimap-canvas"></canvas><div id="minimap-marker"></div></div>
     
     <header class="fixed top-0 left-0 right-0 m-4 p-4 rounded-2xl panel flex justify-between items-center z-50">
         <div class="flex items-center gap-4">
@@ -362,6 +383,12 @@ function init() {
     scene.add(glow);
     window.glow = glow;
     
+    // MINIMAP SETUP
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    minimapCanvas.width = 120;
+    minimapCanvas.height = 120;
+    window.minimapCtx = minimapCanvas.getContext('2d');
+    
     // RESIZE HANDLER
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -539,6 +566,35 @@ function createChunk(cx, cz) {
     meshes.set(key, mesh);
 }
 
+function updateMinimap() {
+    const ctx = window.minimapCtx;
+    if (!ctx) return;
+    
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(0, 0, 120, 120);
+    
+    const scale = 2;
+    const range = 30;
+    const offsetX = 60 - pos.x * scale;
+    const offsetZ = 60 - pos.z * scale;
+    
+    meshes.forEach(mesh => {
+        const pos = mesh.position;
+        const mx = pos.x * scale + offsetX;
+        const mz = pos.z * scale + offsetZ;
+        if (mx > -20 && mx < 140 && mz > -20 && mz < 140) {
+            ctx.fillStyle = subworldColors[params.subworld] || '#2d5a27';
+            ctx.fillRect(mx - 8, mz - 8, 16, 16);
+        }
+    });
+    
+    const marker = document.getElementById('minimap-marker');
+    if (marker) {
+        marker.style.left = '60px';
+        marker.style.top = '60px';
+    }
+}
+
 function updateUI() {
     const zone = getZone(pos.x, pos.z);
     const h = getHeight(pos.x, pos.z);
@@ -594,6 +650,7 @@ function animate(time) {
     }
     
     updateUI();
+    updateMinimap();
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
 }
