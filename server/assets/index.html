@@ -40,14 +40,17 @@
     </header>
     
     <aside class="fixed left-4 top-32 w-20 p-2 rounded-2xl panel flex flex-col gap-2 z-40">
-        <button class="zone-btn active btn rounded-xl p-3" data-zone="forest"><i class="fas fa-tree text-2xl text-green-400"></i></button>
-        <button class="zone-btn btn rounded-xl p-3" data-zone="desert"><i class="fas fa-sun text-2xl text-yellow-400"></i></button>
-        <button class="zone-btn btn rounded-xl p-3" data-zone="tundra"><i class="fas fa-snowflake text-2xl text-blue-300"></i></button>
-        <button class="zone-btn btn rounded-xl p-3" data-zone="jungle"><i class="fas fa-leaf text-2xl text-green-600"></i></button>
-        <button class="zone-btn btn rounded-xl p-3" data-zone="ocean"><i class="fas fa-water text-2xl text-blue-500"></i></button>
-        <button class="zone-btn btn rounded-xl p-3" data-zone="volcanic"><i class="fas fa-fire text-2xl text-red-500"></i></button>
-        <button class="zone-btn btn rounded-xl p-3" data-zone="crystal"><i class="fas fa-gem text-2xl text-purple-400"></i></button>
-        <button id="btn-mouse" class="btn rounded-xl p-3 mt-2" title="Mouse Look"><i class="fas fa-mouse text-xl text-cyan-400"></i></button>
+        <button class="subworld-btn active btn rounded-xl p-2" data-subworld="fractal_forest" title="Fractal Forest"><i class="fas fa-tree text-xl text-green-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="simplex_plains" title="Simplex Plains"><i class="fas fa-seedling text-xl text-emerald-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="voronoi_city" title="Voronoi City"><i class="fas fa-building text-xl text-gray-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="ridged_mountains" title="Ridged Mountains"><i class="fas fa-mountain text-xl text-stone-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="crystal_cavern" title="Crystal Cavern"><i class="fas fa-gem text-xl text-purple-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="mandelbrot_realm" title="Mandelbrot Realm"><i class="fas fa-infinity text-xl text-pink-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="sierpinski_temple" title="Sierpinski Temple"><i class="fas fa-dungeon text-xl text-amber-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="domain_warp_void" title="Domain Warp"><i class="fas fa-ghost text-xl text-slate-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="billow_ocean" title="Billow Ocean"><i class="fas fa-water text-xl text-blue-400"></i></button>
+        <button class="subworld-btn btn rounded-xl p-2" data-subworld="hybrid_dream" title="Hybrid Dream"><i class="fas fa-dragon text-xl text-red-400"></i></button>
+        <button id="btn-mouse" class="btn rounded-xl p-2 mt-2" title="Mouse Look"><i class="fas fa-mouse text-lg text-cyan-400"></i></button>
     </aside>
     
     <aside class="fixed left-28 top-32 w-72 p-4 rounded-2xl panel z-40">
@@ -138,24 +141,44 @@ let params = {
     frequency: 0.025,
     octaves: 5,
     renderDistance: 2,
-    zone: 'forest'
+    subworld: 'fractal_forest',
+    formula: 'fbm'
 };
 
-let zoneColors = {
-    forest: 0x2d5a27,
-    plains: 0x7cb342,
-    desert: 0xd4a84b,
-    tundra: 0xc8e6f0,
-    jungle: 0x1b4d1b,
-    volcanic: 0x5c4033,
-    ocean: 0x1e6090,
-    crystal: 0x8b5cf6,
-    cave: 0x4a4a4a
+let subworldColors = {
+    fractal_forest: 0x2d5a27,
+    simplex_plains: 0x4a7c59,
+    voronoi_city: 0x6b7280,
+    ridged_mountains: 0x78716c,
+    crystal_cavern: 0x8b5cf6,
+    mandelbrot_realm: 0xdb2777,
+    sierpinski_temple: 0xd97706,
+    domain_warp_void: 0x475569,
+    billow_ocean: 0x0284c7,
+    hybrid_dream: 0xdc2626
+};
+
+let subworldFormulas = {
+    fractal_forest: 'fbm',
+    simplex_plains: 'simplex',
+    voronoi_city: 'voronoi',
+    ridged_mountains: 'ridgedmf',
+    crystal_cavern: 'simplex',
+    mandelbrot_realm: 'mandelbrot',
+    sierpinski_temple: 'sierpinski',
+    domain_warp_void: 'domainwarp',
+    billow_ocean: 'billow',
+    hybrid_dream: 'hybrid'
 };
 
 let meshes = new Map();
 
-// NOISE FUNCTIONS
+// FORMULA FUNCTIONS
+function hash2d(x, z, seed) {
+    let n = Math.sin(x * 127.42 + z * 313.37 + seed) * 43758.5453;
+    return { x: (n - Math.floor(n)), y: (n * 1.3 - Math.floor(n * 1.3)) };
+}
+
 function noise(x, z, seed) {
     let n = Math.sin(x * 12.9898 + z * 78.233 + seed) * 43758.5453;
     return (n - Math.floor(n)) * 2 - 1;
@@ -170,32 +193,131 @@ function fbm(x, z, oct, seed) {
     return m > 0 ? v / m : 0;
 }
 
+function simplex(x, z, seed) {
+    return fbm(x, z, 4, seed);
+}
+
+function voronoi(x, z) {
+    let ix = Math.floor(x);
+    let iz = Math.floor(z);
+    let minDist = Infinity;
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+            let cx = ix + dx;
+            let cz = iz + dz;
+            let h = hash2d(cx, cz, params.seed);
+            let cellX = cx + h.x;
+            let cellZ = cz + h.y;
+            let dist = Math.sqrt((x - cellX) ** 2 + (z - cellZ) ** 2);
+            minDist = Math.min(minDist, dist);
+        }
+    }
+    return minDist;
+}
+
+function mandelbrot(cx, cy) {
+    let x0 = cx * 2.5 - 2.0;
+    let y0 = cy * 2.0 - 1.0;
+    let x = 0, y = 0, iter = 0;
+    let maxIter = 8;
+    while (x * x + y * y <= 4 && iter < maxIter) {
+        let xtemp = x * x - y * y + x0;
+        y = 2 * x * y + y0;
+        x = xtemp;
+        iter++;
+    }
+    return iter / maxIter;
+}
+
+function sierpinski(x, z) {
+    let px = Math.abs(x) | 0;
+    let pz = Math.abs(z) | 0;
+    let count = 0;
+    while ((px | pz) !== 0) {
+        if ((px & 1) === 1 && (pz & 1) === 1) count++;
+        px >>= 1;
+        pz >>= 1;
+    }
+    return count % 2 === 0 ? 0 : 1;
+}
+
+function billow(x, z, seed) {
+    return Math.abs(fbm(x, z, 4, seed));
+}
+
+function ridgedmf(x, z, seed) {
+    let v = 0, a = 1, f = 1, prev = 1, m = 0;
+    for (let i = 0; i < 4; i++) {
+        let n = 1 - Math.abs(noise(x * f, z * f, seed + i * 100));
+        let ridge = n * n;
+        v += ridge * a * prev;
+        prev = ridge;
+        m += a;
+        a *= 0.5;
+        f *= 2;
+    }
+    return v / m;
+}
+
+function domainWarp(x, z, seed) {
+    let warpX = x + fbm(x + 10, z, 3, seed) * 2;
+    let warpZ = z + fbm(x, z + 10, 3, seed) * 2;
+    return fbm(warpX, warpZ, 4, seed);
+}
+
+function hybrid(x, z, seed) {
+    let f = fbm(x, z, 4, seed);
+    let r = ridgedmf(x * 1.5, z * 1.5, seed);
+    let v = voronoi(x * 0.5, z * 0.5);
+    return (f + r + v) / 3;
+}
+
+function calculate(x, z, formula) {
+    switch (formula) {
+        case 'fbm': return fbm(x, z, params.octaves, params.seed);
+        case 'simplex': return simplex(x, z, params.seed);
+        case 'voronoi': return voronoi(x, z);
+        case 'ridgedmf': return ridgedmf(x, z, params.seed);
+        case 'mandelbrot': return mandelbrot(x * 0.3, z * 0.3);
+        case 'sierpinski': return sierpinski(x, z);
+        case 'domainwarp': return domainWarp(x, z, params.seed);
+        case 'billow': return billow(x, z, params.seed);
+        case 'hybrid': return hybrid(x, z, params.seed);
+        default: return fbm(x, z, params.octaves, params.seed);
+    }
+}
+
 function getHeight(x, z) {
-    const base = fbm(x * params.frequency, z * params.frequency, params.octaves, params.seed);
-    const ridges = (1 - Math.abs(noise(x * 0.04, z * 0.04, params.seed))) * 0.3;
-    let h = base * (1 + ridges) * params.amplitude + params.waterLevel;
+    const formula = subworldFormulas[params.subworld] || 'fbm';
+    const base = calculate(x * params.frequency, z * params.frequency, formula);
+    let h;
+    
+    switch (params.subworld) {
+        case 'mandelbrot_realm': h = base * params.amplitude * 0.3; break;
+        case 'sierpinski_temple': h = base * params.amplitude * 2.0; break;
+        case 'voronoi_city': h = base * params.amplitude * 0.8 + params.waterLevel; break;
+        case 'crystal_cavern': h = base * params.amplitude + params.waterLevel; break;
+        case 'ridged_mountains':
+            h = ridgedmf(x * params.frequency, z * params.frequency, params.seed) * params.amplitude + params.waterLevel;
+            break;
+        case 'domain_warp_void':
+            h = domainWarp(x * params.frequency, z * params.frequency, params.seed) * params.amplitude;
+            break;
+        case 'billow_ocean':
+            h = billow(x * params.frequency, z * params.frequency, params.seed) * params.amplitude * 0.8;
+            break;
+        case 'hybrid_dream':
+            h = hybrid(x * params.frequency, z * params.frequency, params.seed) * params.amplitude;
+            break;
+        default: h = base * params.amplitude + params.waterLevel;
+    }
+    
     h = Math.max(0, h);
-    
-    if (params.zone === 'ocean') h += params.waterLevel;
-    if (params.zone === 'volcanic') h = h * 1.5 + 2;
-    if (params.zone === 'crystal') h = h * 0.5;
-    if (params.zone === 'desert') h = h * 1.2 + 1;
-    if (params.zone === 'tundra') h = h * 0.7;
-    if (params.zone === 'jungle') h = h * 1.3;
-    
     return h;
 }
 
 function getZone(x, z) {
-    if (params.zone !== 'forest') return params.zone;
-    const t = fbm(x * 0.008, z * 0.008, 2, 333);
-    const h = fbm(x * 0.008 + 50, z * 0.008, 2, 444);
-    if (t < -0.35) return 'tundra';
-    if (t > 0.45) return h < -0.25 ? 'desert' : 'volcanic';
-    if (h > 0.45) return 'jungle';
-    if (h < -0.35) return 'plains';
-    if (h < 0) return 'ocean';
-    return 'forest';
+    return params.subworld;
 }
 
 // THREE.JS RENDERING
@@ -252,8 +374,12 @@ function init() {
         keys[e.key.toLowerCase()] = true;
         if (e.key.toLowerCase() === 'r') regenerate();
         
-        const map = { '1': 'forest', '2': 'desert', '3': 'tundra', '4': 'jungle', '5': 'ocean', '6': 'volcanic', '7': 'crystal' };
-        if (map[e.key]) { params.zone = map[e.key]; updateZones(); regenerate(); }
+        const subworldMap = {
+            '1': 'fractal_forest', '2': 'simplex_plains', '3': 'voronoi_city', '4': 'ridged_mountains',
+            '5': 'crystal_cavern', '6': 'mandelbrot_realm', '7': 'sierpinski_temple', '8': 'domain_warp_void',
+            '9': 'billow_ocean', '0': 'hybrid_dream'
+        };
+        if (subworldMap[e.key]) { params.subworld = subworldMap[e.key]; updateSubWorld(); regenerate(); }
     });
     document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
     
@@ -288,11 +414,11 @@ function init() {
     bind('btn-q', 'q'); bind('btn-e', 'e');
     document.getElementById('btn-regen').onclick = () => regenerate();
     
-    // ZONE BUTTONS
-    document.querySelectorAll('.zone-btn').forEach(btn => {
+    // SUBWORLD BUTTONS
+    document.querySelectorAll('.subworld-btn').forEach(btn => {
         btn.onclick = () => {
-            params.zone = btn.dataset.zone;
-            updateZones();
+            params.subworld = btn.dataset.subworld;
+            updateSubWorld();
             regenerate();
         };
     });
@@ -333,25 +459,28 @@ function init() {
     animate();
 }
 
-function updateZones() {
-    document.querySelectorAll('.zone-btn').forEach(b => b.classList.remove('active'));
-    document.querySelector(`[data-zone="${params.zone}"]`)?.classList.add('active');
+function updateSubWorld() {
+    document.querySelectorAll('.subworld-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`[data-subworld="${params.subworld}"]`)?.classList.add('active');
+    params.formula = subworldFormulas[params.subworld] || 'fbm';
     updateFormula();
 }
 
 function updateFormula() {
-    const zoneEffects = {
-        forest: '',
-        desert: ' * 1.2 + 1',
-        tundra: ' * 0.7',
-        jungle: ' * 1.3',
-        ocean: ' + water',
-        volcanic: ' * 1.5 + 2',
-        crystal: ' * 0.5'
+    const formulas = {
+        fbm: 'FBM',
+        simplex: 'Simplex',
+        voronoi: 'Voronoi',
+        ridgedmf: 'RidgedMF',
+        mandelbrot: 'Mandelbrot',
+        sierpinski: 'Sierpinski',
+        domainwarp: 'DomainWarp',
+        billow: 'Billow',
+        hybrid: 'Hybrid'
     };
-    const effect = zoneEffects[params.zone] || '';
+    const f = formulas[params.formula] || 'FBM';
     document.getElementById('formula').textContent = 
-        `h = fbm(x*${params.frequency.toFixed(3)}, z*${params.frequency.toFixed(3)}, ${params.octaves}) * ${params.amplitude}${effect} + ${params.waterLevel}`;
+        `h = ${f}(x*${params.frequency.toFixed(3)}, z*${params.frequency.toFixed(3)}) * ${params.amplitude} + ${params.waterLevel}`;
 }
 
 function regenerate() {
@@ -390,8 +519,8 @@ function createChunk(cx, cz) {
         const h = getHeight(wx, wz);
         posArr[i + 2] = h;
         
-        const zone = getZone(wx, wz);
-        const c = zoneColors[zone] || 0x2d5a27;
+        const subworld = getZone(wx, wz);
+        const c = subworldColors[subworld] || 0x2d5a27;
         cols[i] = ((c >> 16) & 255) / 255;
         cols[i + 1] = ((c >> 8) & 255) / 255;
         cols[i + 2] = (c & 255) / 255;

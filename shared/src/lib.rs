@@ -1,12 +1,128 @@
 use serde::{Deserialize, Serialize};
 use noise::{NoiseFn, Perlin, Simplex};
 use std::collections::HashMap;
+use std::f64::consts::PI;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum FormulaType {
+    FBM,
+    Perlin,
+    Simplex,
+    Voronoi,
+    Mandelbrot,
+    Sierpinski,
+    Billow,
+    RidgedMF,
+    DomainWarp,
+    Hybrid,
+}
+
+impl FormulaType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            FormulaType::FBM => "FBM",
+            FormulaType::Perlin => "Perlin",
+            FormulaType::Simplex => "Simplex",
+            FormulaType::Voronoi => "Voronoi",
+            FormulaType::Mandelbrot => "Mandelbrot",
+            FormulaType::Sierpinski => "Sierpinski",
+            FormulaType::Billow => "Billow",
+            FormulaType::RidgedMF => "RidgedMF",
+            FormulaType::DomainWarp => "DomainWarp",
+            FormulaType::Hybrid => "Hybrid",
+        }
+    }
+    
+    pub fn all() -> Vec<FormulaType> {
+        vec![
+            FormulaType::FBM,
+            FormulaType::Perlin,
+            FormulaType::Simplex,
+            FormulaType::Voronoi,
+            FormulaType::Mandelbrot,
+            FormulaType::Sierpinski,
+            FormulaType::Billow,
+            FormulaType::RidgedMF,
+            FormulaType::DomainWarp,
+            FormulaType::Hybrid,
+        ]
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum SubWorldKind {
-    Cave,
-    Lagoon,
+    FractalForest,
     CrystalCavern,
+    VoronoiCity,
+    MandelbrotRealm,
+    SierpinskiTemple,
+    SimplexPlains,
+    RidgedMountains,
+    DomainWarpVoid,
+    BillowOcean,
+    HybridDream,
+}
+
+impl SubWorldKind {
+    pub fn formula(&self) -> FormulaType {
+        match self {
+            SubWorldKind::FractalForest => FormulaType::FBM,
+            SubWorldKind::CrystalCavern => FormulaType::Simplex,
+            SubWorldKind::VoronoiCity => FormulaType::Voronoi,
+            SubWorldKind::MandelbrotRealm => FormulaType::Mandelbrot,
+            SubWorldKind::SierpinskiTemple => FormulaType::Sierpinski,
+            SubWorldKind::SimplexPlains => FormulaType::Simplex,
+            SubWorldKind::RidgedMountains => FormulaType::RidgedMF,
+            SubWorldKind::DomainWarpVoid => FormulaType::DomainWarp,
+            SubWorldKind::BillowOcean => FormulaType::Billow,
+            SubWorldKind::HybridDream => FormulaType::Hybrid,
+        }
+    }
+    
+    pub fn name(&self) -> &'static str {
+        match self {
+            SubWorldKind::FractalForest => "Fractal Forest",
+            SubWorldKind::CrystalCavern => "Crystal Cavern",
+            SubWorldKind::VoronoiCity => "Voronoi City",
+            SubWorldKind::MandelbrotRealm => "Mandelbrot Realm",
+            SubWorldKind::SierpinskiTemple => "Sierpinski Temple",
+            SubWorldKind::SimplexPlains => "Simplex Plains",
+            SubWorldKind::RidgedMountains => "Ridged Mountains",
+            SubWorldKind::DomainWarpVoid => "Domain Warp Void",
+            SubWorldKind::BillowOcean => "Billow Ocean",
+            SubWorldKind::HybridDream => "Hybrid Dream",
+        }
+    }
+    
+    pub fn description(&self) -> &'static str {
+        match self {
+            SubWorldKind::FractalForest => "Fractal Brownian Motion terrain",
+            SubWorldKind::CrystalCavern => "Simplex noise crystal caves",
+            SubWorldKind::VoronoiCity => "Cellular Voronoi structures",
+            SubWorldKind::MandelbrotRealm => "Mandelbrot set fractals",
+            SubWorldKind::SierpinskiTemple => "Sierpinski triangle fractals",
+            SubWorldKind::SimplexPlains => "Smooth Simplex noise plains",
+            SubWorldKind::RidgedMountains => "Ridged multifractal mountains",
+            SubWorldKind::DomainWarpVoid => "Domain warped void dimension",
+            SubWorldKind::BillowOcean => "Billow noise ocean floor",
+            SubWorldKind::HybridDream => "Hybrid fractal terrain",
+        }
+    }
+    
+    pub fn all() -> Vec<SubWorldKind> {
+        vec![
+            SubWorldKind::FractalForest,
+            SubWorldKind::CrystalCavern,
+            SubWorldKind::VoronoiCity,
+            SubWorldKind::MandelbrotRealm,
+            SubWorldKind::SierpinskiTemple,
+            SubWorldKind::SimplexPlains,
+            SubWorldKind::RidgedMountains,
+            SubWorldKind::DomainWarpVoid,
+            SubWorldKind::BillowOcean,
+            SubWorldKind::HybridDream,
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -202,7 +318,112 @@ impl WorldGenerator {
     pub fn get_seed(&self) -> u32 {
         self.seed
     }
-
+    
+    // ALL FORMULA TYPES
+    pub fn calculate(&self, x: f64, z: f64, formula: FormulaType, seed: u32) -> f64 {
+        match formula {
+            FormulaType::FBM => self.fbm(x, z, 0.0, 6, 0.5),
+            FormulaType::Perlin => self.perlin.get([x, z, seed as f64]),
+            FormulaType::Simplex => self.simplex.get([x, z, seed as f64]),
+            FormulaType::Voronoi => self.voronoi(x, z),
+            FormulaType::Mandelbrot => self.mandelbrot(x, z, 4.0),
+            FormulaType::Sierpinski => self.sierpinski(x as i32, z as i32),
+            FormulaType::Billow => self.billow(x, z, 0.0, 4),
+            FormulaType::RidgedMF => self.ridged_fbm(x, z, 0.0, 6),
+            FormulaType::DomainWarp => self.domain_warp(x, z),
+            FormulaType::Hybrid => self.hybrid(x, z),
+        }
+    }
+    
+    fn voronoi(&self, x: f64, z: f64) -> f64 {
+        let ix = x.floor() as i32;
+        let iz = z.floor() as i32;
+        let mut min_dist = f64::MAX;
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                let cx = ix + dx;
+                let cz = iz + dz;
+                let hash = self.hash2d(cx, cz, self.seed);
+                let cell_x = cx as f64 + hash.0;
+                let cell_z = cz as f64 + hash.1;
+                let dist = ((x - cell_x).powi(2) + (z - cell_z).powi(2)).sqrt();
+                min_dist = min_dist.min(dist);
+            }
+        }
+        min_dist
+    }
+    
+    fn hash2d(&self, x: i32, z: i32, seed: u32) -> (f64, f64) {
+        let ix = x as i64;
+        let iz = z as i64;
+        let iseed = seed as i64;
+        let n = (ix.wrapping_mul(12742).wrapping_mul(iz.wrapping_mul(31337)).wrapping_add(iseed)) as f64;
+        let n = n.sin() * 43758.5453;
+        let fract = n - n.floor();
+        (fract, (n * 1.3).fract())
+    }
+    
+    fn mandelbrot(&self, cx: f64, cy: f64, max_iter: f64) -> f64 {
+        let x0 = cx * 2.5 - 2.0;
+        let y0 = cy * 2.0 - 1.0;
+        let mut x = 0.0;
+        let mut y = 0.0;
+        let mut iter = 0.0;
+        while x * x + y * y <= 4.0 && iter < max_iter {
+            let xtemp = x * x - y * y + x0;
+            y = 2.0 * x * y + y0;
+            x = xtemp;
+            iter += 1.0;
+        }
+        iter / max_iter
+    }
+    
+    fn sierpinski(&self, x: i32, z: i32) -> f64 {
+        let mut px = x as u32;
+        let mut pz = z as u32;
+        let mut count = 0;
+        while (px | pz) != 0 {
+            if (px & 1) == 1 && (pz & 1) == 1 {
+                count += 1;
+            }
+            px >>= 1;
+            pz >>= 1;
+        }
+        if count % 2 == 0 { 0.0 } else { 1.0 }
+    }
+    
+    fn billow(&self, x: f64, y: f64, z: f64, octaves: u8) -> f64 {
+        let val = self.fbm(x, y, z, octaves, 0.5);
+        if val >= 0.0 { val } else { -val }
+    }
+    
+    fn domain_warp(&self, x: f64, y: f64) -> f64 {
+        let warp_x = x + self.fbm(x + 10.0, y, 0.0, 3, 0.5) * 2.0;
+        let warp_y = y + self.fbm(x, y + 10.0, 0.0, 3, 0.5) * 2.0;
+        self.fbm(warp_x, warp_y, 0.0, 4, 0.5)
+    }
+    
+    fn hybrid(&self, x: f64, y: f64) -> f64 {
+        let f = self.fbm(x, y, 0.0, 4, 0.5);
+        let r = self.ridged_fbm(x * 1.5, y * 1.5, 0.0, 4);
+        let v = self.voronoi(x * 0.5, y * 0.5);
+        (f + r + v) / 3.0
+    }
+    
+    pub fn get_height_formula(&self, wx: f64, wz: f64, params: &WorldParams, formula: FormulaType) -> f64 {
+        let nx = wx * params.scale;
+        let nz = wz * params.scale;
+        
+        let base = self.calculate(nx, nz, formula, self.seed);
+        
+        match formula {
+            FormulaType::Mandelbrot => base * params.amplitude * 0.3,
+            FormulaType::Sierpinski => base * params.amplitude * 2.0,
+            FormulaType::Voronoi => base * params.amplitude * 0.8 + params.water_level,
+            _ => base * params.amplitude + params.water_level,
+        }.max(0.0)
+    }
+    
     fn fbm(&self, x: f64, y: f64, z: f64, octaves: u8, persistence: f64) -> f64 {
         let mut total = 0.0;
         let mut frequency = 1.0;
@@ -244,15 +465,12 @@ impl WorldGenerator {
     }
 
     pub fn get_height(&self, wx: f64, wz: f64, params: &WorldParams) -> f64 {
-        let nx = wx * params.scale;
-        let nz = wz * params.scale;
-        
-        let base = self.fbm(nx, nz, 0.0, params.octaves as u8, 0.5);
-        let detail = self.fbm(nx * 4.0, nz * 4.0, 50.0, 3, 0.4) * 0.3;
-        let ridges = self.ridged_fbm(nx * params.mountain_scale, nz * params.mountain_scale, 0.0, 4) * params.amplitude * 0.5;
-        
-        let height = (base + detail) * params.amplitude + ridges;
-        height.max(0.0)
+        let formula = FormulaType::FBM;
+        self.get_height_formula(wx, wz, params, formula)
+    }
+    
+    pub fn get_height_with_formula(&self, wx: f64, wz: f64, params: &WorldParams, formula: FormulaType) -> f64 {
+        self.get_height_formula(wx, wz, params, formula)
     }
     
     pub fn get_height_simple(&self, wx: i32, wz: i32, chunk_y: i32) -> f64 {
