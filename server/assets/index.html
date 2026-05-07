@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WORLDS - Motor 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        :root { --bg: #0a0e14; --cyan: #22d3ee; --purple: #a855f7; }
+        body { font-family: 'Outfit', sans-serif; background: var(--bg); margin: 0; overflow: hidden; color: white; }
+        .panel { background: rgba(15,19,25,0.95); border: 1px solid #1e293b; backdrop-filter: blur(16px); }
+        .btn { background: #1e293b; border: 1px solid #334155; transition: all 0.2s; }
+        .btn:hover { background: #0891b2; border-color: #22d3ee; }
+        .btn.active { background: #0891b2; border-color: #22d3ee; box-shadow: 0 0 15px #22d3ee; }
+        .slider { -webkit-appearance: none; width: 100%; height: 6px; background: linear-gradient(to right, var(--cyan), var(--purple)); border-radius: 3px; }
+        .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--cyan); cursor: pointer; box-shadow: 0 0 10px var(--cyan); }
+        #game-canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <canvas id="game-canvas"></canvas>
+    
+    <header class="fixed top-0 left-0 right-0 m-4 p-4 rounded-2xl panel flex justify-between items-center z-50">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center">
+                <i class="fas fa-globe text-white text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-2xl font-bold text-cyan-400">WORLDS</h1>
+                <p class="text-xs text-slate-500">Motor 3D Generativo</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <div id="biome" class="px-4 py-2 rounded-lg bg-emerald-900/50 text-emerald-400 font-mono">forest</div>
+            <div id="height" class="px-2 py-1 rounded bg-slate-800 text-cyan-400">15m</div>
+        </div>
+    </header>
+    
+    <aside class="fixed left-4 top-32 w-20 p-2 rounded-2xl panel flex flex-col gap-2 z-40">
+        <button class="zone-btn active btn rounded-xl p-3" data-zone="forest"><i class="fas fa-tree text-2xl text-green-400"></i></button>
+        <button class="zone-btn btn rounded-xl p-3" data-zone="desert"><i class="fas fa-sun text-2xl text-yellow-400"></i></button>
+        <button class="zone-btn btn rounded-xl p-3" data-zone="tundra"><i class="fas fa-snowflake text-2xl text-blue-300"></i></button>
+        <button class="zone-btn btn rounded-xl p-3" data-zone="jungle"><i class="fas fa-leaf text-2xl text-green-600"></i></button>
+        <button class="zone-btn btn rounded-xl p-3" data-zone="ocean"><i class="fas fa-water text-2xl text-blue-500"></i></button>
+        <button class="zone-btn btn rounded-xl p-3" data-zone="volcanic"><i class="fas fa-fire text-2xl text-red-500"></i></button>
+        <button class="zone-btn btn rounded-xl p-3" data-zone="crystal"><i class="fas fa-gem text-2xl text-purple-400"></i></button>
+        <button id="btn-mouse" class="btn rounded-xl p-3 mt-2" title="Mouse Look"><i class="fas fa-mouse text-xl text-cyan-400"></i></button>
+    </aside>
+    
+    <aside class="fixed left-28 top-32 w-72 p-4 rounded-2xl panel z-40">
+        <h2 class="font-semibold text-lg mb-4"><i class="fas fa-compass text-cyan-400 mr-2"></i>Navegación</h2>
+        
+        <div class="grid grid-cols-3 gap-2 mb-4">
+            <div></div>
+            <button id="btn-w" class="btn rounded-lg py-3 font-mono">W</button>
+            <div></div>
+            <button id="btn-a" class="btn rounded-lg py-3 font-mono">A</button>
+            <button id="btn-s" class="btn rounded-lg py-3 font-mono">S</button>
+            <button id="btn-d" class="btn rounded-lg py-3 font-mono">D</button>
+        </div>
+        
+        <div class="flex gap-2 mb-4">
+            <button id="btn-up" class="btn flex-1 rounded-lg py-2 text-xs">ESPACIO ↑</button>
+            <button id="btn-down" class="btn flex-1 rounded-lg py-2 text-xs">SHIFT ↓</button>
+        </div>
+        
+        <div class="flex gap-2 mb-4">
+            <button id="btn-q" class="btn flex-1 rounded-lg py-2 text-xs">Q ↺</button>
+            <button id="btn-e" class="btn flex-1 rounded-lg py-2 text-xs">E ↻</button>
+        </div>
+        
+        <button id="btn-regen" class="btn w-full rounded-lg py-2 text-sm bg-gradient-to-r from-purple-600 to-pink-600">REGENERAR</button>
+        
+        <div class="mt-4 text-sm space-y-2">
+            <div class="flex justify-between"><span class="text-slate-400">Posición</span><span id="position" class="text-cyan-400">50, 25, 50</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Chunk</span><span id="chunk" class="text-cyan-400">2, 2</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">FPS</span><span id="fps" class="text-emerald-400">60</span></div>
+        </div>
+    </aside>
+    
+    <aside class="fixed right-4 top-32 w-72 p-4 rounded-2xl panel z-40">
+        <h2 class="font-semibold text-lg mb-4"><i class="fas fa-sliders-h text-cyan-400 mr-2"></i>Parámetros</h2>
+        
+        <div class="space-y-4 text-sm">
+            <div>
+                <div class="flex justify-between mb-1"><span class="text-slate-400">Seed</span><span id="seed-val" class="text-cyan-400">42</span></div>
+                <input type="range" id="seed-slider" min="1" max="9999" value="42" class="slider">
+            </div>
+            <div>
+                <div class="flex justify-between mb-1"><span class="text-slate-400">Altura</span><span id="amp-val" class="text-cyan-400">18</span></div>
+                <input type="range" id="amp-slider" min="5" max="50" value="18" class="slider">
+            </div>
+            <div>
+                <div class="flex justify-between mb-1"><span class="text-slate-400">Agua</span><span id="water-val" class="text-cyan-400">6</span></div>
+                <input type="range" id="water-slider" min="0" max="20" value="6" class="slider">
+            </div>
+            <div>
+                <div class="flex justify-between mb-1"><span class="text-slate-400">Frecuencia</span><span id="freq-val" class="text-cyan-400">25</span></div>
+                <input type="range" id="freq-slider" min="5" max="100" value="25" class="slider">
+            </div>
+            <div>
+                <div class="flex justify-between mb-1"><span class="text-slate-400">Detalle</span><span id="octaves-val" class="text-cyan-400">5</span></div>
+                <input type="range" id="octaves-slider" min="1" max="8" value="5" class="slider">
+            </div>
+            <div class="mt-4 p-2 rounded bg-slate-800">
+                <div class="text-xs text-slate-500 mb-1">Fórmula</div>
+                <div id="formula" class="text-xs font-mono text-cyan-400">h = fbm(x*0.025, z*0.025) * 18 + 6</div>
+            </div>
+        </div>
+    </aside>
+    
+    <div class="fixed bottom-4 left-4 right-4 p-3 rounded-xl panel z-40 flex justify-center gap-4 text-sm">
+        <span class="text-slate-400"><kbd class="bg-slate-700 px-2 py-1 rounded">WASD</kbd> Mover</span>
+        <span class="text-slate-400"><kbd class="bg-slate-700 px-2 py-1 rounded">Q/E</kbd> Girar</span>
+        <span class="text-cyan-400"><kbd class="bg-cyan-700 px-2 py-1 rounded">R</kbd> Regenerar</span>
+    </div>
+
+<script>
+// === WORLD 3D ENGINE ===
+const CHUNK = 24;
+let scene, camera, renderer;
+let pos = { x: 50, y: 25, z: 50 };
+let yaw = 0.785;
+let pitch = 0;
+let mouseEnabled = false;
+let keys = {};
+let lastTime = 0;
+let frameCount = 0;
+let fpsTime = 0;
+
+let params = {
+    seed: 42,
+    amplitude: 18,
+    waterLevel: 6,
+    frequency: 0.025,
+    octaves: 5,
+    renderDistance: 2,
+    zone: 'forest'
+};
+
+let zoneColors = {
+    forest: 0x2d5a27,
+    plains: 0x7cb342,
+    desert: 0xd4a84b,
+    tundra: 0xc8e6f0,
+    jungle: 0x1b4d1b,
+    volcanic: 0x5c4033,
+    ocean: 0x1e6090,
+    crystal: 0x8b5cf6,
+    cave: 0x4a4a4a
+};
+
+let meshes = new Map();
+
+// NOISE FUNCTIONS
+function noise(x, z, seed) {
+    let n = Math.sin(x * 12.9898 + z * 78.233 + seed) * 43758.5453;
+    return (n - Math.floor(n)) * 2 - 1;
+}
+
+function fbm(x, z, oct, seed) {
+    let v = 0, a = 1, f = 1, m = 0;
+    for (let i = 0; i < oct; i++) {
+        v += noise(x * f, z * f, seed + i * 100) * a;
+        m += a; a *= 0.5; f *= 2;
+    }
+    return m > 0 ? v / m : 0;
+}
+
+function getHeight(x, z) {
+    const base = fbm(x * params.frequency, z * params.frequency, params.octaves, params.seed);
+    const ridges = (1 - Math.abs(noise(x * 0.04, z * 0.04, params.seed))) * 0.3;
+    let h = base * (1 + ridges) * params.amplitude + params.waterLevel;
+    h = Math.max(0, h);
+    
+    if (params.zone === 'ocean') h += params.waterLevel;
+    if (params.zone === 'volcanic') h = h * 1.5 + 2;
+    if (params.zone === 'crystal') h = h * 0.5;
+    if (params.zone === 'desert') h = h * 1.2 + 1;
+    if (params.zone === 'tundra') h = h * 0.7;
+    if (params.zone === 'jungle') h = h * 1.3;
+    
+    return h;
+}
+
+function getZone(x, z) {
+    if (params.zone !== 'forest') return params.zone;
+    const t = fbm(x * 0.008, z * 0.008, 2, 333);
+    const h = fbm(x * 0.008 + 50, z * 0.008, 2, 444);
+    if (t < -0.35) return 'tundra';
+    if (t > 0.45) return h < -0.25 ? 'desert' : 'volcanic';
+    if (h > 0.45) return 'jungle';
+    if (h < -0.35) return 'plains';
+    if (h < 0) return 'ocean';
+    return 'forest';
+}
+
+// THREE.JS RENDERING
+function init() {
+    console.log('Initializing 3D Engine...');
+    
+    const canvas = document.getElementById('game-canvas');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog = new THREE.Fog(0x87ceeb, 20, 120);
+    
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 300);
+    camera.position.set(pos.x, pos.y + 5, pos.z);
+    
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x87ceeb);
+    
+    // LIGHTS
+    const ambient = new THREE.AmbientLight(0x6699cc, 0.6);
+    scene.add(ambient);
+    
+    const sun = new THREE.DirectionalLight(0xffffdd, 1.0);
+    sun.position.set(50, 80, 30);
+    scene.add(sun);
+    
+    // AVATAR
+    const avatar = new THREE.Mesh(
+        new THREE.SphereGeometry(0.8, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.9 })
+    );
+    scene.add(avatar);
+    window.avatar = avatar;
+    
+    const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(1.2, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.3 })
+    );
+    scene.add(glow);
+    window.glow = glow;
+    
+    // RESIZE HANDLER
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+    
+    // CONTROLS
+    document.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if (e.key.toLowerCase() === 'r') regenerate();
+        
+        const map = { '1': 'forest', '2': 'desert', '3': 'tundra', '4': 'jungle', '5': 'ocean', '6': 'volcanic', '7': 'crystal' };
+        if (map[e.key]) { params.zone = map[e.key]; updateZones(); regenerate(); }
+    });
+    document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+    
+    // MOUSE LOOK
+    document.getElementById('game-canvas').addEventListener('click', () => document.getElementById('game-canvas').requestPointerLock?.());
+    document.addEventListener('pointerlockchange', () => {
+        mouseEnabled = document.pointerLockElement !== null;
+        document.getElementById('btn-mouse').classList.toggle('active', mouseEnabled);
+    });
+    document.addEventListener('mousemove', e => {
+        if (mouseEnabled) {
+            yaw -= e.movementX * 0.003;
+            pitch = Math.max(-0.8, Math.min(0.8, pitch - e.movementY * 0.003));
+        }
+    });
+    document.getElementById('btn-mouse').onclick = () => {
+        if (mouseEnabled) document.exitPointerLock?.();
+        else document.getElementById('game-canvas').requestPointerLock?.();
+    };
+    
+    // BUTTONS
+    const bind = (id, key) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.onmousedown = () => keys[key] = true;
+            btn.onmouseup = () => keys[key] = false;
+            btn.onmouseleave = () => keys[key] = false;
+        }
+    };
+    bind('btn-w', 'w'); bind('btn-a', 'a'); bind('btn-s', 's'); bind('btn-d', 'd');
+    bind('btn-up', ' '); bind('btn-down', 'shift');
+    bind('btn-q', 'q'); bind('btn-e', 'e');
+    document.getElementById('btn-regen').onclick = () => regenerate();
+    
+    // ZONE BUTTONS
+    document.querySelectorAll('.zone-btn').forEach(btn => {
+        btn.onclick = () => {
+            params.zone = btn.dataset.zone;
+            updateZones();
+            regenerate();
+        };
+    });
+    
+    // SLIDERS
+    document.getElementById('seed-slider').oninput = () => {
+        params.seed = parseInt(document.getElementById('seed-slider').value);
+        document.getElementById('seed-val').textContent = params.seed;
+        regenerate();
+    };
+    document.getElementById('amp-slider').oninput = () => {
+        params.amplitude = parseInt(document.getElementById('amp-slider').value);
+        document.getElementById('amp-val').textContent = params.amplitude;
+        regenerate();
+    };
+    document.getElementById('water-slider').oninput = () => {
+        params.waterLevel = parseInt(document.getElementById('water-slider').value);
+        document.getElementById('water-val').textContent = params.waterLevel;
+        updateFormula();
+        regenerate();
+    };
+    document.getElementById('freq-slider').oninput = () => {
+        params.frequency = parseInt(document.getElementById('freq-slider').value) / 1000;
+        document.getElementById('freq-val').textContent = document.getElementById('freq-slider').value;
+        updateFormula();
+        regenerate();
+    };
+    document.getElementById('octaves-slider').oninput = () => {
+        params.octaves = parseInt(document.getElementById('octaves-slider').value);
+        document.getElementById('octaves-val').textContent = params.octaves;
+        updateFormula();
+        regenerate();
+    };
+    
+    console.log('Generating terrain...');
+    updateFormula();
+    regenerate();
+    animate();
+}
+
+function updateZones() {
+    document.querySelectorAll('.zone-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`[data-zone="${params.zone}"]`)?.classList.add('active');
+    updateFormula();
+}
+
+function updateFormula() {
+    const zoneEffects = {
+        forest: '',
+        desert: ' * 1.2 + 1',
+        tundra: ' * 0.7',
+        jungle: ' * 1.3',
+        ocean: ' + water',
+        volcanic: ' * 1.5 + 2',
+        crystal: ' * 0.5'
+    };
+    const effect = zoneEffects[params.zone] || '';
+    document.getElementById('formula').textContent = 
+        `h = fbm(x*${params.frequency.toFixed(3)}, z*${params.frequency.toFixed(3)}, ${params.octaves}) * ${params.amplitude}${effect} + ${params.waterLevel}`;
+}
+
+function regenerate() {
+    console.log('Regenerating chunks...');
+    meshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+    meshes.clear();
+    
+    const cx = Math.floor(pos.x / CHUNK);
+    const cz = Math.floor(pos.z / CHUNK);
+    const d = params.renderDistance;
+    
+    for (let x = cx - d; x <= cx + d; x++) {
+        for (let z = cz - d; z <= cz + d; z++) {
+            createChunk(x, z);
+        }
+    }
+    
+    console.log(`Generated ${meshes.size} chunks`);
+}
+
+function createChunk(cx, cz) {
+    const key = cx + ',' + cz;
+    if (meshes.has(key)) return;
+    
+    const res = 16;
+    const geo = new THREE.PlaneGeometry(CHUNK, CHUNK, res, res);
+    const posArr = geo.attributes.position.array;
+    const cols = new Float32Array(posArr.length);
+    
+    const ox = cx * CHUNK;
+    const oz = cz * CHUNK;
+    
+    for (let i = 0; i < posArr.length; i += 3) {
+        const wx = ox + posArr[i];
+        const wz = oz + posArr[i + 1];
+        const h = getHeight(wx, wz);
+        posArr[i + 2] = h;
+        
+        const zone = getZone(wx, wz);
+        const c = zoneColors[zone] || 0x2d5a27;
+        cols[i] = ((c >> 16) & 255) / 255;
+        cols[i + 1] = ((c >> 8) & 255) / 255;
+        cols[i + 2] = (c & 255) / 255;
+    }
+    
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    geo.computeVertexNormals();
+    
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(ox + CHUNK / 2, 0, oz + CHUNK / 2);
+    
+    scene.add(mesh);
+    meshes.set(key, mesh);
+}
+
+function updateUI() {
+    const zone = getZone(pos.x, pos.z);
+    const h = getHeight(pos.x, pos.z);
+    
+    document.getElementById('biome').textContent = zone;
+    document.getElementById('height').textContent = h.toFixed(0) + 'm';
+    document.getElementById('position').textContent = pos.x.toFixed(0) + ', ' + pos.y.toFixed(0) + ', ' + pos.z.toFixed(0);
+    document.getElementById('chunk').textContent = (pos.x / CHUNK).toFixed(0) + ', ' + (pos.z / CHUNK).toFixed(0);
+    
+    if (window.avatar) {
+        window.avatar.position.set(pos.x, pos.y, pos.z);
+        window.glow.position.set(pos.x, pos.y, pos.z);
+    }
+}
+
+function animate(time) {
+    const delta = Math.min((time - lastTime) / 1000, 0.1);
+    lastTime = time;
+    
+    frameCount++;
+    if (time - fpsTime > 1000) {
+        document.getElementById('fps').textContent = frameCount;
+        frameCount = 0;
+        fpsTime = time;
+    }
+    
+    const speed = 20 * delta;
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    
+    if (keys['w']) { pos.x -= sy * speed; pos.z -= cy * speed; }
+    if (keys['s']) { pos.x += sy * speed; pos.z += cy * speed; }
+    if (keys['a']) { pos.x -= cy * speed; pos.z += sy * speed; }
+    if (keys['d']) { pos.x += cy * speed; pos.z -= sy * speed; }
+    if (keys[' ']) pos.y += speed;
+    if (keys['shift']) pos.y = Math.max(1, pos.y - speed);
+    if (keys['q']) yaw += speed;
+    if (keys['e']) yaw -= speed;
+    
+    const groundY = getHeight(pos.x, pos.z);
+    pos.y = Math.max(groundY + 3, pos.y);
+    
+    camera.position.set(pos.x, pos.y, pos.z);
+    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    
+    // LOAD NEARBY CHUNKS
+    const cx = Math.floor(pos.x / CHUNK);
+    const cz = Math.floor(pos.z / CHUNK);
+    const d = params.renderDistance;
+    for (let x = cx - d; x <= cx + d; x++) {
+        for (let z = cz - d; z <= cz + d; z++) {
+            createChunk(x, z);
+        }
+    }
+    
+    updateUI();
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+}
+
+// START
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
