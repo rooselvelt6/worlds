@@ -8,138 +8,118 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <style>
-        :root { --bg: #0a0e14; --cyan: #22d3ee; --purple: #a855f7; }
-        body { font-family: 'Outfit', sans-serif; background: var(--bg); margin: 0; overflow: hidden; color: white; }
-        .panel { background: rgba(15,19,25,0.95); border: 1px solid #1e293b; backdrop-filter: blur(16px); }
-        .btn { background: #1e293b; border: 1px solid #334155; transition: all 0.2s; }
-        .btn:hover { background: #0891b2; border-color: #22d3ee; }
-        .btn.active { background: #0891b2; border-color: #22d3ee; box-shadow: 0 0 15px #22d3ee; }
-        .slider { -webkit-appearance: none; width: 100%; height: 6px; background: linear-gradient(to right, var(--cyan), var(--purple)); border-radius: 3px; }
-        .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--cyan); cursor: pointer; box-shadow: 0 0 10px var(--cyan); }
+<style>
         #game-canvas { display: block; width: 100vw; height: 100vh; }
-        #crosshair {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            pointer-events: none; z-index: 100;
-        }
-        #crosshair::before, #crosshair::after {
-            content: ''; position: absolute; background: rgba(255,255,255,0.8);
-        }
-        #crosshair::before { width: 20px; height: 2px; left: -10px; top: -1px; }
-        #crosshair::after { width: 2px; height: 20px; left: -1px; top: -10px; }
-        #minimap {
-            position: fixed; bottom: 20px; right: 20px; width: 120px; height: 120px;
-            border: 2px solid var(--cyan); border-radius: 8px; z-index: 100;
-            background: rgba(0,0,0,0.5); overflow: hidden;
-        }
-        #minimap canvas { width: 100%; height: 100%; }
-        #minimap-marker {
-            position: absolute; width: 6px; height: 6px; background: red;
-            border-radius: 50%; transform: translate(-50%, -50%);
-        }
+        input[type="range"] { -webkit-appearance: none; width: 100%; height: 4px; background: #334155; border-radius: 2px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22d3ee; cursor: pointer; box-shadow: 0 0 8px #22d3ee; }
+        #minimap canvas, #formula-overlay canvas { width: 100%; height: 100%; display: block; }
+        #minimap-marker { position: absolute; width: 6px; height: 6px; background: #ef4444; border-radius: 50%; transform: translate(-50%, -50%); }
+        .subworld-btn.active { background: #0891b2 !important; box-shadow: 0 0 12px #22d3ee; }
+        #formula-grid button.active { outline: 2px solid #22d3ee; outline-offset: 2px; box-shadow: 0 0 10px #22d3ee; }
     </style>
 </head>
-<body>
-    <canvas id="game-canvas"></canvas>
-    <div id="crosshair"></div>
-    <div id="minimap"><canvas id="minimap-canvas"></canvas><div id="minimap-marker"></div></div>
-    
-    <header class="fixed top-0 left-0 right-0 m-4 p-4 rounded-2xl panel flex justify-between items-center z-50">
-        <div class="flex items-center gap-4">
-            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center">
-                <i class="fas fa-globe text-white text-xl"></i>
-            </div>
-            <div>
-                <h1 class="text-2xl font-bold text-cyan-400">WORLDS</h1>
-                <p class="text-xs text-slate-500">Motor 3D Generativo</p>
-            </div>
-        </div>
-        <div class="flex items-center gap-4">
-            <div id="biome" class="px-4 py-2 rounded-lg bg-emerald-900/50 text-emerald-400 font-mono">forest</div>
-            <div id="height" class="px-2 py-1 rounded bg-slate-800 text-cyan-400">15m</div>
-        </div>
+<body class="bg-[#0a0e14] text-white font-['Outfit'] overflow-hidden m-0">
+    <canvas id="game-canvas" class="fixed inset-0 w-screen h-screen block"></canvas>
+
+    <!-- HEADER -->
+    <header class="fixed top-4 left-4 z-50 flex items-center gap-3 px-4 py-2 rounded-xl bg-[rgba(15,19,25,0.95)] border border-slate-800 backdrop-blur-xl">
+        <div id="biome" class="px-3 py-1 rounded-lg bg-emerald-900/50 text-emerald-400 font-mono text-sm">forest</div>
+        <div id="height" class="px-2 py-1 rounded bg-slate-800 text-cyan-400 font-mono text-sm">15m</div>
+        <div id="pos-header" class="text-slate-500 font-mono text-xs hidden sm:block">50, 25, 50</div>
     </header>
-    
-    <aside class="fixed left-4 top-32 w-20 p-2 rounded-2xl panel flex flex-col gap-2 z-40">
-        <button class="subworld-btn active btn rounded-xl p-2" data-subworld="fractal_forest" title="Fractal Forest"><i class="fas fa-tree text-xl text-green-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="simplex_plains" title="Simplex Plains"><i class="fas fa-seedling text-xl text-emerald-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="voronoi_city" title="Voronoi City"><i class="fas fa-building text-xl text-gray-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="ridged_mountains" title="Ridged Mountains"><i class="fas fa-mountain text-xl text-stone-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="crystal_cavern" title="Crystal Cavern"><i class="fas fa-gem text-xl text-purple-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="mandelbrot_realm" title="Mandelbrot Realm"><i class="fas fa-infinity text-xl text-pink-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="sierpinski_temple" title="Sierpinski Temple"><i class="fas fa-dungeon text-xl text-amber-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="domain_warp_void" title="Domain Warp"><i class="fas fa-ghost text-xl text-slate-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="billow_ocean" title="Billow Ocean"><i class="fas fa-water text-xl text-blue-400"></i></button>
-        <button class="subworld-btn btn rounded-xl p-2" data-subworld="hybrid_dream" title="Hybrid Dream"><i class="fas fa-dragon text-xl text-red-400"></i></button>
-        <button id="btn-mouse" class="btn rounded-xl p-2 mt-2" title="Mouse Look"><i class="fas fa-mouse text-lg text-cyan-400"></i></button>
+
+    <!-- SUBWORLDS -->
+    <aside class="fixed left-4 lg:left-4 top-20 z-40 flex flex-col gap-1.5 p-2 rounded-xl bg-[rgba(15,19,25,0.95)] border border-slate-800 backdrop-blur-xl">
+        <button class="subworld-btn active w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="fractal_forest" title="Fractal Forest"><i class="fas fa-tree text-xs lg:text-sm text-green-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="simplex_plains" title="Simplex Plains"><i class="fas fa-seedling text-xs lg:text-sm text-emerald-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="voronoi_city" title="Voronoi City"><i class="fas fa-building text-xs lg:text-sm text-gray-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="ridged_mountains" title="Ridged Mountains"><i class="fas fa-mountain text-xs lg:text-sm text-stone-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="crystal_cavern" title="Crystal Cavern"><i class="fas fa-gem text-xs lg:text-sm text-purple-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="mandelbrot_realm" title="Mandelbrot Realm"><i class="fas fa-infinity text-xs lg:text-sm text-pink-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="sierpinski_temple" title="Sierpinski Temple"><i class="fas fa-dungeon text-xs lg:text-sm text-amber-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="domain_warp_void" title="Domain Warp"><i class="fas fa-ghost text-xs lg:text-sm text-slate-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="billow_ocean" title="Billow Ocean"><i class="fas fa-water text-xs lg:text-sm text-blue-400"></i></button>
+        <button class="subworld-btn w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all" data-subworld="hybrid_dream" title="Hybrid Dream"><i class="fas fa-dragon text-xs lg:text-sm text-red-400"></i></button>
+        <button id="btn-mouse" class="w-9 h-9 lg:w-10 lg:h-10 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-cyan-600 transition-all mt-1" title="Mouse"><i class="fas fa-mouse text-xs lg:text-sm text-cyan-400"></i></button>
     </aside>
-    
-    <aside class="fixed left-28 top-32 w-72 p-4 rounded-2xl panel z-40">
-        <h2 class="font-semibold text-lg mb-4"><i class="fas fa-compass text-cyan-400 mr-2"></i>Navegación</h2>
-        
-        <div class="grid grid-cols-3 gap-2 mb-4">
+
+    <!-- NAV CONTROLS -->
+    <aside class="fixed left-16 lg:left-20 top-20 z-40 w-36 lg:w-40 p-3 rounded-xl bg-[rgba(15,19,25,0.95)] border border-slate-800 backdrop-blur-xl hidden sm:block">
+        <h2 class="font-semibold text-xs lg:text-sm flex items-center gap-2 mb-2"><i class="fas fa-compass text-cyan-400 text-xs"></i>Navegación</h2>
+        <div class="grid grid-cols-3 gap-1 mb-2">
             <div></div>
-            <button id="btn-w" class="btn rounded-lg py-3 font-mono">W</button>
+            <button id="btn-w" class="bg-slate-700 hover:bg-cyan-600 rounded-lg py-2 font-mono text-xs">W</button>
             <div></div>
-            <button id="btn-a" class="btn rounded-lg py-3 font-mono">A</button>
-            <button id="btn-s" class="btn rounded-lg py-3 font-mono">S</button>
-            <button id="btn-d" class="btn rounded-lg py-3 font-mono">D</button>
+            <button id="btn-a" class="bg-slate-700 hover:bg-cyan-600 rounded-lg py-2 font-mono text-xs">A</button>
+            <button id="btn-s" class="bg-slate-700 hover:bg-cyan-600 rounded-lg py-2 font-mono text-xs">S</button>
+            <button id="btn-d" class="bg-slate-700 hover:bg-cyan-600 rounded-lg py-2 font-mono text-xs">D</button>
         </div>
-        
-        <div class="flex gap-2 mb-4">
-            <button id="btn-up" class="btn flex-1 rounded-lg py-2 text-xs">ESPACIO ↑</button>
-            <button id="btn-down" class="btn flex-1 rounded-lg py-2 text-xs">SHIFT ↓</button>
+        <div class="flex gap-1 mb-2">
+            <button id="btn-up" class="flex-1 bg-slate-700 hover:bg-cyan-600 rounded-lg py-1.5 text-xs">↑</button>
+            <button id="btn-down" class="flex-1 bg-slate-700 hover:bg-cyan-600 rounded-lg py-1.5 text-xs">↓</button>
         </div>
-        
-        <div class="flex gap-2 mb-4">
-            <button id="btn-q" class="btn flex-1 rounded-lg py-2 text-xs">Q ↺</button>
-            <button id="btn-e" class="btn flex-1 rounded-lg py-2 text-xs">E ↻</button>
+        <div class="flex gap-1 mb-2">
+            <button id="btn-q" class="flex-1 bg-slate-700 hover:bg-cyan-600 rounded-lg py-1.5 text-xs">Q</button>
+            <button id="btn-e" class="flex-1 bg-slate-700 hover:bg-cyan-600 rounded-lg py-1.5 text-xs">E</button>
         </div>
-        
-        <button id="btn-regen" class="btn w-full rounded-lg py-2 text-sm bg-gradient-to-r from-purple-600 to-pink-600">REGENERAR</button>
-        
-        <div class="mt-4 text-sm space-y-2">
-            <div class="flex justify-between"><span class="text-slate-400">Posición</span><span id="position" class="text-cyan-400">50, 25, 50</span></div>
+        <button id="btn-regen" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg py-1.5 text-xs font-semibold mt-1">REGENERAR</button>
+        <div class="mt-3 space-y-1 text-xs">
             <div class="flex justify-between"><span class="text-slate-400">Chunk</span><span id="chunk" class="text-cyan-400">2, 2</span></div>
             <div class="flex justify-between"><span class="text-slate-400">FPS</span><span id="fps" class="text-emerald-400">60</span></div>
         </div>
     </aside>
-    
-    <aside class="fixed right-4 top-32 w-72 p-4 rounded-2xl panel z-40">
-        <h2 class="font-semibold text-lg mb-4"><i class="fas fa-sliders-h text-cyan-400 mr-2"></i>Parámetros</h2>
-        
-        <div class="space-y-4 text-sm">
+
+    <!-- PARAMS + FORMULAS -->
+    <aside class="fixed right-2 md:right-4 top-4 md:top-4 bottom-4 md:bottom-auto md:max-h-[calc(100vh-120px)] z-40 w-44 md:w-52 p-3 rounded-xl bg-[rgba(15,19,25,0.95)] border border-slate-800 backdrop-blur-xl overflow-y-auto">
+        <h2 class="font-semibold text-xs mb-2 flex items-center gap-2"><i class="fas fa-palette text-cyan-400 text-xs"></i>Fórmulas</h2>
+        <div id="formula-grid" class="grid grid-cols-3 gap-1.5 mb-3"></div>
+
+        <h2 class="font-semibold text-xs mb-2 flex items-center gap-2"><i class="fas fa-sliders-h text-cyan-400 text-xs"></i>Parámetros</h2>
+        <div class="space-y-2 text-xs">
             <div>
-                <div class="flex justify-between mb-1"><span class="text-slate-400">Seed</span><span id="seed-val" class="text-cyan-400">42</span></div>
-                <input type="range" id="seed-slider" min="1" max="9999" value="42" class="slider">
+                <div class="flex justify-between"><span class="text-slate-400">Seed</span><span id="seed-val" class="text-cyan-400">42</span></div>
+                <input type="range" id="seed-slider" min="1" max="9999" value="42">
             </div>
             <div>
-                <div class="flex justify-between mb-1"><span class="text-slate-400">Altura</span><span id="amp-val" class="text-cyan-400">18</span></div>
-                <input type="range" id="amp-slider" min="5" max="50" value="18" class="slider">
+                <div class="flex justify-between"><span class="text-slate-400">Altura</span><span id="amp-val" class="text-cyan-400">18</span></div>
+                <input type="range" id="amp-slider" min="5" max="50" value="18">
             </div>
             <div>
-                <div class="flex justify-between mb-1"><span class="text-slate-400">Agua</span><span id="water-val" class="text-cyan-400">6</span></div>
-                <input type="range" id="water-slider" min="0" max="20" value="6" class="slider">
+                <div class="flex justify-between"><span class="text-slate-400">Agua</span><span id="water-val" class="text-cyan-400">6</span></div>
+                <input type="range" id="water-slider" min="0" max="20" value="6">
             </div>
             <div>
-                <div class="flex justify-between mb-1"><span class="text-slate-400">Frecuencia</span><span id="freq-val" class="text-cyan-400">25</span></div>
-                <input type="range" id="freq-slider" min="5" max="100" value="25" class="slider">
+                <div class="flex justify-between"><span class="text-slate-400">Frecuencia</span><span id="freq-val" class="text-cyan-400">25</span></div>
+                <input type="range" id="freq-slider" min="5" max="100" value="25">
             </div>
             <div>
-                <div class="flex justify-between mb-1"><span class="text-slate-400">Detalle</span><span id="octaves-val" class="text-cyan-400">5</span></div>
-                <input type="range" id="octaves-slider" min="1" max="8" value="5" class="slider">
+                <div class="flex justify-between"><span class="text-slate-400">Detalle</span><span id="octaves-val" class="text-cyan-400">5</span></div>
+                <input type="range" id="octaves-slider" min="1" max="8" value="5">
             </div>
-            <div class="mt-4 p-2 rounded bg-slate-800">
-                <div class="text-xs text-slate-500 mb-1">Fórmula</div>
-                <div id="formula" class="text-xs font-mono text-cyan-400">h = fbm(x*0.025, z*0.025) * 18 + 6</div>
+            <div class="mt-2 p-1.5 rounded bg-slate-800/50">
+                <div id="formula" class="font-mono text-cyan-400 text-[10px] leading-tight break-all">h = fbm(x*0.025, z*0.025) * 18</div>
             </div>
         </div>
     </aside>
-    
-    <div class="fixed bottom-4 left-4 right-4 p-3 rounded-xl panel z-40 flex justify-center gap-4 text-sm">
-        <span class="text-slate-400"><kbd class="bg-slate-700 px-2 py-1 rounded">WASD</kbd> Mover</span>
-        <span class="text-slate-400"><kbd class="bg-slate-700 px-2 py-1 rounded">Q/E</kbd> Girar</span>
-        <span class="text-cyan-400"><kbd class="bg-cyan-700 px-2 py-1 rounded">R</kbd> Regenerar</span>
+
+    <!-- MINIMAP -->
+    <div id="minimap" class="fixed bottom-4 right-2 md:right-4 z-40 w-24 h-24 md:w-32 md:h-32 rounded-lg border-2 border-cyan-400 bg-black/50 overflow-hidden">
+        <canvas id="minimap-canvas"></canvas>
+        <div id="minimap-marker"></div>
+        <div id="minimap-info" class="absolute bottom-0.5 left-1 text-[8px] md:text-[10px] text-white/60"></div>
+    </div>
+
+    <!-- FORMULA OVERLAY -->
+    <div id="formula-overlay" class="fixed bottom-4 left-2 md:left-4 z-40 w-24 h-24 md:w-32 md:h-32 rounded-lg border-2 border-purple-500 bg-black/70 overflow-hidden hidden sm:block">
+        <canvas id="formula-canvas"></canvas>
+        <div id="formula-label" class="absolute top-0.5 left-1 text-[8px] md:text-[10px] text-purple-400 font-mono"></div>
+    </div>
+
+    <!-- CONTROLS BAR -->
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex gap-3 md:gap-4 px-3 py-2 rounded-xl bg-[rgba(15,19,25,0.95)] border border-slate-800 backdrop-blur-xl text-[10px] md:text-xs">
+        <span class="text-slate-400"><kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-[9px] md:text-[11px]">WASD</kbd> Mover</span>
+        <span class="text-slate-400"><kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-[9px] md:text-[11px]">Q/E</kbd> Girar</span>
+        <span class="text-cyan-400"><kbd class="bg-cyan-700 px-1.5 py-0.5 rounded text-[9px] md:text-[11px]">R</kbd> Regenerar</span>
     </div>
 
 <script>
@@ -157,7 +137,7 @@ let frameCount = 0;
 let fpsTime = 0;
 let dayTime = 0;
 let dayCycleEnabled = true;
-let daySpeed = 0.0005;
+let daySpeed = 0.00005;
 
 let params = {
     seed: 42,
@@ -165,10 +145,67 @@ let params = {
     waterLevel: 6,
     frequency: 0.025,
     octaves: 5,
-    renderDistance: 2,
+    renderDistance: 5,
     subworld: 'fractal_forest',
     formula: 'fbm'
 };
+
+let formulaPalettes = {
+    fbm: {
+        name: 'Fractal Forest',
+        colors: [0x1a5276, 0x2980b9, 0x2ecc71, 0x27ae60, 0xf1c40f, 0xecf0f1],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    simplex: {
+        name: 'Simplex Plains',
+        colors: [0x1a5276, 0x3498db, 0x58d68d, 0x82e0aa, 0xf7dc6f, 0xfdebd0],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    voronoi: {
+        name: 'Voronoi City',
+        colors: [0x1a5276, 0x2980b9, 0x5d6d7e, 0x85929e, 0xaeb6bf, 0xd5d8dc],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    ridgedmf: {
+        name: 'Ridged Mountains',
+        colors: [0x1a5276, 0x2e86c1, 0x7f8c8d, 0x95a5a6, 0xd5d8dc, 0xfefefe],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    mandelbrot: {
+        name: 'Mandelbrot Realm',
+        colors: [0x1a0a2e, 0x4a1942, 0x9b59b6, 0xe91e63, 0xf48fb1, 0xfce4ec],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    sierpinski: {
+        name: 'Sierpinski Temple',
+        colors: [0x1a5276, 0xd35400, 0xe67e22, 0xf39c12, 0xf5b041, 0xfdebd0],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    domainwarp: {
+        name: 'Domain Warp Void',
+        colors: [0x0a0a0f, 0x1a1a2e, 0x2d2d44, 0x4a4a6a, 0x6a6a8a, 0x8a8aaa],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    billow: {
+        name: 'Billow Ocean',
+        colors: [0x0a1628, 0x1a3a5c, 0x2980b9, 0x3498db, 0x85c1e9, 0xadd5f0],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    },
+    hybrid: {
+        name: 'Hybrid Dream',
+        colors: [0x1a0a0a, 0x7b241c, 0xc0392b, 0xe74c3c, 0xf1948a, 0xfadbd8],
+        thresholds: [0.2, 0.35, 0.5, 0.65, 0.8]
+    }
+};
+
+let currentPalette = 'fbm';
+let debounceTimer = null;
+let dirtyChunks = new Set();
+let chunkPool = new Map();
+const MAX_CHUNKS = 150;
+const CHUNK_RES = 16;
+let formulaCanvasCtx = null;
+let formulaCanvasData = null;
 
 let subworldColors = {
     fractal_forest: 0x2d5a27,
@@ -254,33 +291,41 @@ function fbm(x, z, oct, seed) {
 }
 
 function simplex(x, z, seed) {
-    return fbm(x, z, 4, seed);
+    const n1 = fbm(x * 2, z * 2, 3, seed);
+    const n2 = fbm(x + 50, z + 50, 2, seed + 1);
+    return (n1 + n2) / 2;
 }
 
 function voronoi(x, z) {
     let ix = Math.floor(x);
     let iz = Math.floor(z);
     let minDist = Infinity;
-    for (let dx = -1; dx <= 1; dx++) {
-        for (let dz = -1; dz <= 1; dz++) {
+    let secondDist = Infinity;
+    for (let dx = -2; dx <= 2; dx++) {
+        for (let dz = -2; dz <= 2; dz++) {
             let cx = ix + dx;
             let cz = iz + dz;
             let h = hash2d(cx, cz, params.seed);
             let cellX = cx + h.x;
             let cellZ = cz + h.y;
             let dist = Math.sqrt((x - cellX) ** 2 + (z - cellZ) ** 2);
-            minDist = Math.min(minDist, dist);
+            if (dist < minDist) {
+                secondDist = minDist;
+                minDist = dist;
+            } else if (dist < secondDist) {
+                secondDist = dist;
+            }
         }
     }
-    return minDist;
+    return Math.abs(secondDist - minDist) * 1.5;
 }
 
 function mandelbrot(cx, cy) {
-    let x0 = cx * 2.5 - 2.0;
-    let y0 = cy * 2.0 - 1.0;
+    let x0 = cx * 1.5 - 1.0;
+    let y0 = cy * 1.5 - 0.5;
     let x = 0, y = 0, iter = 0;
-    let maxIter = 8;
-    while (x * x + y * y <= 4 && iter < maxIter) {
+    let maxIter = 12;
+    while (x * x + y * y <= 16 && iter < maxIter) {
         let xtemp = x * x - y * y + x0;
         y = 2 * x * y + y0;
         x = xtemp;
@@ -290,46 +335,51 @@ function mandelbrot(cx, cy) {
 }
 
 function sierpinski(x, z) {
-    let px = Math.abs(x) | 0;
-    let pz = Math.abs(z) | 0;
+    let px = Math.abs(x * 0.5) | 0;
+    let pz = Math.abs(z * 0.5) | 0;
     let count = 0;
-    while ((px | pz) !== 0) {
+    let depth = 0;
+    while ((px | pz) !== 0 && depth < 8) {
         if ((px & 1) === 1 && (pz & 1) === 1) count++;
         px >>= 1;
         pz >>= 1;
+        depth++;
     }
-    return count % 2 === 0 ? 0 : 1;
+    return Math.pow(0.5, count);
 }
 
 function billow(x, z, seed) {
-    return Math.abs(fbm(x, z, 4, seed));
+    return Math.abs(fbm(x * 1.5, z * 1.5, 6, seed));
 }
 
 function ridgedmf(x, z, seed) {
     let v = 0, a = 1, f = 1, prev = 1, m = 0;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
         let n = 1 - Math.abs(noise(x * f, z * f, seed + i * 100));
         let ridge = n * n;
         v += ridge * a * prev;
         prev = ridge;
         m += a;
-        a *= 0.5;
-        f *= 2;
+        a *= 0.45;
+        f *= 2.1;
     }
-    return v / m;
+    return v / (m || 1);
 }
 
 function domainWarp(x, z, seed) {
-    let warpX = x + fbm(x + 10, z, 3, seed) * 2;
-    let warpZ = z + fbm(x, z + 10, 3, seed) * 2;
-    return fbm(warpX, warpZ, 4, seed);
+    let warpX = fbm(x + seed, z + seed * 0.5, 3, seed) * 4;
+    let warpZ = fbm(x + seed * 0.7, z + seed * 1.3, 3, seed + 50) * 4;
+    let finalX = x + warpX;
+    let finalZ = z + warpZ;
+    return fbm(finalX, finalZ, 5, seed) - fbm(finalX * 0.7, finalZ * 0.7, 3, seed + 100) * 0.3;
 }
 
 function hybrid(x, z, seed) {
     let f = fbm(x, z, 4, seed);
     let r = ridgedmf(x * 1.5, z * 1.5, seed);
     let v = voronoi(x * 0.5, z * 0.5);
-    return (f + r + v) / 3;
+    let b = billow(x * 0.7, z * 0.7, seed + 20);
+    return (f * 0.4 + r * 0.3 + v * 0.15 + b * 0.15);
 }
 
 function calculate(x, z, formula) {
@@ -348,28 +398,33 @@ function calculate(x, z, formula) {
 }
 
 function getHeight(x, z) {
-    const formula = subworldFormulas[params.subworld] || 'fbm';
+    const formula = params.formula || subworldFormulas[params.subworld] || 'fbm';
     const base = calculate(x * params.frequency, z * params.frequency, formula);
     let h;
     
-    switch (params.subworld) {
-        case 'mandelbrot_realm': h = base * params.amplitude * 0.3; break;
-        case 'sierpinski_temple': h = base * params.amplitude * 2.0; break;
-        case 'voronoi_city': h = base * params.amplitude * 0.8 + params.waterLevel; break;
-        case 'crystal_cavern': h = base * params.amplitude + params.waterLevel; break;
-        case 'ridged_mountains':
-            h = ridgedmf(x * params.frequency, z * params.frequency, params.seed) * params.amplitude + params.waterLevel;
-            break;
-        case 'domain_warp_void':
-            h = domainWarp(x * params.frequency, z * params.frequency, params.seed) * params.amplitude;
-            break;
-        case 'billow_ocean':
-            h = billow(x * params.frequency, z * params.frequency, params.seed) * params.amplitude * 0.8;
-            break;
-        case 'hybrid_dream':
-            h = hybrid(x * params.frequency, z * params.frequency, params.seed) * params.amplitude;
-            break;
-        default: h = base * params.amplitude + params.waterLevel;
+    const amplitudeMod = {
+        mandelbrot: 0.3,
+        sierpinski: 2.0,
+        voronoi: 0.8,
+        simplex: 1.0,
+        ridgedmf: 1.2,
+        domainwarp: 1.0,
+        billow: 0.8,
+        hybrid: 1.0,
+        fbm: 1.0
+    };
+    const mod = amplitudeMod[formula] || 1.0;
+    
+    switch (formula) {
+        case 'mandelbrot': h = base * params.amplitude * mod; break;
+        case 'sierpinski': h = base * params.amplitude * mod; break;
+        case 'voronoi': h = base * params.amplitude * mod + params.waterLevel; break;
+        case 'simplex': h = base * params.amplitude * mod + params.waterLevel * 0.5; break;
+        case 'ridgedmf': h = base * params.amplitude * mod + params.waterLevel; break;
+        case 'domainwarp': h = base * params.amplitude * mod; break;
+        case 'billow': h = base * params.amplitude * mod; break;
+        case 'hybrid': h = base * params.amplitude * mod; break;
+        default: h = base * params.amplitude * mod + params.waterLevel;
     }
     
     h = Math.max(0, h);
@@ -378,6 +433,70 @@ function getHeight(x, z) {
 
 function getZone(x, z) {
     return params.subworld;
+}
+
+function getColorFromFormula(formula, height, x, z) {
+    const palette = formulaPalettes[formula] || formulaPalettes.fbm;
+    const maxH = params.amplitude * 1.5;
+    let normalizedH = Math.min(height / maxH, 1);
+    
+    for (let i = palette.thresholds.length; i >= 0; i--) {
+        if (normalizedH >= (palette.thresholds[i - 1] || 0)) {
+            const c = palette.colors[Math.min(i, palette.colors.length - 1)];
+            return c;
+        }
+    }
+    return palette.colors[0];
+}
+
+function lerpColor(c1, c2, t) {
+    const r1 = (c1 >> 16) & 255, g1 = (c1 >> 8) & 255, b1 = c1 & 255;
+    const r2 = (c2 >> 16) & 255, g2 = (c2 >> 8) & 255, b2 = c2 & 255;
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return (r << 16) | (g << 8) | b;
+}
+
+function getColorSmooth(formula, height, x, z) {
+    const palette = formulaPalettes[formula] || formulaPalettes.fbm;
+    const maxH = params.amplitude * 1.5;
+    let normalizedH = Math.min(Math.max(height / maxH, 0), 1);
+    
+    for (let i = 0; i < palette.thresholds.length; i++) {
+        if (normalizedH <= palette.thresholds[i]) {
+            const prev = i === 0 ? 0 : palette.thresholds[i - 1];
+            const t = (normalizedH - prev) / (palette.thresholds[i] - prev);
+            return lerpColor(palette.colors[i], palette.colors[i + 1] || palette.colors[i], t);
+        }
+    }
+    return palette.colors[palette.colors.length - 1];
+}
+
+function drawFormula2D() {
+    if (!formulaCanvasCtx) return;
+    const ctx = formulaCanvasCtx;
+    const w = ctx.canvas.width || 128;
+    const h = ctx.canvas.height || 128;
+    const imgData = ctx.createImageData(w, h);
+    const scale = 0.05;
+    const offset = params.seed * 0.1;
+    
+    for (let py = 0; py < h; py++) {
+        for (let px = 0; px < w; px++) {
+            const x = (px - w / 2) * scale + offset;
+            const z = (py - h / 2) * scale + offset;
+            const val = calculate(x, z, params.formula);
+            const color = getColorSmooth(params.formula, val * params.amplitude, x, z);
+            const idx = (py * w + px) * 4;
+            imgData.data[idx] = (color >> 16) & 255;
+            imgData.data[idx + 1] = (color >> 8) & 255;
+            imgData.data[idx + 2] = color & 255;
+            imgData.data[idx + 3] = 255;
+        }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    document.getElementById('formula-label').textContent = formulaPalettes[params.formula]?.name || 'FBM';
 }
 
 // THREE.JS RENDERING
@@ -436,15 +555,36 @@ function init() {
     
     // MINIMAP SETUP
     const minimapCanvas = document.getElementById('minimap-canvas');
-    minimapCanvas.width = 120;
-    minimapCanvas.height = 120;
+    const minimapRect = minimapCanvas.parentElement.getBoundingClientRect();
+    const mSize = Math.round(minimapRect.width);
+    minimapCanvas.width = mSize;
+    minimapCanvas.height = mSize;
     window.minimapCtx = minimapCanvas.getContext('2d');
+    window.minimapSize = mSize;
     
     // RESIZE HANDLER
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        const mm = document.getElementById('minimap-canvas');
+        if (mm) {
+            const r = mm.parentElement.getBoundingClientRect();
+            const s = Math.round(r.width);
+            mm.width = s;
+            mm.height = s;
+            window.minimapSize = s;
+        }
+        const fc = document.getElementById('formula-canvas');
+        if (fc && formulaCanvasCtx) {
+            const r = fc.parentElement.getBoundingClientRect();
+            const s = Math.round(r.width);
+            fc.width = s;
+            fc.height = s;
+            formulaCanvasCtx = fc.getContext('2d');
+            drawFormula2D();
+        }
     });
     
     // CONTROLS
@@ -502,40 +642,110 @@ function init() {
         };
     });
     
-    // SLIDERS
+    let formulaIcons = {
+        fbm: 'fa-tree',
+        simplex: 'fa-seedling',
+        voronoi: 'fa-border-all',
+        ridgedmf: 'fa-mountain',
+        mandelbrot: 'fa-infinity',
+        sierpinski: 'fa-triangle',
+        domainwarp: 'fa-wind',
+        billow: 'fa-water',
+        hybrid: 'fa-fire'
+    };
+    
+    function updateFormulaGrid() {
+        const container = document.getElementById('formula-grid');
+        if (!container) return;
+        container.innerHTML = '';
+        Object.keys(formulaPalettes).forEach(key => {
+            const btn = document.createElement('button');
+            const isActive = currentPalette === key;
+            const bgColor = formulaPalettes[key].colors[2];
+            const iconColor = formulaPalettes[key].colors[4];
+            btn.className = `rounded-lg flex items-center justify-center transition-all text-xs ${
+                isActive ? 'active' : ''
+            }`;
+            btn.style.background = '#' + bgColor.toString(16).padStart(6, '0');
+            btn.style.color = '#' + iconColor.toString(16).padStart(6, '0');
+            btn.innerHTML = `<i class="fas ${formulaIcons[key] || 'fa-circle'}"></i>`;
+            btn.title = formulaPalettes[key].name;
+            btn.onclick = () => {
+                currentPalette = key;
+                params.formula = key;
+                updateFormulaGrid();
+                markAllDirty();
+                refreshAllChunks();
+                updateFormula();
+                drawFormula2D();
+            };
+            container.appendChild(btn);
+        });
+    }
+    
+    function scheduleUpdate() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            markAllDirty();
+            refreshAllChunks();
+            drawFormula2D();
+        }, 100);
+    }
+    
     document.getElementById('seed-slider').oninput = () => {
         params.seed = parseInt(document.getElementById('seed-slider').value);
         document.getElementById('seed-val').textContent = params.seed;
-        regenerate();
+        scheduleUpdate();
     };
     document.getElementById('amp-slider').oninput = () => {
         params.amplitude = parseInt(document.getElementById('amp-slider').value);
         document.getElementById('amp-val').textContent = params.amplitude;
-        regenerate();
+        scheduleUpdate();
     };
     document.getElementById('water-slider').oninput = () => {
         params.waterLevel = parseInt(document.getElementById('water-slider').value);
         document.getElementById('water-val').textContent = params.waterLevel;
         updateFormula();
-        regenerate();
+        scheduleUpdate();
     };
     document.getElementById('freq-slider').oninput = () => {
         params.frequency = parseInt(document.getElementById('freq-slider').value) / 1000;
         document.getElementById('freq-val').textContent = document.getElementById('freq-slider').value;
         updateFormula();
-        regenerate();
+        scheduleUpdate();
     };
     document.getElementById('octaves-slider').oninput = () => {
         params.octaves = parseInt(document.getElementById('octaves-slider').value);
         document.getElementById('octaves-val').textContent = params.octaves;
         updateFormula();
-        regenerate();
+        scheduleUpdate();
     };
     
     console.log('Generating terrain...');
-    loadBlockTextures();
     updateFormula();
+    updateFormulaGrid();
+    
+    const formulaCanvas = document.getElementById('formula-canvas');
+    if (formulaCanvas) {
+        const fRect = formulaCanvas.parentElement.getBoundingClientRect();
+        const fSize = Math.round(fRect.width);
+        formulaCanvas.width = fSize;
+        formulaCanvas.height = fSize;
+        formulaCanvasCtx = formulaCanvas.getContext('2d');
+    }
+    drawFormula2D();
     regenerate();
+    
+    // FORZE INITIAL CHUNKS
+    const cx = Math.floor(pos.x / CHUNK);
+    const cz = Math.floor(pos.z / CHUNK);
+    const d = params.renderDistance;
+    for (let x = cx - d; x <= cx + d; x++) {
+        for (let z = cz - d; z <= cz + d; z++) {
+            createChunk(x, z);
+        }
+    }
+    
     animate();
 }
 
@@ -543,8 +753,15 @@ function updateSubWorld() {
     document.querySelectorAll('.subworld-btn').forEach(b => b.classList.remove('active'));
     document.querySelector(`[data-subworld="${params.subworld}"]`)?.classList.add('active');
     params.formula = subworldFormulas[params.subworld] || 'fbm';
+    currentPalette = params.formula;
     updateFormula();
     updateSky();
+    updateFormulaGrid();
+    markAllDirty();
+}
+
+function markAllDirty() {
+    chunkPool.forEach((chunk, key) => chunk.dirty = true);
 }
 
 function updateSky() {
@@ -577,16 +794,13 @@ function updateFormula() {
 
 function regenerate() {
     console.log('Regenerating chunks...');
-    meshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
-    meshes.clear();
-    vegetation.forEach(items => {
-        items.forEach(v => {
-            scene.remove(v);
-            v.traverse(c => { if (c.geometry) c.geometry.dispose(); });
-        });
+    chunkPool.forEach((chunk, key) => {
+        scene.remove(chunk.mesh);
+        chunk.mesh.geometry.dispose();
+        chunk.mesh.material.dispose();
     });
-    vegetation.clear();
-    loadBlockTextures();
+    chunkPool.clear();
+    meshes.clear();
     updateSky();
     
     const cx = Math.floor(pos.x / CHUNK);
@@ -599,17 +813,44 @@ function regenerate() {
         }
     }
     
-    console.log(`Generated ${meshes.size} chunks`);
+    console.log(`Generated ${chunkPool.size} chunks`);
 }
+
+function loadBlockTextures() {}
 
 function createChunk(cx, cz) {
     const key = cx + ',' + cz;
-    if (meshes.has(key)) return;
+    if (chunkPool.has(key)) {
+        const cached = chunkPool.get(key);
+        if (cached.mesh.parent !== scene) scene.add(cached.mesh);
+        cached.lastAccess = Date.now();
+        if (cached.dirty) updateChunkColors(cached);
+        return;
+    }
     
-    const res = 16;
+    if (chunkPool.size >= MAX_CHUNKS) {
+        let oldestKey = null;
+        let oldestTime = Infinity;
+        chunkPool.forEach((chunk, k) => {
+            if (chunk.lastAccess < oldestTime) {
+                oldestTime = chunk.lastAccess;
+                oldestKey = k;
+            }
+        });
+        if (oldestKey) {
+            const old = chunkPool.get(oldestKey);
+            scene.remove(old.mesh);
+            old.mesh.geometry.dispose();
+            old.mesh.material.dispose();
+            chunkPool.delete(oldestKey);
+        }
+    }
+    
+    const res = CHUNK_RES;
     const geo = new THREE.PlaneGeometry(CHUNK, CHUNK, res, res);
     const posArr = geo.attributes.position.array;
     const cols = new Float32Array(posArr.length);
+    const heights = new Float32Array(posArr.length / 3);
     
     const ox = cx * CHUNK;
     const oz = cz * CHUNK;
@@ -618,10 +859,12 @@ function createChunk(cx, cz) {
         const wx = ox + posArr[i];
         const wz = oz + posArr[i + 1];
         const h = getHeight(wx, wz);
+        const idx = i / 3;
         posArr[i + 2] = h;
+        heights[idx] = h;
         
-        const subworld = getZone(wx, wz);
-        const c = subworldColors[subworld] || 0x2d5a27;
+        const formula = subworldFormulas[params.subworld] || 'fbm';
+        const c = getColorSmooth(formula, h, wx, wz);
         cols[i] = ((c >> 16) & 255) / 255;
         cols[i + 1] = ((c >> 8) & 255) / 255;
         cols[i + 2] = (c & 255) / 255;
@@ -643,36 +886,82 @@ function createChunk(cx, cz) {
     mesh.position.set(ox + CHUNK / 2, 0, oz + CHUNK / 2);
     
     scene.add(mesh);
+    chunkPool.set(key, { mesh, cx, cz, heights, dirty: false, lastAccess: Date.now() });
     meshes.set(key, mesh);
+}
+
+function updateChunkColors(chunkData) {
+    const { mesh, cx, cz, heights } = chunkData;
+    const geo = mesh.geometry;
+    const posArr = geo.attributes.position.array;
+    const cols = geo.attributes.color.array;
+    const ox = cx * CHUNK;
+    const oz = cz * CHUNK;
+    const formula = subworldFormulas[params.subworld] || 'fbm';
+    
+    for (let i = 0; i < posArr.length; i += 3) {
+        const wx = ox + posArr[i];
+        const wz = oz + posArr[i + 1];
+        const h = getHeight(wx, wz);
+        const idx = i / 3;
+        posArr[i + 2] = h;
+        heights[idx] = h;
+        
+        const c = getColorSmooth(formula, h, wx, wz);
+        cols[i] = ((c >> 16) & 255) / 255;
+        cols[i + 1] = ((c >> 8) & 255) / 255;
+        cols[i + 2] = (c & 255) / 255;
+    }
+    
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
+    geo.computeVertexNormals();
+    chunkData.dirty = false;
+}
+
+function refreshAllChunks() {
+    chunkPool.forEach((chunk, key) => {
+        updateChunkColors(chunk);
+    });
 }
 
 function updateMinimap() {
     const ctx = window.minimapCtx;
     if (!ctx) return;
+    const size = window.minimapSize || 128;
+    const half = size / 2;
     
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(0, 0, 120, 120);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, size, size);
     
-    const scale = 2;
-    const range = 30;
-    const offsetX = 60 - pos.x * scale;
-    const offsetZ = 60 - pos.z * scale;
+    const scale = 1.5;
+    const offsetX = half - pos.x * scale;
+    const offsetZ = half - pos.z * scale;
+    const formula = subworldFormulas[params.subworld] || 'fbm';
     
-    meshes.forEach(mesh => {
-        const pos = mesh.position;
-        const mx = pos.x * scale + offsetX;
-        const mz = pos.z * scale + offsetZ;
-        if (mx > -20 && mx < 140 && mz > -20 && mz < 140) {
-            ctx.fillStyle = subworldColors[params.subworld] || '#2d5a27';
-            ctx.fillRect(mx - 8, mz - 8, 16, 16);
+    chunkPool.forEach((chunk) => {
+        const p = chunk.mesh.position;
+        const mx = p.x * scale + offsetX;
+        const mz = p.z * scale + offsetZ;
+        if (mx > -CHUNK * scale && mx < size + CHUNK * scale && mz > -CHUNK * scale && mz < size + CHUNK * scale) {
+            ctx.fillStyle = '#' + formulaPalettes[formula].colors[3].toString(16).padStart(6, '0');
+            ctx.fillRect(mx - 4, mz - 4, 8, 8);
+            
+            const centerH = chunk.heights[Math.floor(chunk.heights.length / 2)] || 10;
+            const color = getColorFromFormula(formula, centerH, p.x, p.z);
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(mx - 3, mz - 3, 6, 6);
         }
     });
     
     const marker = document.getElementById('minimap-marker');
     if (marker) {
-        marker.style.left = '60px';
-        marker.style.top = '60px';
+        marker.style.left = half + 'px';
+        marker.style.top = half + 'px';
     }
+    
+    const info = document.getElementById('minimap-info');
+    if (info) info.textContent = `${chunkPool.size} chunks`;
 }
 
 function updateDayNightCycle() {
@@ -712,8 +1001,8 @@ function updateDayNightCycle() {
         fog.setHex(colors.fog);
     }
     
-    const timeStr = (dayTime < 0.25 ? '🌙 Noche' : dayTime < 0.5 ? '🌅 Mañana' : dayTime < 0.75 ? '☀️ Día' : '🌆 Tarde');
-    document.getElementById('biome').textContent = params.subworld.replace('_', ' ') + ' ' + timeStr;
+    const timeStr = (dayTime < 0.25 ? 'Noche' : dayTime < 0.5 ? 'Mañana' : dayTime < 0.75 ? 'Día' : 'Tarde');
+    document.getElementById('biome').textContent = params.subworld.replace('_', ' ');
 }
 
 function updateUI() {
@@ -722,7 +1011,7 @@ function updateUI() {
     
     document.getElementById('biome').textContent = zone;
     document.getElementById('height').textContent = h.toFixed(0) + 'm';
-    document.getElementById('position').textContent = pos.x.toFixed(0) + ', ' + pos.y.toFixed(0) + ', ' + pos.z.toFixed(0);
+    document.getElementById('pos-header').textContent = pos.x.toFixed(0) + ', ' + pos.y.toFixed(0) + ', ' + pos.z.toFixed(0);
     document.getElementById('chunk').textContent = (pos.x / CHUNK).toFixed(0) + ', ' + (pos.z / CHUNK).toFixed(0);
     
     if (window.avatar) {
@@ -770,7 +1059,7 @@ function animate(time) {
         camera.rotation.set(pitch, yaw, 0, 'YXZ');
     }
     
-    // LOAD NEARBY CHUNKS
+    // LOAD NEARBY CHUNKS (streaming reactivo)
     const cx = Math.floor(pos.x / CHUNK);
     const cz = Math.floor(pos.z / CHUNK);
     const d = params.renderDistance;
@@ -780,6 +1069,17 @@ function animate(time) {
         }
     }
     
+    // Recargar chunks lejanos que estén en pool
+    chunkPool.forEach((chunk, key) => {
+        const dx = Math.abs(chunk.cx - cx);
+        const dz = Math.abs(chunk.cz - cz);
+        if (dx > d + 2 || dz > d + 2) {
+            if (chunk.mesh.parent === scene) {
+                scene.remove(chunk.mesh);
+            }
+        }
+    });
+    
     updateUI();
     updateMinimap();
     updateDayNightCycle();
@@ -788,7 +1088,13 @@ function animate(time) {
 }
 
 // START
-document.addEventListener('DOMContentLoaded', init);
+setTimeout(() => {
+    if (document.readyState === 'complete') {
+        init();
+    } else {
+        window.addEventListener('load', init);
+    }
+}, 100);
 </script>
 </body>
 </html>
