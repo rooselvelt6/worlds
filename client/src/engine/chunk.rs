@@ -1,4 +1,4 @@
-use crate::engine::terrain::{self, Zone};
+use crate::engine::terrain;
 use crate::math::{hsl_to_rgb, rgb_to_hsl};
 use crate::state::WorldParams;
 
@@ -33,7 +33,6 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
     let mut colors = Vec::with_capacity(num_verts * 3);
 
     let mut heights = vec![0.0_f64; num_verts];
-    let mut zones = vec![Zone::Forest; num_verts];
 
     for iz in 0..=RES {
         for ix in 0..=RES {
@@ -44,9 +43,10 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             terrain::crystal_effect(params, wx, wz, &mut h);
             terrain::cave_effect(params, wx, wz, &mut h);
             heights[idx] = h;
-            zones[idx] = terrain::get_zone(params, wx, wz);
         }
     }
+
+    let max_h = heights.iter().cloned().fold(0.0_f64, f64::max);
 
     for iz in 0..=RES {
         for ix in 0..=RES {
@@ -70,8 +70,7 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             normals.push(1.0 / len);
             normals.push((-dz_h as f32) / len);
 
-            let zone = zones[idx];
-            let c = terrain::get_zone_color(zone);
+            let c = terrain::get_formula_color(params.formula, heights[idx], max_h);
             let (h, s, l) = rgb_to_hsl(c[0], c[1], c[2]);
             let (r, g, b) = hsl_to_rgb(
                 (h + params.hue_shift as f32 / 360.0) % 1.0,

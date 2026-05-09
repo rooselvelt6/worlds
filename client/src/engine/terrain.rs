@@ -24,8 +24,8 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         FormulaType::Menger => menger_sponge(nx, nz),
         FormulaType::Vortex => vortex(nx, nz),
         FormulaType::Ice => ice(nx, nz),
-        FormulaType::Wave => wave(nx, nz),
-        FormulaType::Spiral => spiral(nx, nz),
+        FormulaType::Wave => wave_param(nx, nz, params.param_a * 2.0 + 0.2),
+        FormulaType::Spiral => spiral_param(nx, nz, params.param_b * 3.0 + 0.5),
         FormulaType::Hexagonal => hexagonal(nx, nz),
         FormulaType::RidgedMF => ridged_fbm(nx, nz, octaves.min(4)),
         FormulaType::DomainWarp => domain_warp_strength(nx, nz, params.param_b * 4.0),
@@ -120,6 +120,62 @@ pub fn get_zone_color(zone: Zone) -> [f32; 3] {
         Zone::Crystal => [0.545, 0.361, 0.965],
         Zone::Cave => [0.290, 0.290, 0.290],
         Zone::Lava => [1.0, 0.267, 0.0],
+    }
+}
+
+fn mix_color(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+}
+
+fn gradient(stops: &[[f32; 3]], t: f32) -> [f32; 3] {
+    let n = stops.len() - 1;
+    let tt = (t * n as f32).clamp(0.0, n as f32 - 0.001);
+    let i = tt as usize;
+    let frac = tt - i as f32;
+    mix_color(stops[i], stops[i + 1], frac)
+}
+
+pub fn get_formula_color(formula: FormulaType, h: f64, max_h: f64) -> [f32; 3] {
+    let t = (h / max_h.max(0.1)).clamp(0.0, 1.0) as f32;
+    match formula {
+        FormulaType::FBM =>
+            gradient(&[[0.05,0.15,0.30],[0.10,0.35,0.25],[0.25,0.55,0.20],[0.55,0.50,0.25],[0.85,0.80,0.70],[1.0,1.0,1.0]], t),
+        FormulaType::Perlin =>
+            gradient(&[[0.08,0.12,0.28],[0.15,0.30,0.50],[0.25,0.50,0.35],[0.50,0.45,0.25],[0.80,0.75,0.65],[0.95,0.95,0.95]], t),
+        FormulaType::Simplex =>
+            gradient(&[[0.10,0.05,0.25],[0.20,0.20,0.45],[0.30,0.45,0.55],[0.45,0.60,0.40],[0.75,0.70,0.55],[0.90,0.90,0.85]], t),
+        FormulaType::Voronoi =>
+            gradient(&[[0.15,0.10,0.20],[0.30,0.20,0.40],[0.50,0.30,0.55],[0.70,0.50,0.50],[0.85,0.75,0.60],[0.95,0.90,0.80]], t),
+        FormulaType::Mandelbrot =>
+            gradient(&[[0.05,0.00,0.10],[0.20,0.05,0.25],[0.45,0.10,0.40],[0.75,0.25,0.35],[0.95,0.60,0.40],[1.0,0.85,0.65]], t),
+        FormulaType::Sierpinski =>
+            gradient(&[[0.15,0.05,0.00],[0.35,0.10,0.00],[0.60,0.25,0.05],[0.85,0.50,0.10],[1.0,0.75,0.30],[1.0,0.95,0.60]], t),
+        FormulaType::Julia =>
+            gradient(&[[0.10,0.00,0.15],[0.30,0.05,0.35],[0.55,0.15,0.50],[0.80,0.30,0.45],[0.95,0.60,0.50],[1.0,0.85,0.75]], t),
+        FormulaType::Tetrahedron =>
+            gradient(&[[0.05,0.15,0.15],[0.10,0.30,0.35],[0.20,0.50,0.45],[0.40,0.60,0.40],[0.70,0.65,0.45],[0.90,0.85,0.75]], t),
+        FormulaType::Cube =>
+            gradient(&[[0.10,0.10,0.05],[0.25,0.25,0.10],[0.45,0.40,0.15],[0.65,0.55,0.25],[0.85,0.75,0.45],[1.0,0.95,0.70]], t),
+        FormulaType::Sphere =>
+            gradient(&[[0.05,0.10,0.20],[0.15,0.25,0.40],[0.25,0.40,0.55],[0.40,0.55,0.50],[0.70,0.70,0.60],[0.90,0.90,0.85]], t),
+        FormulaType::Menger =>
+            gradient(&[[0.10,0.05,0.10],[0.25,0.15,0.25],[0.40,0.25,0.35],[0.60,0.40,0.35],[0.80,0.65,0.45],[0.95,0.90,0.70]], t),
+        FormulaType::Vortex =>
+            gradient(&[[0.00,0.10,0.20],[0.10,0.25,0.45],[0.20,0.40,0.50],[0.40,0.55,0.40],[0.65,0.70,0.55],[0.90,0.90,0.80]], t),
+        FormulaType::Ice =>
+            gradient(&[[0.40,0.50,0.60],[0.55,0.65,0.75],[0.65,0.75,0.85],[0.75,0.85,0.90],[0.85,0.90,0.95],[0.95,0.97,1.0]], t),
+        FormulaType::Wave =>
+            gradient(&[[0.00,0.15,0.30],[0.05,0.30,0.50],[0.15,0.45,0.55],[0.35,0.55,0.45],[0.60,0.65,0.55],[0.85,0.85,0.80]], t),
+        FormulaType::Spiral =>
+            gradient(&[[0.15,0.05,0.20],[0.30,0.10,0.40],[0.50,0.20,0.50],[0.70,0.35,0.45],[0.85,0.60,0.50],[0.95,0.85,0.75]], t),
+        FormulaType::Hexagonal =>
+            gradient(&[[0.10,0.15,0.05],[0.20,0.30,0.10],[0.35,0.45,0.20],[0.55,0.55,0.30],[0.75,0.70,0.45],[0.95,0.90,0.70]], t),
+        FormulaType::RidgedMF =>
+            gradient(&[[0.20,0.15,0.10],[0.35,0.25,0.15],[0.50,0.35,0.20],[0.65,0.50,0.30],[0.85,0.70,0.50],[1.0,0.95,0.85]], t),
+        FormulaType::DomainWarp =>
+            gradient(&[[0.05,0.05,0.15],[0.15,0.10,0.30],[0.30,0.20,0.45],[0.50,0.35,0.45],[0.75,0.55,0.50],[0.95,0.85,0.75]], t),
+        FormulaType::Hybrid =>
+            gradient(&[[0.10,0.05,0.05],[0.25,0.15,0.15],[0.45,0.30,0.20],[0.65,0.50,0.30],[0.85,0.70,0.50],[1.0,0.90,0.75]], t),
     }
 }
 

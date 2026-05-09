@@ -172,12 +172,20 @@ pub fn ice(x: f64, z: f64) -> f64 {
 }
 
 pub fn wave(x: f64, z: f64) -> f64 {
-    (x * 0.5).sin() * (z * 0.5).cos() * 0.5 + 0.5
+    wave_param(x, z, 0.5)
+}
+
+pub fn wave_param(x: f64, z: f64, freq: f64) -> f64 {
+    (x * freq).sin() * (z * freq).cos() * 0.5 + 0.5
 }
 
 pub fn spiral(x: f64, z: f64) -> f64 {
+    spiral_param(x, z, 2.0)
+}
+
+pub fn spiral_param(x: f64, z: f64, turns: f64) -> f64 {
     let r = (x * x + z * z).sqrt();
-    (r * 2.0 - z.atan2(x)).sin() * 0.5
+    (r * turns - z.atan2(x)).sin() * 0.5
 }
 
 pub fn hexagonal(x: f64, z: f64) -> f64 {
