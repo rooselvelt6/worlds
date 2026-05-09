@@ -92,6 +92,55 @@ impl FormulaType {
         }
     }
 
+    pub fn param_a_label(&self) -> &'static str {
+        match self {
+            Self::Julia => "Julia C",
+            Self::DomainWarp => "Warp",
+            Self::Vortex => "Twist",
+            Self::Wave => "Freq",
+            Self::Spiral => "Spiral",
+            Self::Ice => "Mix",
+            Self::RidgedMF => "Rough",
+            Self::Hybrid => "Blend",
+            _ => "Param A",
+        }
+    }
+
+    pub fn param_b_label(&self) -> &'static str {
+        match self {
+            Self::DomainWarp => "Strength",
+            Self::Spiral => "Turns",
+            Self::Hexagonal => "Size",
+            Self::Voronoi => "Jitter",
+            Self::Cube => "Edge",
+            _ => "Param B",
+        }
+    }
+
+    pub fn formula_expr(&self, scale: f64, octaves: u32) -> String {
+        match self {
+            Self::FBM => format!("FBM(x·{:.3}, z·{:.3}, {})", scale, scale, octaves),
+            Self::Perlin => format!("Perlin(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Simplex => format!("Simplex(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Voronoi => format!("Voronoi(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Mandelbrot => format!("Mandelbrot(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Sierpinski => format!("Sierpinski(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Julia => format!("Julia(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Tetrahedron => format!("Tetra(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Cube => format!("Cube(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Sphere => format!("Sphere(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Menger => format!("Menger(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Vortex => format!("Vortex(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Ice => format!("Ice(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Wave => format!("Wave(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Spiral => format!("Spiral(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Hexagonal => format!("Hex(x·{:.3}, z·{:.3})", scale, scale),
+            Self::RidgedMF => format!("RidgedMF(x·{:.3}, z·{:.3}, {})", scale, scale, octaves.min(4)),
+            Self::DomainWarp => format!("Warp(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Hybrid => format!("Hybrid(x·{:.3}, z·{:.3})", scale, scale),
+        }
+    }
+
     pub fn emoji(&self) -> &'static str {
         match self {
             Self::FBM => "🏔️",
@@ -140,6 +189,8 @@ pub struct WorldParams {
     pub hue_shift: f64,
     pub saturation: f64,
     pub lightness: f64,
+    pub param_a: f64,
+    pub param_b: f64,
 }
 
 impl Default for WorldParams {
@@ -160,6 +211,8 @@ impl Default for WorldParams {
             hue_shift: 0.0,
             saturation: 1.0,
             lightness: 1.0,
+            param_a: 0.5,
+            param_b: 0.5,
         }
     }
 }

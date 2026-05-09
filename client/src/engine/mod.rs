@@ -16,7 +16,6 @@ use wasm_bindgen::JsCast;
 
 use crate::state::WorldParams;
 
-const RENDER_DISTANCE: i32 = 3;
 const GRAVITY: f64 = 20.0;
 const JUMP_SPEED: f64 = 12.0;
 
@@ -234,7 +233,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     s.prev_cx = cx;
     s.prev_cz = cz;
 
-    let d = RENDER_DISTANCE;
+    let d = s.params.render_distance as i32;
     let mut new_chunks: Vec<ChunkData> = Vec::new();
     let mut to_compute: Vec<(i32, i32)> = Vec::new();
 

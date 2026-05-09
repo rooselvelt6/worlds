@@ -17,7 +17,7 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         FormulaType::Voronoi => voronoi(nx, nz),
         FormulaType::Mandelbrot => mandelbrot(nx, nz),
         FormulaType::Sierpinski => sierpinski_triangle(nx, nz),
-        FormulaType::Julia => juliaset(nx, nz, 0.7885),
+        FormulaType::Julia => juliaset(nx, nz, params.param_a * 2.0 - 0.5),
         FormulaType::Tetrahedron => tetrahedron(nx, nz),
         FormulaType::Cube => cube_fractal(nx, nz),
         FormulaType::Sphere => sphere_field(nx, nz),
@@ -28,7 +28,7 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         FormulaType::Spiral => spiral(nx, nz),
         FormulaType::Hexagonal => hexagonal(nx, nz),
         FormulaType::RidgedMF => ridged_fbm(nx, nz, octaves.min(4)),
-        FormulaType::DomainWarp => domain_warp(nx, nz),
+        FormulaType::DomainWarp => domain_warp_strength(nx, nz, params.param_b * 4.0),
         FormulaType::Hybrid => hybrid_terrain(nx, nz),
     };
 

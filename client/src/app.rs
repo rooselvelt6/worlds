@@ -179,17 +179,73 @@ pub fn App() -> impl IntoView {
             // ===== SETTINGS PANEL =====
             {move || settings_open.get().then(|| view! {
                 <div class="absolute bottom-28 left-1/2 -translate-x-1/2 z-40 w-full max-w-lg px-2 pointer-events-none">
-                    <div class="pointer-events-auto bg-black/80 backdrop-blur-xl rounded-2xl border border-white/[0.04] p-3 space-y-2 overflow-y-auto max-h-[45vh] shadow-2xl">
+                    <div class="pointer-events-auto bg-black/80 backdrop-blur-xl rounded-2xl border border-white/[0.04] p-3 space-y-2 overflow-y-auto max-h-[50vh] shadow-2xl">
 
-                        // Formula params
+                        // General
                         <div class="flex items-center gap-2 mb-0.5">
-                            <span class="text-[9px] font-mono font-bold tracking-widest text-cyan-400 uppercase">Formula</span>
+                            <span class="text-[9px] font-mono font-bold tracking-widest text-sky-300 uppercase">General</span>
                             <div class="flex-1 h-px bg-white/5"></div>
                         </div>
 
                         <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Seed</span>
+                            <input type="range" min="1" max="9999" step="1"
+                                prop:value=move || format!("{}", state.params.get().seed)
+                                on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.seed = i.value_as_number() as u32); }
+                                class="flex-1 h-1 accent-sky-400 rounded-full bg-white/10 cursor-pointer"
+                            />
+                            <span class="text-[9px] font-mono text-white/70 w-12 text-right tabular-nums">{move || format!("{:04}", state.params.get().seed)}</span>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Speed</span>
+                            <input type="range" min="1" max="100" step="1"
+                                prop:value=move || format!("{}", state.params.get().speed)
+                                on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.speed = i.value_as_number()); }
+                                class="flex-1 h-1 accent-sky-400 rounded-full bg-white/10 cursor-pointer"
+                            />
+                            <span class="text-[9px] font-mono text-white/70 w-12 text-right tabular-nums">{move || format!("{:02}", state.params.get().speed as u32)}</span>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Mouse</span>
+                            <input type="range" min="0.1" max="5.0" step="0.1"
+                                prop:value=move || format!("{}", state.params.get().mouse_sensitivity)
+                                on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.mouse_sensitivity = i.value_as_number()); }
+                                class="flex-1 h-1 accent-sky-400 rounded-full bg-white/10 cursor-pointer"
+                            />
+                            <span class="text-[9px] font-mono text-white/70 w-12 text-right tabular-nums">{move || format!("{:.1}", state.params.get().mouse_sensitivity)}</span>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Dist</span>
+                            <input type="range" min="2" max="8" step="1"
+                                prop:value=move || format!("{}", state.params.get().render_distance)
+                                on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.render_distance = i.value_as_number() as u32); }
+                                class="flex-1 h-1 accent-sky-400 rounded-full bg-white/10 cursor-pointer"
+                            />
+                            <span class="text-[9px] font-mono text-white/70 w-12 text-right tabular-nums">{move || format!("{}", state.params.get().render_distance)}</span>
+                        </div>
+
+                        // Formula params
+                        <div class="flex items-center gap-2 mb-0.5 mt-1">
+                            <span class="text-[9px] font-mono font-bold tracking-widest text-cyan-400 uppercase">Formula</span>
+                            <div class="flex-1 h-px bg-white/5"></div>
+                        </div>
+
+                        // Formula info display
+                        <div class="px-2 py-1 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+                            <div class="text-[9px] font-mono text-cyan-300/80 tabular-nums tracking-tight leading-relaxed">
+                                {move || {
+                                    let p = state.params.get();
+                                    format!("h = {} \u{d7} {:.1} + {:.1}", p.formula.formula_expr(p.scale, p.octaves), p.amplitude, p.water_level)
+                                }}
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2">
                             <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Scale</span>
-                            <input type="range" min="0.005" max="0.1" step="0.001"
+                            <input type="range" min="0.002" max="0.15" step="0.001"
                                 prop:value=move || format!("{}", state.params.get().scale)
                                 on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.scale = i.value_as_number()); }
                                 class="flex-1 h-1 accent-cyan-400 rounded-full bg-white/10 cursor-pointer"
@@ -199,7 +255,7 @@ pub fn App() -> impl IntoView {
 
                         <div class="flex items-center gap-2">
                             <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Octaves</span>
-                            <input type="range" min="1" max="8" step="1"
+                            <input type="range" min="1" max="10" step="1"
                                 prop:value=move || format!("{}", state.params.get().octaves)
                                 on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.octaves = i.value_as_number() as u32); }
                                 class="flex-1 h-1 accent-cyan-400 rounded-full bg-white/10 cursor-pointer"
@@ -209,7 +265,7 @@ pub fn App() -> impl IntoView {
 
                         <div class="flex items-center gap-2">
                             <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Amp</span>
-                            <input type="range" min="0.2" max="5.0" step="0.1"
+                            <input type="range" min="0.2" max="8.0" step="0.1"
                                 prop:value=move || format!("{}", state.params.get().amplitude)
                                 on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.amplitude = i.value_as_number()); }
                                 class="flex-1 h-1 accent-cyan-400 rounded-full bg-white/10 cursor-pointer"
@@ -219,12 +275,33 @@ pub fn App() -> impl IntoView {
 
                         <div class="flex items-center gap-2">
                             <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">Water</span>
-                            <input type="range" min="0.0" max="3.0" step="0.1"
+                            <input type="range" min="0.0" max="5.0" step="0.1"
                                 prop:value=move || format!("{}", state.params.get().water_level)
                                 on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.water_level = i.value_as_number()); }
                                 class="flex-1 h-1 accent-cyan-400 rounded-full bg-white/10 cursor-pointer"
                             />
                             <span class="text-[9px] font-mono text-white/70 w-12 text-right tabular-nums">{move || format!("{:.1}", state.params.get().water_level)}</span>
+                        </div>
+
+                        // Param A / Param B (per-formula controls)
+                        <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">{move || state.params.get().formula.param_a_label()}</span>
+                            <input type="range" min="0.0" max="2.0" step="0.01"
+                                prop:value=move || format!("{}", state.params.get().param_a)
+                                on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.param_a = i.value_as_number()); }
+                                class="flex-1 h-1 accent-teal-400 rounded-full bg-white/10 cursor-pointer"
+                            />
+                            <span class="text-[9px] font-mono text-white/70 w-12 text-right tabular-nums">{move || format!("{:.2}", state.params.get().param_a)}</span>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-mono text-white/50 w-14 shrink-0">{move || state.params.get().formula.param_b_label()}</span>
+                            <input type="range" min="0.0" max="2.0" step="0.01"
+                                prop:value=move || format!("{}", state.params.get().param_b)
+                                on:input=move |ev| { let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into(); state.params.update(|p| p.param_b = i.value_as_number()); }
+                                class="flex-1 h-1 accent-teal-400 rounded-full bg-white/10 cursor-pointer"
+                            />
+                            <span class="text-[9px] font-mono text-white/70 w-12 text-right tabular-nums">{move || format!("{:.2}", state.params.get().param_b)}</span>
                         </div>
 
                         // Color controls

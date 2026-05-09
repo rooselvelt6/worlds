@@ -205,8 +205,12 @@ pub fn ridged_fbm(x: f64, z: f64, octaves: u32) -> f64 {
 }
 
 pub fn domain_warp(x: f64, z: f64) -> f64 {
-    let warp_x = x + perlin_noise(x + 10.0, z) * 2.0;
-    let warp_z = z + perlin_noise(x, z + 10.0) * 2.0;
+    domain_warp_strength(x, z, 2.0)
+}
+
+pub fn domain_warp_strength(x: f64, z: f64, strength: f64) -> f64 {
+    let warp_x = x + perlin_noise(x + 10.0, z) * strength;
+    let warp_z = z + perlin_noise(x, z + 10.0) * strength;
     fbm(warp_x, warp_z, 4)
 }
 
