@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 use noise::{NoiseFn, Perlin, Simplex};
-use std::collections::HashMap;
-use std::f64::consts::PI;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum FormulaType {
@@ -446,7 +444,7 @@ impl WorldGenerator {
         let mut amplitude = 1.0;
         let mut prev = 1.0;
         
-        for i in 0..octaves {
+        for _i in 0..octaves {
             let n = 1.0 - self.simplex.get([x * frequency, y * frequency, z * frequency]).abs();
             let ridge = n * n;
             total += ridge * amplitude * prev;
@@ -473,7 +471,7 @@ impl WorldGenerator {
         self.get_height_formula(wx, wz, params, formula)
     }
     
-    pub fn get_height_simple(&self, wx: i32, wz: i32, chunk_y: i32) -> f64 {
+    pub fn get_height_simple(&self, wx: i32, wz: i32, _chunk_y: i32) -> f64 {
         let params = WorldParams::default();
         self.get_height(wx as f64, wz as f64, &params)
     }
@@ -504,7 +502,7 @@ impl WorldGenerator {
         }
     }
     
-    fn get_biome_simple(&self, wx: i32, wz: i32) -> &'static str {
+    fn _get_biome_simple(&self, wx: i32, wz: i32) -> &'static str {
         let params = WorldParams::default();
         self.get_biome(wx as f64, wz as f64, &params)
     }

@@ -87,6 +87,14 @@ async fn serve_asset(State(state): State<AppState>, Path(path): Path<String>) ->
     let body = axum::body::Body::from(bytes);
     let mut res = axum::http::Response::new(body);
     res.headers_mut().insert(axum::http::header::CONTENT_TYPE, mime.parse().unwrap());
+    res.headers_mut().insert(
+        axum::http::HeaderName::from_static("cross-origin-opener-policy"),
+        "same-origin".parse().unwrap(),
+    );
+    res.headers_mut().insert(
+        axum::http::HeaderName::from_static("cross-origin-embedder-policy"),
+        "require-corp".parse().unwrap(),
+    );
     res
 }
 
@@ -108,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(serve_index))
         .route("/health", get(health_check))
         .route("/api/chunk/{x}/{y}/{z}", get(get_chunk))
-        .route("/assets/{*path}", get(serve_asset))
+        .route("/{*path}", get(serve_asset))
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()).layer(CompressionLayer::new()).layer(ConcurrencyLimitLayer::new(1000)).layer(cors))
         .with_state(state);
     
@@ -116,8 +124,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Servidor en http://0.0.0.0:3000");
     axum::serve(listener, app.into_make_service()).await?;
     Ok(())
-}
-
-async fn shutdown_signal() {
-    tokio::signal::ctrl_c().await.expect("Ctrl+C error");
 }
