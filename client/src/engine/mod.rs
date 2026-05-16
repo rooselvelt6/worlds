@@ -2,18 +2,24 @@ pub mod bridge;
 pub mod camera;
 pub mod chunk;
 pub mod controls;
+pub mod joystick;
+pub mod minimap;
+pub mod particles;
 pub mod terrain;
 
 use std::cell::{Cell, RefCell};
 use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
 
+
+
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
-use controls::{Controls, MASK_A, MASK_D, MASK_E, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_W};
+use controls::{Controls, MASK_A, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_W};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
+use crate::engine::terrain::Zone;
 use crate::state::WorldParams;
 
 const GRAVITY: f64 = 20.0;
@@ -30,6 +36,7 @@ pub struct HudData {
     pub speed: f64,
     pub fly_mode: bool,
     pub formula: String,
+    pub observer_mode: bool,
 }
 
 struct GameState {
@@ -45,6 +52,13 @@ struct GameState {
     fps_timer: f64,
     fps: u32,
     vel_y: f64,
+    joy_dx: Rc<Cell<f64>>,
+    joy_dy: Rc<Cell<f64>>,
+    time_of_day: f64,
+    prev_zone: Option<Zone>,
+    observer_mode: bool,
+    orbit_radius: f64,
+    night_mode: bool,
 }
 
 pub struct Engine {
@@ -56,6 +70,8 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(canvas: web_sys::HtmlCanvasElement, params: WorldParams) -> Result<Self, String> {
+        let joy_dx = Rc::new(Cell::new(0.0));
+        let joy_dy = Rc::new(Cell::new(0.0));
         canvas.set_tab_index(0);
 
         bridge::init(&canvas);
@@ -80,6 +96,13 @@ impl Engine {
             fps_timer: 0.0,
             fps: 0,
             vel_y: 0.0,
+            joy_dx: joy_dx.clone(),
+            joy_dy: joy_dy.clone(),
+            time_of_day: 0.5,
+            prev_zone: None,
+            observer_mode: false,
+            orbit_radius: 15.0,
+            night_mode: false,
         }));
 
         {
@@ -144,7 +167,15 @@ impl Engine {
                     s.fps_timer = now;
                 }
 
-                let keys_mask = s.controls.keys.get();
+                let mut keys_mask = s.controls.keys.get();
+                let joy_dx = s.joy_dx.get();
+                let joy_dy = s.joy_dy.get();
+                if joy_dx.abs() > 0.3 || joy_dy.abs() > 0.3 {
+                    if joy_dy < -0.3 { keys_mask |= MASK_W; }
+                    if joy_dy > 0.3 { keys_mask |= MASK_S; }
+                    if joy_dx < -0.3 { keys_mask |= MASK_A; }
+                    if joy_dx > 0.3 { keys_mask |= MASK_D; }
+                }
                 let yaw_val = s.controls.yaw.get();
                 let pitch_val = s.controls.pitch.get();
                 s.camera.yaw.set(yaw_val);
@@ -180,16 +211,65 @@ impl Engine {
                     }
                 }
 
+                // Observer mode toggle (C key)
+                if keys_mask & MASK_C != 0 && !s.observer_mode {
+                    s.observer_mode = true;
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_C);
+                } else if keys_mask & MASK_C != 0 && s.observer_mode {
+                    s.observer_mode = false;
+                    s.orbit_radius = 15.0;
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_C);
+                }
+
+                // Screenshot (F12)
+                if keys_mask & MASK_F12 != 0 {
+                    let angle = (s.camera.yaw.get() * 180.0 / std::f64::consts::PI) as i32;
+                    let formula_name = s.params.formula.name();
+                    let zone_name = terrain::get_zone(&s.params, s.camera.pos[0], s.camera.pos[2]).as_str();
+                    bridge::capture_screenshot(s.params.seed, formula_name, zone_name,
+                        s.camera.pos[0], s.camera.pos[1], s.camera.pos[2]);
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_F12);
+                }
+
                 let cx = (s.camera.pos[0] / CHUNK_SIZE) as i32;
                 let cz = (s.camera.pos[2] / CHUNK_SIZE) as i32;
                 if cx != s.prev_cx || cz != s.prev_cz {
                     generate_chunks(&mut s, cx, cz);
                 }
 
-                bridge::update_camera(
-                    s.camera.pos[0], s.camera.pos[1], s.camera.pos[2],
-                    yaw_val, pitch_val,
-                );
+                if s.observer_mode {
+                    let ox = s.camera.pos[0];
+                    let oy = s.camera.pos[1];
+                    let oz = s.camera.pos[2];
+                    let r = s.orbit_radius;
+                    let cam_x = ox + r * pitch_val.cos() * yaw_val.sin();
+                    let cam_y = oy + r * pitch_val.sin();
+                    let cam_z = oz + r * pitch_val.cos() * yaw_val.cos();
+                    bridge::update_camera(cam_x, cam_y, cam_z, yaw_val, pitch_val);
+                } else {
+                    bridge::update_camera(
+                        s.camera.pos[0], s.camera.pos[1], s.camera.pos[2],
+                        yaw_val, pitch_val,
+                    );
+                }
+
+                // Day/night cycle
+                if s.night_mode {
+                    s.time_of_day = 0.0;
+                } else {
+                    s.time_of_day += delta * 0.02;
+                    if s.time_of_day > 1.0 { s.time_of_day -= 1.0; }
+                }
+                bridge::set_time(s.time_of_day);
+                bridge::set_water_level(s.params.water_level);
+
+                // Ambient particles per zone
+                let zone = terrain::get_zone(&s.params, s.camera.pos[0], s.camera.pos[2]);
+                if s.prev_zone.map(|z| z != zone).unwrap_or(true) {
+                    s.prev_zone = Some(zone);
+                    particles::remove_ambient_particles();
+                    particles::spawn_zone_particles(zone, s.camera.pos[0], s.camera.pos[2], s.params.water_level);
+                }
 
                 bridge::render();
 
@@ -207,6 +287,7 @@ impl Engine {
                     speed: s.params.speed,
                     fly_mode: s.params.fly_mode,
                     formula: s.params.formula.name().to_string(),
+                    observer_mode: s.observer_mode,
                 };
             }));
 
@@ -226,6 +307,11 @@ impl Engine {
 
     pub fn get_hud(&self) -> HudData {
         self.hud.borrow().clone()
+    }
+
+    pub fn joystick_cells(&self) -> (Rc<Cell<f64>>, Rc<Cell<f64>>) {
+        let s = self.state.borrow();
+        (s.joy_dx.clone(), s.joy_dy.clone())
     }
 }
 

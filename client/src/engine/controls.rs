@@ -26,6 +26,8 @@ pub const MASK_SPACE: u16 = 1 << 4;
 pub const MASK_SHIFT: u16 = 1 << 5;
 pub const MASK_Q: u16 = 1 << 6;
 pub const MASK_E: u16 = 1 << 7;
+pub const MASK_C: u16 = 1 << 8;
+pub const MASK_F12: u16 = 1 << 9;
 
 impl Controls {
     pub fn new(yaw: Rc<Cell<f64>>, pitch: Rc<Cell<f64>>) -> Self {
@@ -58,6 +60,8 @@ impl Controls {
                 "Shift" => k |= MASK_SHIFT,
                 "q" | "Q" => k |= MASK_Q,
                 "e" | "E" => k |= MASK_E,
+                "c" | "C" => k |= MASK_C,
+                "F12" => k |= MASK_F12,
                 _ => {}
             }
             keys.set(k);
@@ -77,6 +81,8 @@ impl Controls {
                 "Shift" => k &= !MASK_SHIFT,
                 "q" | "Q" => k &= !MASK_Q,
                 "e" | "E" => k &= !MASK_E,
+                "c" | "C" => k &= !MASK_C,
+                "F12" => k &= !MASK_F12,
                 _ => {}
             }
             keys2.set(k);

@@ -40,8 +40,7 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             let wx = ox + ix as f64 * step;
             let wz = oz + iz as f64 * step;
             let mut h = terrain::get_height(params, wx, wz);
-            terrain::crystal_effect(params, wx, wz, &mut h);
-            terrain::cave_effect(params, wx, wz, &mut h);
+            terrain::zone_effects(params, wx, wz, &mut h);
             heights[idx] = h;
         }
     }

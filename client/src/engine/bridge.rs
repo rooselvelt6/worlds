@@ -22,4 +22,25 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeClearAll)]
     pub fn clear_all();
+
+    #[wasm_bindgen(js_name = threeBridgeSetTime)]
+    pub fn set_time(t: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetWaterLevel)]
+    pub fn set_water_level(level: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetFog)]
+    pub fn set_fog(r: f32, g: f32, b: f32, density: f32);
+
+    #[wasm_bindgen(js_name = threeBridgeSpawnParticles)]
+    pub fn spawn_particles(key: &str, positions: &js_sys::Float32Array, colors: &js_sys::Float32Array, count: u32);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveParticles)]
+    pub fn remove_particles(key: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeSetBloom)]
+    pub fn set_bloom(strength: f32, radius: f32, threshold: f32);
+
+    #[wasm_bindgen(js_name = threeBridgeCaptureScreenshot)]
+    pub fn capture_screenshot(seed: u32, formula: &str, zone: &str, x: f64, y: f64, z: f64);
 }

@@ -16,8 +16,9 @@ rayon = "1.11"
 wasm-bindgen-rayon = { version = "1.2", optional = true }
 worlds-shared = { path = "../shared" }
 web-sys = { version = "0.3", features = [
-    "Window", "Document", "HtmlCanvasElement",
+    "Window", "Document", "HtmlCanvasElement", "CanvasRenderingContext2d",
     "HtmlElement", "Element", "MouseEvent", "KeyboardEvent",
+    "TouchEvent", "TouchList", "Touch", "PointerEvent",
     "KeyboardEventInit", "Navigator", "Performance",
     "TouchEvent", "TouchList", "Touch",
     "console", "DomRect", "HtmlDivElement", "HtmlInputElement",

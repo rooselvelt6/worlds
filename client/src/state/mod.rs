@@ -6,6 +6,8 @@ pub enum FormulaType {
     Sierpinski, Julia, Tetrahedron, Cube, Sphere,
     Menger, Vortex, Ice, Wave, Spiral, Hexagonal,
     RidgedMF, DomainWarp, Hybrid,
+    Plasma, Cellular, Strange, Worley, Marble,
+    Terrazas, Erosion, Thermal,
 }
 
 impl FormulaType {
@@ -17,6 +19,9 @@ impl FormulaType {
             Self::Menger, Self::Vortex, Self::Ice, Self::Wave,
             Self::Spiral, Self::Hexagonal, Self::RidgedMF,
             Self::DomainWarp, Self::Hybrid,
+            Self::Plasma, Self::Cellular, Self::Strange,
+            Self::Worley, Self::Marble, Self::Terrazas,
+            Self::Erosion, Self::Thermal,
         ]
     }
 
@@ -41,6 +46,14 @@ impl FormulaType {
             Self::RidgedMF => "Ridged MF",
             Self::DomainWarp => "Domain Warp",
             Self::Hybrid => "Hybrid",
+            Self::Plasma => "Plasma",
+            Self::Cellular => "Cellular",
+            Self::Strange => "Strange",
+            Self::Worley => "Worley",
+            Self::Marble => "Marble",
+            Self::Terrazas => "Terrazas",
+            Self::Erosion => "Erosion",
+            Self::Thermal => "Thermal",
         }
     }
 
@@ -65,6 +78,14 @@ impl FormulaType {
             Self::RidgedMF => "zap",
             Self::DomainWarp => "rotate-3d",
             Self::Hybrid => "shuffle",
+            Self::Plasma => "zap",
+            Self::Cellular => "grid",
+            Self::Strange => "infinity",
+            Self::Worley => "circle",
+            Self::Marble => "swirl",
+            Self::Terrazas => "layers",
+            Self::Erosion => "droplets",
+            Self::Thermal => "flame",
         }
     }
 
@@ -89,6 +110,14 @@ impl FormulaType {
             Self::RidgedMF => "#fb7185",
             Self::DomainWarp => "#34d399",
             Self::Hybrid => "#e879f9",
+            Self::Plasma => "#f43f5e",
+            Self::Cellular => "#14b8a6",
+            Self::Strange => "#8b5cf6",
+            Self::Worley => "#f97316",
+            Self::Marble => "#e2e8f0",
+            Self::Terrazas => "#d97706",
+            Self::Erosion => "#06b6d4",
+            Self::Thermal => "#ef4444",
         }
     }
 
@@ -102,6 +131,10 @@ impl FormulaType {
             Self::Ice => "Mix",
             Self::RidgedMF => "Rough",
             Self::Hybrid => "Blend",
+            Self::Plasma => "Freq",
+            Self::Strange => "Chaos",
+            Self::Marble => "Vein",
+            Self::Terrazas => "Steps",
             _ => "Param A",
         }
     }
@@ -113,6 +146,8 @@ impl FormulaType {
             Self::Hexagonal => "Size",
             Self::Voronoi => "Jitter",
             Self::Cube => "Edge",
+            Self::Strange => "Attract",
+            Self::Erosion => "Iter",
             _ => "Param B",
         }
     }
@@ -138,6 +173,14 @@ impl FormulaType {
             Self::RidgedMF => format!("RidgedMF(x·{:.3}, z·{:.3}, {})", scale, scale, octaves.min(4)),
             Self::DomainWarp => format!("Warp(x·{:.3}, z·{:.3})", scale, scale),
             Self::Hybrid => format!("Hybrid(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Plasma => format!("Plasma(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Cellular => format!("Cellular(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Strange => format!("Strange(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Worley => format!("Worley(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Marble => format!("Marble(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Terrazas => format!("Terrazas(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Erosion => format!("Erosion(x·{:.3}, z·{:.3})", scale, scale),
+            Self::Thermal => format!("Thermal(x·{:.3}, z·{:.3})", scale, scale),
         }
     }
 
@@ -162,6 +205,14 @@ impl FormulaType {
             Self::RidgedMF => "⚡",
             Self::DomainWarp => "🌀",
             Self::Hybrid => "🔀",
+            Self::Plasma => "⚡",
+            Self::Cellular => "🧫",
+            Self::Strange => "🫧",
+            Self::Worley => "🔮",
+            Self::Marble => "💎",
+            Self::Terrazas => "🏛️",
+            Self::Erosion => "🏜️",
+            Self::Thermal => "🌡️",
         }
     }
 }

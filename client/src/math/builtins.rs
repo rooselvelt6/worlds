@@ -272,3 +272,96 @@ pub fn sierpinski_triangle(x: f64, z: f64) -> f64 {
     }
     if count % 2 == 0 { 0.0 } else { 1.0 }
 }
+
+pub fn plasma(x: f64, z: f64) -> f64 {
+    let freq = 3.0;
+    let t = x.sin(); // time derived from x position
+    let v1 = (x * freq + z * freq * 0.5 + t).sin();
+    let v2 = (z * freq - x * freq * 0.3).cos();
+    v1 * v2 * 0.5 + 0.5
+}
+
+pub fn cellular(x: f64, z: f64) -> f64 {
+    let ix = x.floor() as i64;
+    let iz = z.floor() as i64;
+    let fx = x - ix as f64;
+    let fz = z - iz as f64;
+    let rule = ((ix.wrapping_mul(127).wrapping_add(iz.wrapping_mul(311)) as f64).sin() * 43758.5453).fract().abs();
+    let state = (rule * 8.0) as u8;
+    let mut v = 0.0;
+    for dy in -1..=1i64 {
+        for dx in -1..=1i64 {
+            let nx = (ix + dx).wrapping_mul(157).wrapping_add((iz + dy).wrapping_mul(113)) as f64;
+            let n = (nx.sin() * 43758.5453).fract().abs();
+            if (state >> ((n * 7.0) as u8 % 8)) & 1 == 1 {
+                let d = ((fx - dx as f64).powi(2) + (fz - dy as f64).powi(2)).sqrt();
+                v += (1.0 - d * 0.5).max(0.0);
+            }
+        }
+    }
+    (v / 3.0).min(1.0)
+}
+
+pub fn strange_attractor(x: f64, z: f64, a: f64, b: f64) -> f64 {
+    let c = 1.5 + a * 2.0;
+    let d = 0.5 + b * 1.5;
+    let mut px = x;
+    let mut pz = z;
+    for _ in 0..6 {
+        let nx = (a * pz + c * (a * px).cos()).sin();
+        let nz = (b * px + d * (b * pz).sin()).cos();
+        px = nx;
+        pz = nz;
+    }
+    (px * pz).abs() * 0.5 + 0.3
+}
+
+pub fn worley(x: f64, z: f64) -> f64 {
+    let ix = x.floor() as i64;
+    let iz = z.floor() as i64;
+    let mut dists = [f64::MAX; 3];
+    for dx in -2..=2i64 {
+        for dz in -2..=2i64 {
+            let cx = ix + dx;
+            let cz = iz + dz;
+            let hx = (cx as f64 * 127.1 + cz as f64 * 311.7).sin().fract().abs();
+            let hz = (cx as f64 * 269.5 + cz as f64 * 183.3).sin().fract().abs();
+            let px = cx as f64 + hx;
+            let pz = cz as f64 + hz;
+            let d = ((x - px).powi(2) + (z - pz).powi(2)).sqrt();
+            if d < dists[0] { dists[2] = dists[1]; dists[1] = dists[0]; dists[0] = d; }
+            else if d < dists[1] { dists[2] = dists[1]; dists[1] = d; }
+            else if d < dists[2] { dists[2] = d; }
+        }
+    }
+    (dists[1] - dists[0]).min(1.0)
+}
+
+pub fn marble(x: f64, z: f64) -> f64 {
+    let f = fbm(x, z, 4);
+    let detail = fbm(x * 2.0, z * 2.0, 3);
+    let v = (f * 4.0 + detail * 2.0).sin() * 0.5 + 0.5;
+    v
+}
+
+pub fn terrazas(x: f64, z: f64, levels: f64) -> f64 {
+    let h = fbm(x, z, 4);
+    let levels = levels.max(1.0);
+    (h * levels).floor() / levels
+}
+
+pub fn erosion(x: f64, z: f64) -> f64 {
+    let h = fbm(x, z, 5);
+    let slope_x = (fbm(x + 0.1, z, 5) - fbm(x - 0.1, z, 5)) / 0.2;
+    let slope_z = (fbm(x, z + 0.1, 5) - fbm(x, z - 0.1, 5)) / 0.2;
+    let slope = (slope_x * slope_x + slope_z * slope_z).sqrt();
+    let erosion_factor = (1.0 - slope).max(0.0).powi(2);
+    h * (0.3 + erosion_factor * 0.7)
+}
+
+pub fn thermal(x: f64, z: f64) -> f64 {
+    let h = fbm(x, z, 4);
+    let temp = perlin_noise(x * 2.0 + 5.0, z * 2.0 + 5.0) * 0.5 + 0.5;
+    let thermal_noise = perlin_noise(x * 10.0, z * 10.0) * 0.15;
+    h * temp + thermal_noise
+}

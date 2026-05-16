@@ -6,6 +6,11 @@
     <title>Worlds — Procedural Terrain Generator</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.160.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://unpkg.com/three@0.160.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://unpkg.com/three@0.160.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://unpkg.com/three@0.160.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://unpkg.com/three@0.160.0/examples/js/shaders/CopyShader.js"></script>
     <script src="three_bridge.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,6 +22,31 @@
         input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; }
         input[type="range"]::-moz-range-thumb { border: none; }
+        .slider-glow::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: #22d3ee;
+            box-shadow: 0 0 8px rgba(34,211,238,0.4), 0 0 20px rgba(34,211,238,0.15);
+            transition: box-shadow 0.2s, transform 0.15s;
+            border: none;
+        }
+        .slider-glow::-moz-range-thumb {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: #22d3ee;
+            box-shadow: 0 0 8px rgba(34,211,238,0.4), 0 0 20px rgba(34,211,238,0.15);
+            transition: box-shadow 0.2s, transform 0.15s;
+            border: none;
+        }
+        .slider-glow:hover::-webkit-slider-thumb {
+            box-shadow: 0 0 12px rgba(34,211,238,0.6), 0 0 30px rgba(34,211,238,0.25);
+            transform: scale(1.15);
+        }
+        .slider-glow:hover::-moz-range-thumb {
+            box-shadow: 0 0 12px rgba(34,211,238,0.6), 0 0 30px rgba(34,211,238,0.25);
+            transform: scale(1.15);
+        }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }

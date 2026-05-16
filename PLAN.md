@@ -1,305 +1,252 @@
-# WORLD'S - Plan de Mejoras en 10 Fases
+# 🌍 WORLDS — Plan de Transformación Visual y de Jugabilidad
 
 ## Estado Actual (Base)
-- Motor Rust: 10 fórmulas matemáticas
-- Frontend: 10 submundos conUI
-- Rendering: Three.js chunksdinámicos
-- Controles: WASD + mouse360°
-- Cámara: Primera persona
+- Motor Rust WASM + Three.js (Leptos UI)
+- 19 fórmulas matemáticas de terreno
+- 10 zonas/biomas
+- Controles: WASD + mouse pointer lock
+- Cámara: primera persona
+- UI: paneles negros con sliders básicos
 
 ---
 
-## FASE 1: HUD y Crosshair (Semana1)
-**Objetivo**: Mejorarlainterfazvisual sinromper lógica
+## Visión General
 
-### Cambios en index.html:
-- [ ] Agregar crosshair (center screen)
-- [ ] Agregar minimap (bottom-right)
-- [ ] Mostrarbiome/coordenadas en HUD
-- [ ] Indicador de FPS
-
-###Archivos: index.html (CSS + HTML)
-- Crosshair: centro de pantalla (CSS)
-- Minimap:canvas 2D ocanvas3D
-- Stats: actualizar en updateUI()
-
-**Riesgo**: BAJO - Solo UI/CSS
+Transformar WORLDS en una experiencia visualmente impactante, con interfaz poética, controles tipo gamepad/joystick, minimapa, nuevos universos de generación y efectos cinematográficos.
 
 ---
 
-## FASE 2: Texturas de Bloques (Semana2)
-**Objetivo**: Agregar textures sin cambiar generación
+## FASE 1: Interfaz Renacida (UI/UX)
+**Objetivo**: Paneles bellos, metáforas poéticas, sin funciones repetidas.
 
-### Nuevos archivos:
-- assets/textures/grass.png
-- assets/textures/stone.png
-- assets/textures/sand.png
-- assets/textures/water.png
+### Cambios en app.rs (Leptos UI):
+- [ ] **Glassmorphism profundo**: Paneles con `backdrop-blur-xl`, bordes luminosos, sombras con color dinámico según fórmula activa
+- [ ] **Metáforas poéticas** en etiquetas:
+  - "Semilla del Mundo" → seed
+  - "Gravedad Onírica" → amplitude
+  - "Horizonte" → render distance
+  - "Frecuencia Vital" → scale
+  - "Océano Interior" → water level
+  - "Armonía" → hue shift
+  - "Intensidad" → saturation
+  - "Luminosidad" → lightness
+- [ ] **Tabs deslizantes**: Mundo | Fórmula | Color | Control (organización tipo acordeón)
+- [ ] **Animaciones**: sliders con glow progresivo, botones con ripple, transiciones suaves
+- [ ] **Modo Simple/Avanzado**: toggle que ocuestra sliders complejos
+- [ ] **Tipografía**: títulos en Orbitron, datos en JetBrains Mono, etiquetas en Inter
+- [ ] **Iconos SVG animados** en vez de emojis planos
 
-### Cambios en index.html:
-- [ ] TextureLoader de Three.js
-- [ ] Mapeobiome → textura
-- [ ] MeshLambertMaterial → MeshStandardMaterial
+**Archivos**: `client/src/app.rs`, `client/index.html` (CSS)
 
-### Código nuevo (index.html):
-```javascript
-const textures = {};
-function loadTextures() {
-    const loader = new THREE.TextureLoader();
-    textures.grass = loader.load('assets/textures/grass.png');
-    // ... otros
-}
+---
+
+## FASE 2: Joystick Virtual + Control Táctil + Gamepad
+**Objetivo**: Navegar por cualquier superficie con control intuitivo.
+
+### Nuevo archivo:
+- [ ] `client/src/engine/joystick.rs` — Lógica de joystick virtual + gamepad
+
+### Cambios:
+- [ ] **Joystick circular** táctil (Canvas 2D + pointer events):
+  - Zona activa en esquina inferior izquierda
+  - Círculo base semitransparente + círculo interno que sigue el dedo
+  - Vector de dirección se traduce a movimiento (WASD analógico)
+- [ ] **Botones de acción** tipo gamepad (A/B/X/Y):
+  - A = Saltar, B = Sprint, X = Fly/Walk, Y = Interactuar
+- [ ] **D-pad como alternativa** táctil
+- [ ] **Gamepad API**: soporte para mandos USB/bluetooth
+- [ ] **Control híbrido**: joystick visible en móvil, oculto en desktop (o toggle)
+- [ ] **Modo Surface Follow**: el joystick adapta la cámara para seguir cualquier pendiente
+- [ ] Toque doble en canvas: activa/desactiva joystick
+
+**Archivos**: `client/src/engine/joystick.rs` (nuevo), `client/src/engine/mod.rs`, `client/src/engine/controls.rs`, `client/src/app.rs`
+
+---
+
+## FASE 3: Minimap + Brújula Celeste
+**Objetivo**: Ver el mapa del terreno alrededor y orientación.
+
+### Cambios en app.rs:
+- [ ] **Minimapa circular** (esquina inferior derecha, 180px):
+  - Renderizado en Canvas 2D desde Rust (no Three.js, más ligero)
+  - Vista cenital del terreno circundante (radio = render_distance × chunk_size)
+  - Coloreado por bioma real (usa `get_zone()`)
+  - Punto brillante = jugador, línea = dirección de mirada
+  - Grid de chunks sutil
+- [ ] **Brújula holográfica** tipo disco flotante (parte superior):
+  - N/E/S/W en fuente mono
+  - Dirección actual se ilumina con glow
+- [ ] **Altímetro vertical analógico**: barra vertical con gradiente, aguja marcando altura actual
+- [ ] **Coordenadas** elegantes en esquina superior izquierda (formato "X: 124 · Z: 89 · ALT: 23.4")
+
+### Renderizado:
+- El minimapa se dibuja en un `<canvas>` separado desde Rust con `web_sys::CanvasRenderingContext2d`
+- Se actualiza cada ~100ms (no cada frame)
+- Usa `get_height()` y `get_zone()` ya existentes
+
+**Archivos**: `client/src/app.rs`, `client/src/engine/minimap.rs` (nuevo)
+
+---
+
+## FASE 4: Universo de Fórmulas Expandido
+**Objetivo**: Más variedad, blending entre fórmulas, mutación procedural.
+
+### Nuevas fórmulas en math/builtins.rs:
+- [ ] **Plasma**: `sin(x * freq + z * freq * 0.5 + t) * cos(z * freq - x * freq * 0.3)`
+- [ ] **Cellular Automata**: ruido basado en reglas CA 1D aplicadas en 2D
+- [ ] **Strange Attractor (Clifford)**: `x_{n+1} = sin(a·y_n) + c·cos(a·x_n)`, etc.
+- [ ] **Worley Noise**: distancia cellular euclidiana con 3 puntos por celda
+- [ ] **Marble**: `sin(fbm(x,z) * freq + fbm(x*2, z*2) * 0.5)`
+- [ ] **Terrazas**: cuantización de FBM en escalones: `floor(h * levels) / levels`
+- [ ] **Erosion**: simulación simplificada de erosión hidráulica
+- [ ] **Thermal**: mezcla de ruido térmico + FBM
+
+### Blending de fórmulas:
+- [ ] `BlendA` = slider `mezcla` (0-1) entre fórmula actual y secundaria seleccionada
+- [ ] `BlendB` = slider `peso` para ponderar
+
+### Mutación procedural:
+- [ ] Cada chunk puede usar variante ligeramente diferente según `seed + cx + cz`
+- [ ] Parámetros: `(fórmula_base ± pequeña variación)`
+
+### Nuevos biomas:
+- [ ] **Fungus**: colores púrpura/verde neón, formas redondeadas
+- [ ] **Abyss**: oscuro profundo, altura negativa constante, columnas
+- [ ] **Storm**: alto contraste, crestas afiladas, colores gris/azul tormenta
+- [ ] **Aurora**: verde/azul brillante, ondas suaves
+- [ ] **Magma**: rojo/naranja brillante, fisuras luminosas
+
+### Nuevo enum + actualizaciones:
+- [ ] `client/src/state/mod.rs`: añadir variantes a `FormulaType`
+- [ ] `client/src/math/builtins.rs`: implementar funciones
+- [ ] `client/src/engine/terrain.rs`: añadir al match de `get_height()` y colores
+- [ ] `client/src/app.rs`: botones para nuevas fórmulas y biomas
+
+**Archivos**: `client/src/math/builtins.rs`, `client/src/state/mod.rs`, `client/src/engine/terrain.rs`, `client/src/app.rs`
+
+---
+
+## FASE 5: Cielo Vivo + Efectos Visuales
+**Objetivo**: Entorno inmersivo con ciclo día/noche y atmósfera dinámica.
+
+### Cambios en three_bridge.js y engine:
+- [ ] **Skybox procedural**:
+  - Gradiente de cielo según bioma: zenith → horizon
+  - Nubes simples (sprites o shader)
+  - Estrellas en modo noche
+  - Auroras para zona Aurora
+- [ ] **Ciclo día/noche**:
+  - Tiempo continuo 0-1 (o manual con slider)
+  - Sol se mueve en arco (luz direccional sigue)
+  - Luz ambiental cambia intensidad y color (cálido día, azul noche)
+  - Cielo transiciona suavemente
+  - Luna visible en noche
+- [ ] **Niebla volumétrica adaptativa**:
+  - Color de niebla según bioma
+  - Densidad varía con altura (más densa en valles)
+- [ ] **Agua semitransparente** (nuevo mesh plano en y=water_level con transparencia y animación de ondas)
+- [ ] **Partículas ambientales**:
+  - Forest: hojas verdes cayendo
+  - Desert: arena levantada
+  - Tundra: nieve cayendo
+  - Volcanic/Lava: chispas ascendentes
+  - Crystal: cristales brillantes flotando
+  - Jungle: pétalos/frutos
+  - Fungus: esporas brillantes
+
+### Implementación:
+- Partículas con `THREE.Points` y `PointsMaterial`
+- Datos de posición/color generados desde Rust
+- Ciclo día/noche controlado desde engine mod.rs
+
+**Archivos**: `client/three_bridge.js`, `client/src/engine/mod.rs`, `client/src/engine/particles.rs` (nuevo)
+
+---
+
+## FASE 6: Post-procesado Cinematográfico
+**Objetivo**: Efectos visuales avanzados con pasada de post-proceso.
+
+### Cambios en three_bridge.js:
+- [ ] **UnrealBloomPass** para resplandor:
+  - Intensidad según zona (fuerte en Crystal/Lava, sutil en Forest)
+- [ ] **Color grading**:
+  - LUT por bioma (tibio, frío, saturado, desaturado)
+- [ ] **Vignette** dinámico:
+  - Más notable en cuevas/cavernas
+- [ ] **Depth of field**:
+  - Desenfoque suave en distancias lejanas
+
+### Dependencias:
+- Importar `three/addons/postprocessing/EffectComposer.js`
+- Importar `three/addons/postprocessing/RenderPass.js`
+- Importar `three/addons/postprocessing/UnrealBloomPass.js`
+- Importar `three/addons/shaders/LuminosityHighPassShader.js`
+- Importar `three/addons/shaders/CopyShader.js`
+
+**Archivos**: `client/three_bridge.js`
+
+---
+
+## FASE 7: Exploración Aumentada
+**Objetivo**: Herramientas para explorar, marcar y capturar el mundo.
+
+### Cambios en app.rs y engine:
+- [ ] **Waypoints**: marcar posición actual con nombre (tecla M)
+  - Se muestran en minimapa como puntos de color
+  - Lista en panel lateral
+- [ ] **Modo Observador** (tecla C):
+  - Cámara libre orbital alrededor del jugador
+  - Scroll para zoom in/out
+  - Ideal para apreciar paisajes
+- [ ] **Fotos Instantáneas** (tecla F12):
+  - Captura el canvas actual
+  - Descarga PNG con metadata (seed, fórmula, zona, coordenadas)
+- [ ] **Rastro de luz**: trail brillante detrás del jugador (opcional, toggle)
+- [ ] **Modo Noche**: toggle rápido para oscurecer entorno y ver estrellas/luz de cristales
+
+**Archivos**: `client/src/app.rs`, `client/src/engine/mod.rs`, `client/three_bridge.js`
+
+---
+
+## Resumen de Archivos a Modificar/Crear
+
+### Archivos existentes (modificar):
+| Archivo | Cambios |
+|---------|---------|
+| `client/src/app.rs` | F1 (UI), F3 (minimap), F4 (nuevos botones), F7 |
+| `client/src/engine/mod.rs` | F2 (joystick integración), F5 (cielo), F7 |
+| `client/src/engine/controls.rs` | F2 (gamepad, joystick input) |
+| `client/src/engine/terrain.rs` | F4 (nuevas fórmulas, biomas, colores) |
+| `client/src/state/mod.rs` | F4 (nuevos FormulaType, biomas) |
+| `client/src/math/builtins.rs` | F4 (nuevas funciones de ruido) |
+| `client/three_bridge.js` | F5 (cielo, partículas), F6 (post-procesado) |
+| `client/index.html` | F1 (CSS), F6 (imports three addons) |
+
+### Archivos nuevos (crear):
+| Archivo | Propósito |
+|---------|-----------|
+| `client/src/engine/joystick.rs` | F2: Lógica de joystick virtual + gamepad |
+| `client/src/engine/minimap.rs` | F3: Renderizado de minimapa en Canvas 2D |
+| `client/src/engine/particles.rs` | F5: Sistema de partículas ambientales |
+
+---
+
+## Orden de Implementación Recomendado
+
+```
+F1 (Interfaz) → F3 (Minimap) → F4 (Fórmulas) → F2 (Joystick) → F5 (Cielo) → F6 (Post) → F7 (Exploración)
 ```
 
-**Riesgo**: BAJO - Agregar sin modificar getHeight()
+| # | Fase | Dificultad | Impacto | Dependencias |
+|---|------|-----------|---------|-------------|
+| 1 | Interfaz Renacida | Media | ⭐⭐⭐⭐⭐ | Ninguna |
+| 2 | Minimap + Brújula | Media | ⭐⭐⭐⭐⭐ | F1 (parcial) |
+| 3 | Universo de Fórmulas | Media-Alta | ⭐⭐⭐⭐ | Ninguna |
+| 4 | Joystick + Control | Media | ⭐⭐⭐⭐ | Ninguna |
+| 5 | Cielo Vivo | Media | ⭐⭐⭐⭐⭐ | F3 (parcial) |
+| 6 | Post-procesado | Alta | ⭐⭐⭐⭐⭐ | F5 |
+| 7 | Exploración Aumentada | Baja-Media | ⭐⭐⭐⭐ | F3 |
 
 ---
 
-## FASE 3: Skybox Dinámico (Semana3)
-**Objetivo**: Cambiar elfondo según submundo
-
-### Cambios en index.html:
-- [ ] Array de colors por submundo
-- [ ]scene.background actualizado
-- [ ]scene.fog adaptive
-
-### Código:
-```javascript
-const skyColors = {
-    fractal_forest: 0x87ceeb,
-    mandelbrot_realm: 0x1a0a2e,
-    crystal_cavern: 0x2d1b4e,
-    // ...
-};
-function updateSky() {
-    scene.background = new THREE.Color(skyColors[params.subworld]);
-}
-```
-
-**Riesgo**: BAJO - Solo cambio de color
-
----
-
-## FASE 4: Ciclo Día/Noche (Semana4)
-**Objetivo**: Luz dinámica según tiempo
-
-### Cambios en index.html:
-- [ ] Time tracker (0-1 cycle)
-- [ ] Update sun position
-- [ ] Update ambient light
-- [ ] Toggle skycolor day/night
-
-### Código:
-```javascript
-let dayTime = 0;
-function updateDayNight() {
-    dayTime = (dayTime + 0.001) % 1;
-    const sunY = Math.sin(dayTime * Math.PI) * 80;
-    sun.position.y = sunY;
-    ambient.intensity = 0.3 + Math.max(0, Math.sin(dayTime * Math.PI)) * 0.5;
-}
-```
-
-**Riesgo**: BAJO - Solo animaciones de luz
-
----
-
-## FASE 5: Tercera Persona (Semana5)
-**Objetivo**: Cámara detrás del jugador
-
-### Cambios en index.html:
-- [ ] Toggle first/thirdperson (key T)
-- [ ] Thirdperson offset (behind + up)
-- [ ] Avatar mesh visible en 3ra persona
-
-### Código:
-```javascript
-let cameraMode = 'first'; // 'first' o 'third'
-document.addEventListener('keydown', e => {
-    if (e.key.toLowerCase() === 't') {
-        cameraMode = cameraMode === 'first' ? 'third' : 'first';
-    }
-});
-function updateCamera() {
-    if (cameraMode === 'third') {
-        const cx = pos.x - Math.sin(yaw) * 8;
-        const cz = pos.z - Math.cos(yaw) * 8;
-        camera.position.set(cx, pos.y + 4, cz);
-        camera.lookAt(pos.x, pos.y, pos.z);
-    }
-}
-```
-
-**Riesgo**: MEDIO - Cambia cámara, easyollback
-
----
-
-## FASE 6: Árboles y Vegetación (Semana6)
-**Objetivo**: Agregar objetos3D al mundo
-
-### Nuevas funciones en index.html:
-- [ ] generateTree(x, y, z) → Mesh
-- [ ] generateFlower(x, y, z) → Mesh
-- [ ] spawnVegetation() en chunks
-
-### Código:
-```javascript
-function createTree(x, y, z) {
-    const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.3, 0.4, 3, 6),
-        new THREE.MeshStandardMaterial({color: 0x8B4513})
-    );
-    const leaves = new THREE.Mesh(
-        new THREE.ConeGeometry(2, 4, 8),
-        new THREE.MeshStandardMaterial({color: 0x228B22})
-    );
-    leaves.position.y = 3.5;
-    // Merge o Group
-}
-```
-
-**Riesgo**: MEDIO - Nuevogeometry, sin cambiar terreno
-
----
-
-## FASE 7: Minerales y Cuevas (Semana7)
-**Objetivo**:添加矿物质ycuevas al motor Rust
-
-### Cambios en shared/src/lib.rs:
-- [ ] BlockType::Gold, BlockType::Diamond, BlockType::Coal
-- [ ] generateCaveLayer() en WorldGenerator
-- [ ] getOreAt() función nueva
-
-### Código Rust:
-```rust
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum BlockType {
-    // ... existente
-    Coal,
-    Gold,
-    Diamond,
-    Emerald,
-}
-
-impl BlockType {
-    pub fn is_ore(&self) -> bool {
-        matches!(self, BlockType::Coal | BlockType::Gold | BlockType::Diamond)
-    }
-}
-```
-
-**Riesgo**: MEDIO - Agregarenum, no cambiar existentes
-
----
-
-## FASE 8: Sistema de Inventario (Semana8)
-**Objetivo**: UI de inventario y guardar estado
-
-### Cambios en index.html:
-- [ ] HTML panel inventario
-- [ ] Array inventory[] 
-- [ ] Select block type (keys 1-9)
-- [ ] Place/break blocks (click)
-
-### Código:
-```javascript
-let inventory = ['grass', 'stone', 'wood', 'dirt'];
-let selectedBlock = 0;
-document.addEventListener('keydown', e => {
-    if (e.key >= '1' && e.key <= '9') {
-        selectedBlock = parseInt(e.key) - 1;
-    }
-});
-canvas.addEventListener('click', () => {
-    placeBlock(); // Raycasting
-});
-```
-
-**Riesgo**: ALTO - Requiere cuidadodefault
-
----
-
-## FASE 9: Guardar/Cargar Mundos (Semana9)
-**Objetivo**: Persistenciajuga en localStorage
-
-### Cambios en index.html:
-- [ ] worldState = {pos, inventory, biome}
-- [ ] saveWorld() → localStorage
-- [ ] loadWorld() → localStorage
-- [ ] Export/Import JSON
-
-### Código:
-```javascript
-function saveWorld() {
-    const state = {
-        pos,
-        inventory,
-        params,
-        seed: Date.now()
-    };
-    localStorage.setItem('worlds_save', JSON.stringify(state));
-}
-
-function loadWorld() {
-    const saved = localStorage.getItem('worlds_save');
-    if (saved) {
-        const state = JSON.parse(saved);
-        pos = state.pos;
-        inventory = state.inventory;
-    }
-}
-```
-
-**Riesgo**: MEDIO - Solo localStorage
-
----
-
-## FASE 10: Multiplayer Local (Semana10)
-**Objetivo**: Dosjugadores en la misma máquina
-
-### Cambios en index.html:
-- [ ] Player 2 spawn (key P)
-- [ ] Split-screen ocamera switch
-- [ ] Inventory separar
-
-### Código:
-```javascript
-let players = [
-    {x: 50, y: 25, z: 50, color: 0x22d3ee},
-    {x: 60, y: 25, z: 50, color: 0xf43f5e}
-];
-let activePlayer = 0;
-
-document.addEventListener('keydown', e => {
-    if (e.key.toLowerCase() === 'p') {
-        activePlayer = 1 - activePlayer;
-    }
-});
-```
-
-**Riesgo**: BAJO - Solo input switch
-
----
-
-## Resumen de Riesgos
-
-| Fase | Riesgo | Rollback |
-|------|--------|----------|
-| 1 | BAJO | Easy |
-| 2 | BAJO | Easy |
-| 3 | BAJO | Easy |
-| 4 | BAJO | Easy |
-| 5 | MEDIO | Medium |
-| 6 | MEDIO | Medium |
-| 7 | MEDIO | Medium |
-| 8 | ALTO | Hard |
-| 9 | MEDIO | Medium |
-| 10 | BAJO | Easy |
-
----
-
-## Orden Recomendado
-
-1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
-
-Comenzar por Fases 1-4 (BAJO riesgo) da confianza y mejoras visuales inmediatas.
+*Plan generado el 15 de Mayo 2026 — WORLDS Project*

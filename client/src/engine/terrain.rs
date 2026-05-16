@@ -30,6 +30,14 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         FormulaType::RidgedMF => ridged_fbm(nx, nz, octaves.min(4)),
         FormulaType::DomainWarp => domain_warp_strength(nx, nz, params.param_b * 4.0),
         FormulaType::Hybrid => hybrid_terrain(nx, nz),
+        FormulaType::Plasma => plasma(nx, nz),
+        FormulaType::Cellular => cellular(nx, nz),
+        FormulaType::Strange => strange_attractor(nx, nz, params.param_a, params.param_b),
+        FormulaType::Worley => worley(nx, nz),
+        FormulaType::Marble => marble(nx, nz),
+        FormulaType::Terrazas => terrazas(nx, nz, params.param_a * 5.0 + 2.0),
+        FormulaType::Erosion => erosion(nx, nz),
+        FormulaType::Thermal => thermal(nx, nz),
     };
 
     let height = match params.formula {
@@ -45,6 +53,14 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         FormulaType::RidgedMF => base * amplitude * 1.5 + water_level,
         FormulaType::DomainWarp => base * amplitude * 1.2 + water_level,
         FormulaType::Hybrid => base * amplitude + water_level,
+        FormulaType::Plasma => base * amplitude * 0.8 + water_level,
+        FormulaType::Cellular => base * amplitude * 1.0 + water_level,
+        FormulaType::Strange => base * amplitude * 1.2 + water_level,
+        FormulaType::Worley => base * amplitude * 0.3 + water_level,
+        FormulaType::Marble => base * amplitude * 0.6 + water_level,
+        FormulaType::Terrazas => base * amplitude * 1.5 + water_level,
+        FormulaType::Erosion => base * amplitude * 1.0 + water_level,
+        FormulaType::Thermal => base * amplitude * 0.8 + water_level,
         _ => base * amplitude + water_level,
     };
 
@@ -55,11 +71,15 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         Zone::Volcanic => h = h * 1.5 + 2.0,
         Zone::Crystal => h *= 0.5,
         Zone::Cave => h = 3.0 + (wx * 0.5).sin() * 2.0,
+        Zone::Fungus => h = h * 0.6 + 1.0 + (wx * 0.3).sin() * (wz * 0.3).cos() * 1.5,
+        Zone::Abyss => h = h * 0.2 + water_level * 0.3,
+        Zone::Storm => h = h * 1.8 + 1.0,
+        Zone::Aurora => h = h * 0.5 + 0.5,
+        Zone::Magma => h = h * 2.0 + 3.0 + (wx * 0.2).sin().abs() * 2.0,
         _ => {}
     }
 
-    crystal_effect(params, wx, wz, &mut h);
-    cave_effect(params, wx, wz, &mut h);
+    zone_effects(params, wx, wz, &mut h);
 
     h
 }
@@ -68,6 +88,7 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
 pub enum Zone {
     Forest, Plains, Desert, Tundra, Jungle,
     Volcanic, Ocean, Crystal, Cave, Lava,
+    Fungus, Abyss, Storm, Aurora, Magma,
 }
 
 impl Zone {
@@ -77,7 +98,10 @@ impl Zone {
             "tundra" => Zone::Tundra, "jungle" => Zone::Jungle,
             "volcanic" => Zone::Volcanic, "ocean" => Zone::Ocean,
             "crystal" => Zone::Crystal, "cave" => Zone::Cave,
-            "lava" => Zone::Lava, _ => Zone::Forest,
+            "lava" => Zone::Lava, "fungus" => Zone::Fungus,
+            "abyss" => Zone::Abyss, "storm" => Zone::Storm,
+            "aurora" => Zone::Aurora, "magma" => Zone::Magma,
+            _ => Zone::Forest,
         }
     }
 
@@ -88,6 +112,9 @@ impl Zone {
             Zone::Jungle => "jungle", Zone::Volcanic => "volcanic",
             Zone::Ocean => "ocean", Zone::Crystal => "crystal",
             Zone::Cave => "cave", Zone::Lava => "lava",
+            Zone::Fungus => "fungus", Zone::Abyss => "abyss",
+            Zone::Storm => "storm", Zone::Aurora => "aurora",
+            Zone::Magma => "magma",
         }
     }
 }
@@ -120,6 +147,11 @@ pub fn get_zone_color(zone: Zone) -> [f32; 3] {
         Zone::Crystal => [0.545, 0.361, 0.965],
         Zone::Cave => [0.290, 0.290, 0.290],
         Zone::Lava => [1.0, 0.267, 0.0],
+        Zone::Fungus => [0.600, 0.200, 0.600],
+        Zone::Abyss => [0.050, 0.050, 0.100],
+        Zone::Storm => [0.300, 0.350, 0.450],
+        Zone::Aurora => [0.200, 0.800, 0.600],
+        Zone::Magma => [0.800, 0.300, 0.050],
     }
 }
 
@@ -176,24 +208,67 @@ pub fn get_formula_color(formula: FormulaType, h: f64, max_h: f64) -> [f32; 3] {
             gradient(&[[0.05,0.05,0.15],[0.15,0.10,0.30],[0.30,0.20,0.45],[0.50,0.35,0.45],[0.75,0.55,0.50],[0.95,0.85,0.75]], t),
         FormulaType::Hybrid =>
             gradient(&[[0.10,0.05,0.05],[0.25,0.15,0.15],[0.45,0.30,0.20],[0.65,0.50,0.30],[0.85,0.70,0.50],[1.0,0.90,0.75]], t),
+        FormulaType::Plasma =>
+            gradient(&[[0.30,0.05,0.10],[0.55,0.10,0.20],[0.70,0.20,0.30],[0.85,0.40,0.35],[0.95,0.65,0.45],[1.0,0.90,0.70]], t),
+        FormulaType::Cellular =>
+            gradient(&[[0.10,0.20,0.15],[0.15,0.35,0.25],[0.20,0.50,0.35],[0.35,0.60,0.40],[0.60,0.70,0.50],[0.85,0.90,0.80]], t),
+        FormulaType::Strange =>
+            gradient(&[[0.20,0.05,0.25],[0.35,0.10,0.40],[0.50,0.20,0.50],[0.65,0.35,0.45],[0.85,0.55,0.50],[1.0,0.85,0.75]], t),
+        FormulaType::Worley =>
+            gradient(&[[0.15,0.10,0.05],[0.30,0.20,0.10],[0.50,0.35,0.15],[0.65,0.50,0.25],[0.80,0.70,0.45],[0.95,0.90,0.75]], t),
+        FormulaType::Marble =>
+            gradient(&[[0.20,0.20,0.22],[0.35,0.35,0.38],[0.50,0.50,0.52],[0.65,0.65,0.67],[0.80,0.80,0.82],[0.95,0.95,0.97]], t),
+        FormulaType::Terrazas =>
+            gradient(&[[0.15,0.10,0.05],[0.30,0.22,0.10],[0.50,0.40,0.20],[0.70,0.60,0.35],[0.85,0.75,0.55],[1.0,0.95,0.80]], t),
+        FormulaType::Erosion =>
+            gradient(&[[0.10,0.15,0.20],[0.20,0.30,0.40],[0.30,0.45,0.50],[0.45,0.55,0.45],[0.65,0.65,0.55],[0.85,0.85,0.80]], t),
+        FormulaType::Thermal =>
+            gradient(&[[0.30,0.10,0.05],[0.50,0.20,0.10],[0.65,0.35,0.20],[0.80,0.55,0.35],[0.95,0.75,0.55],[1.0,0.95,0.85]], t),
     }
 }
 
-pub fn crystal_effect(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {
-    if params.zone == Zone::Crystal {
-        let crystal = (wx * 0.8).sin() * (wz * 0.8).cos();
-        if crystal.abs() > 0.7 {
-            *h += 3.0 + crystal * 2.0;
+pub fn zone_effects(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {
+    match params.zone {
+        Zone::Crystal => {
+            let crystal = (wx * 0.8).sin() * (wz * 0.8).cos();
+            if crystal.abs() > 0.7 {
+                *h += 3.0 + crystal * 2.0;
+            }
         }
-    }
-}
-
-pub fn cave_effect(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {
-    if params.zone == Zone::Cave {
-        let cave = (wx * 12.9898 + wz * 78.233 + params.seed as f64).sin() * 43758.5453;
-        let n = (cave - cave.floor()) * 2.0 - 1.0;
-        if n > 0.3 {
-            *h = 2.0 + n * 3.0;
+        Zone::Cave => {
+            let cave = (wx * 12.9898 + wz * 78.233 + params.seed as f64).sin() * 43758.5453;
+            let n = (cave - cave.floor()) * 2.0 - 1.0;
+            if n > 0.3 {
+                *h = 2.0 + n * 3.0;
+            }
         }
+        Zone::Fungus => {
+            let spore = (wx * 1.5).sin() * (wz * 1.5).cos();
+            if spore.abs() > 0.6 {
+                *h += 2.0 + spore * 1.5;
+            }
+        }
+        Zone::Abyss => {
+            let pillar = (wx * 0.3).sin() * (wz * 0.3).cos();
+            if pillar.abs() > 0.8 {
+                *h += 4.0;
+            }
+            *h = h.min(4.0);
+        }
+        Zone::Storm => {
+            let spike = (wx * 2.0).sin().abs() * (wz * 2.0).cos().abs();
+            *h += spike * 2.0;
+        }
+        Zone::Aurora => {
+            let wave = (wx * 0.5).sin() + (wz * 0.7).cos();
+            *h += wave * 0.5;
+        }
+        Zone::Magma => {
+            let fissure = (wx * 0.4).sin() * (wz * 0.4).cos();
+            if fissure.abs() > 0.5 {
+                *h += 2.0;
+            }
+        }
+        _ => {}
     }
 }
