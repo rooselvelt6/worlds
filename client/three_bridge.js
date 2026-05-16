@@ -137,7 +137,7 @@
         var sunX = Math.cos(angle) * 60;
         sunLight.position.set(sunX, Math.max(sunY, -10), -20);
 
-        var dayFactor = Math.max(0, Math.sin(angle)).clamp(0, 1);
+        var dayFactor = Math.min(Math.max(Math.sin(angle), 0), 1);
         var nightFactor = 1 - dayFactor;
 
         var sunColor = new THREE.Color().setHSL(0.08 - dayFactor * 0.05, 0.8, 0.5 + dayFactor * 0.3);
