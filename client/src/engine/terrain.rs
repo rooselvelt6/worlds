@@ -79,8 +79,6 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         _ => {}
     }
 
-    zone_effects(params, wx, wz, &mut h);
-
     h
 }
 
