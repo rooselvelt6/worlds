@@ -12,6 +12,18 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::window;
 
+fn parse_hex(hex: &str) -> (u8, u8, u8) {
+    let h = hex.trim_start_matches('#');
+    if h.len() == 6 {
+        let r = u8::from_str_radix(&h[0..2], 16).unwrap_or(255);
+        let g = u8::from_str_radix(&h[2..4], 16).unwrap_or(255);
+        let b = u8::from_str_radix(&h[4..6], 16).unwrap_or(255);
+        (r, g, b)
+    } else {
+        (255, 255, 255)
+    }
+}
+
 macro_rules! slider {
     ($label:expr, $icon:expr, $min:expr, $max:expr, $step:expr,
      $value:expr, $display:expr, $on_input:expr $(,)?) => {
@@ -21,9 +33,9 @@ macro_rules! slider {
             let on_input = $on_input;
             let icon_str = $icon;
             view! {
-                <div class="flex items-center gap-3 group/slider">
-                    <span class="text-base shrink-0 w-6 text-center opacity-40 group-hover/slider:opacity-80 transition-opacity" inner_html=icon_str></span>
-                    <span class="text-xs font-mono text-white/40 w-24 shrink-0 truncate">{$label}</span>
+                <div class="flex items-center gap-2.5 group/slider">
+                    <span class="text-sm shrink-0 w-5 text-center opacity-30 group-hover/slider:opacity-70 transition-opacity" inner_html=icon_str></span>
+                    <span class="text-[10px] font-mono text-white/25 w-[72px] shrink-0 truncate">{$label}</span>
                     <div class="flex-1 relative">
                         <input type="range"
                             min=$min max=$max step=$step
@@ -32,10 +44,11 @@ macro_rules! slider {
                                 let i: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
                                 on_input(i.value_as_number());
                             }
-                            class="slider-glow flex-1 h-1.5 rounded-full bg-white/10 cursor-pointer w-full"
+                            class="slider-thumb w-full h-1 rounded-full cursor-pointer"
+                            style="background: linear-gradient(to right, rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.2), rgba(255,255,255,0.04));"
                         />
                     </div>
-                    <span class="text-xs font-mono text-white/60 w-14 text-right tabular-nums">{move || display()}</span>
+                    <span class="text-[10px] font-mono text-white/45 w-12 text-right tabular-nums">{move || display()}</span>
                 </div>
             }
         }
@@ -54,6 +67,7 @@ pub fn App() -> impl IntoView {
     let hud = RwSignal::new(HudData::default());
     let settings_open = RwSignal::new(false);
     let menu_tab = RwSignal::new(0u8);
+    let glow_rgb = RwSignal::new((34u8, 211u8, 238u8));
 
     {
         let canvas_ref = canvas_ref.clone();
@@ -133,6 +147,23 @@ pub fn App() -> impl IntoView {
         })
     };
 
+    let _glow_effect = {
+        let state = state.clone();
+        Effect::new(move || {
+            let hex = state.params.get().formula.color_hex();
+            let (r, g, b) = parse_hex(hex);
+            glow_rgb.set((r, g, b));
+            if let Some(doc) = window().and_then(|w| w.document()) {
+                if let Some(el) = doc.document_element() {
+                    let html_el: &web_sys::HtmlElement = el.unchecked_ref();
+                    html_el.style().set_property("--glow-r", &r.to_string()).ok();
+                    html_el.style().set_property("--glow-g", &g.to_string()).ok();
+                    html_el.style().set_property("--glow-b", &b.to_string()).ok();
+                }
+            }
+        })
+    };
+
     let zones = [
         (Zone::Forest, "Bosque", "#22c55e", "fa-tree"),
         (Zone::Plains, "Llanura", "#a3e635", "fa-leaf"),
@@ -144,18 +175,23 @@ pub fn App() -> impl IntoView {
         (Zone::Crystal, "Cristal", "#a855f7", "fa-gem"),
         (Zone::Cave, "Cueva", "#525252", "fa-mountain"),
         (Zone::Lava, "Lava", "#ef4444", "fa-fire"),
-        (Zone::Fungus, "Fungus", "#a855f7", "fa-mushroom"),
+        (Zone::Fungus, "Fungus", "#a855f7", "fa-spa"),
         (Zone::Abyss, "Abismo", "#1e1b4b", "fa-skull"),
         (Zone::Storm, "Tormenta", "#64748b", "fa-cloud-bolt"),
-        (Zone::Aurora, "Aurora", "#2dd4bf", "fa-aurora"),
-        (Zone::Magma, "Magma", "#ea580c", "fa-meteor"),
+        (Zone::Aurora, "Aurora", "#2dd4bf", "fa-wand-sparkles"),
+        (Zone::Magma, "Magma", "#ea580c", "fa-star"),
     ];
 
-
-
+    let forms = FormulaType::all();
     let simple_mode = RwSignal::new(false);
-    let settings_tab = RwSignal::new(0u8);
-    let tabs = ["Mundo", "Formula", "Color", "Control"];
+
+    let tabs = [
+        (0u8, "fa-earth-americas", "Mundo"),
+        (1, "fa-cube", "Fórmula"),
+        (2, "fa-palette", "Color"),
+        (3, "fa-gamepad", "Control"),
+        (4, "fa-sliders", "Avanzado"),
+    ];
 
     view! {
         <div class="w-screen h-screen overflow-hidden relative select-none antialiased"
@@ -167,43 +203,56 @@ pub fn App() -> impl IntoView {
                 tabindex="0"
             />
 
+            // Overlay
+            {move || settings_open.get().then(|| view! {
+                <div class="absolute inset-0 z-30 bg-black/40 backdrop-blur-sm transition-opacity duration-300"
+                     on:click=move |_| settings_open.set(false)>
+                </div>
+            })}
+
             // ===== TOP BAR =====
-            <div class="absolute top-0 left-0 right-0 z-30 h-12 bg-black/70 backdrop-blur-xl border-b border-white/[0.04] flex items-center justify-between px-3">
+            <div class="absolute top-0 left-0 right-0 z-20 h-12 bg-[#0d0d1a]/60 backdrop-blur-glass border-b border-white/[0.04] flex items-center justify-between px-3">
                 // Left: coords
                 <div class="flex items-center gap-3">
                     <div class="flex items-center gap-1.5">
-                        <i class="fa-solid fa-crosshairs text-[10px] text-cyan-400/60"></i>
-                        <span class="text-cyan-300 font-bold text-sm font-mono tabular-nums tracking-wider">
+                        <i class="fa-solid fa-crosshairs text-[10px]" style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>
+                        <span class="text-white font-bold text-sm font-mono tabular-nums tracking-wider"
+                            style={move || format!("color: rgb({},{},{})", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                             {move || format!("{:04}", hud.get().pos[0])}
                         </span>
                         <span class="text-white/15 text-xs font-mono">/</span>
-                        <span class="text-cyan-300 font-bold text-sm font-mono tabular-nums tracking-wider">
+                        <span class="text-white font-bold text-sm font-mono tabular-nums tracking-wider"
+                            style={move || format!("color: rgb({},{},{})", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                             {move || format!("{:04}", hud.get().pos[2])}
                         </span>
                     </div>
                     <div class="w-px h-4 bg-white/5"></div>
                     <div class="flex items-center gap-1">
-                        <i class="fa-solid fa-gauge-high text-[10px] text-cyan-400/60"></i>
-                        <span class="text-cyan-300 font-bold text-sm font-mono tabular-nums">
+                        <i class="fa-solid fa-gauge-high text-[10px] text-white/40"></i>
+                        <span class="text-white/80 font-bold text-sm font-mono tabular-nums">
                             {move || format!("{:04.1}", hud.get().speed)}
                         </span>
-                        <span class="text-white/25 text-[9px] font-mono hidden sm:inline">VEL</span>
+                        <span class="text-white/20 text-[9px] font-mono hidden sm:inline">VEL</span>
                     </div>
                     <div class="w-px h-4 bg-white/5 hidden sm:block"></div>
                     <div class="items-center gap-1 hidden sm:flex">
                         <div class="h-6 w-1.5 rounded-full bg-white/10 overflow-hidden relative">
-                            <div class="absolute bottom-0 w-full rounded-full bg-gradient-to-t from-emerald-400 to-cyan-300 transition-all duration-200"
-                                style:height={move || format!("{}%", ((hud.get().pos[1] / 20.0).min(1.0) * 100.0).max(5.0))}>
+                            <div class="absolute bottom-0 w-full rounded-full transition-all duration-200"
+                                style:height={move || format!("{}%", ((hud.get().pos[1] / 20.0).min(1.0) * 100.0).max(5.0))}
+                                style={move || format!("background: linear-gradient(to top, rgba({},{},{},0.6), rgba({},{},{},0.3))",
+                                    glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2,
+                                    glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                             </div>
                         </div>
-                        <span class="text-emerald-300 font-bold text-xs font-mono tabular-nums">
+                        <span class="text-white/80 font-bold text-xs font-mono tabular-nums"
+                            style={move || format!("color: rgb({},{},{})", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                             {move || format!("{:03.0}", hud.get().pos[1])}
                         </span>
                     </div>
                 </div>
 
                 // Center: compass
-                <div class="flex items-center gap-0.5 bg-black/40 px-3 py-1 rounded-full border border-white/5">
+                <div class="flex items-center gap-0.5 bg-white/[0.04] backdrop-blur-xl px-3 py-1 rounded-full border border-white/[0.06]">
                     <span class={move || if hud.get().yaw_deg > 315 || hud.get().yaw_deg <= 45 { "text-cyan-300 font-bold text-xs" } else { "text-white/20 text-xs" }}>N</span>
                     <span class="text-white/8 text-[9px]">|</span>
                     <span class={move || if hud.get().yaw_deg > 45 && hud.get().yaw_deg <= 135 { "text-cyan-300 font-bold text-xs" } else { "text-white/20 text-xs" }}>E</span>
@@ -216,17 +265,27 @@ pub fn App() -> impl IntoView {
 
                 // Right: biome, fps, menu button
                 <div class="flex items-center gap-2">
-                    <span class="text-purple-300/80 font-bold text-xs font-mono hidden sm:inline">{move || hud.get().biome}</span>
+                    <span class="text-white/40 font-bold text-xs font-mono hidden sm:inline"
+                        style={move || format!("color: rgba({},{},{},0.7)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
+                        {move || hud.get().biome}
+                    </span>
                     <span class="text-white/20 text-[10px] font-mono">{move || format!("{}fps", hud.get().fps)}</span>
                     <button on:click=move |_| settings_open.update(|v| *v = !*v)
                         class={move || {
                             let open = settings_open.get();
-                            let base = "w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-90";
+                            let base = "w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-90 border";
                             if open {
-                                format!("{} bg-cyan-500/15 text-cyan-300 border border-cyan-400/25 shadow-lg shadow-cyan-500/10", base)
+                                format!("{} border", base)
                             } else {
-                                format!("{} text-white/40 hover:text-white/80 hover:bg-white/5 border border-transparent", base)
+                                format!("{} text-white/40 hover:text-white/80 hover:bg-white/5 border-transparent", base)
                             }
+                        }}
+                        style={move || if settings_open.get() {
+                            let (r, g, b) = glow_rgb.get();
+                            format!("background-color: rgba({},{},{},0.15); color: rgb({},{},{}); border-color: rgba({},{},{},0.25)",
+                                r, g, b, r, g, b, r, g, b)
+                        } else {
+                            "".to_string()
                         }}
                     >
                         <i class="fa-solid fa-sliders text-base"></i>
@@ -234,9 +293,10 @@ pub fn App() -> impl IntoView {
                 </div>
             </div>
 
-            // ===== LEFT SIDE: BIG JOYSTICK =====
-            <div class="absolute left-3 top-1/2 -translate-y-1/2 z-20">
-                <div class="bg-black/50 backdrop-blur-xl rounded-2xl p-2.5 border border-white/5 shadow-2xl shadow-cyan-500/5">
+            // ===== LEFT SIDE: JOYSTICK =====
+            <div class="absolute left-3 top-1/2 -translate-y-1/2 z-10">
+                <div class="bg-white/[0.03] backdrop-blur-2xl rounded-2xl p-2.5 border border-white/[0.06] shadow-lg"
+                    style={move || format!("box-shadow: 0 8px 32px rgba({},{},{},0.06)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                     <canvas node_ref=joystick_canvas_ref
                         class="w-[160px] h-[160px] touch-none block"
                         width=160 height=160
@@ -251,10 +311,10 @@ pub fn App() -> impl IntoView {
             </div>
 
             // ===== RIGHT SIDE: ACTION BUTTONS =====
-            <div class="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2">
+            <div class="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
                 // Jump
                 <button
-                    class="w-14 h-14 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/8 text-white flex items-center justify-center active:scale-85 transition-all duration-100 hover:bg-white/10 shadow-lg shadow-black/30"
+                    class="w-14 h-14 rounded-2xl bg-white/[0.03] backdrop-blur-2xl border border-white/[0.06] text-white/60 hover:text-white hover:bg-white/[0.06] flex items-center justify-center active:scale-85 transition-all duration-150 shadow-lg"
                     on:pointerdown={let s = state.clone(); move |_| {
                         let fly = s.params.get().fly_mode;
                         if fly { s.params.update(|p| p.speed = 30.0); }
@@ -268,13 +328,17 @@ pub fn App() -> impl IntoView {
                 <button
                     class={move || {
                         let fly = state.params.get().fly_mode;
-                        let base = "w-14 h-14 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-85 transition-all duration-100 shadow-lg shadow-black/30";
+                        let base = "w-14 h-14 rounded-2xl backdrop-blur-2xl border flex items-center justify-center active:scale-85 transition-all duration-150 shadow-lg";
                         if fly {
-                            format!("{} bg-cyan-500/15 text-cyan-300 border-cyan-400/25", base)
+                            format!("{} bg-white/[0.06] text-white border-white/[0.12]", base)
                         } else {
-                            format!("{} bg-black/60 text-white/50 hover:text-white/85 hover:bg-white/8 border border-white/8", base)
+                            format!("{} bg-white/[0.03] text-white/60 hover:text-white hover:bg-white/[0.06] border-white/[0.06]", base)
                         }
                     }}
+                    style={move || if state.params.get().fly_mode {
+                        let (r, g, b) = glow_rgb.get();
+                        format!("box-shadow: 0 4px 20px rgba({},{},{},0.15)", r, g, b)
+                    } else { "".to_string() }}
                     on:click={let s = state.clone(); move |_| {
                         s.params.update(|p| p.fly_mode = !p.fly_mode);
                     }}
@@ -289,11 +353,11 @@ pub fn App() -> impl IntoView {
                 <button
                     class={move || {
                         let sprint = state.params.get().speed > 25.0;
-                        let base = "w-14 h-14 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-85 transition-all duration-100 shadow-lg shadow-black/30";
+                        let base = "w-14 h-14 rounded-2xl backdrop-blur-2xl border flex items-center justify-center active:scale-85 transition-all duration-150 shadow-lg";
                         if sprint {
-                            format!("{} bg-amber-500/15 text-amber-300 border-amber-400/25", base)
+                            format!("{} bg-amber-500/10 text-amber-300 border-amber-400/20", base)
                         } else {
-                            format!("{} bg-black/60 text-white/50 hover:text-white/85 hover:bg-white/8 border border-white/8", base)
+                            format!("{} bg-white/[0.03] text-white/60 hover:text-white hover:bg-white/[0.06] border-white/[0.06]", base)
                         }
                     }}
                     on:click={let s = state.clone(); move |_| {
@@ -308,7 +372,7 @@ pub fn App() -> impl IntoView {
 
                 // Screenshot
                 <button
-                    class="w-14 h-14 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/8 text-white flex items-center justify-center active:scale-85 transition-all duration-100 hover:bg-white/10 shadow-lg shadow-black/30"
+                    class="w-14 h-14 rounded-2xl bg-white/[0.03] backdrop-blur-2xl border border-white/[0.06] text-white/60 hover:text-white hover:bg-white/[0.06] flex items-center justify-center active:scale-85 transition-all duration-150 shadow-lg"
                     on:click=move |_| {
                         let h = hud.get();
                         bridge::capture_screenshot(
@@ -340,141 +404,142 @@ pub fn App() -> impl IntoView {
             </svg>
 
             // ===== MINIMAP =====
-            <div class="absolute bottom-4 left-3 z-20">
-                <div class="bg-black/60 backdrop-blur-xl rounded-2xl p-2 border border-white/5 shadow-xl shadow-black/30">
+            <div class="absolute bottom-4 left-3 z-10">
+                <div class="bg-white/[0.03] backdrop-blur-2xl rounded-2xl p-2 border border-white/[0.06] shadow-lg"
+                    style={move || format!("box-shadow: 0 8px 32px rgba({},{},{},0.06)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                     <canvas node_ref=minimap_canvas_ref
                         class="w-[120px] h-[120px] rounded-full pointer-events-none"
                         width=120 height=120
                     />
                     <div class="flex items-center justify-center gap-1.5 mt-1">
-                        <i class="fa-solid fa-location-dot text-[8px] text-purple-400/40"></i>
-                        <span class="text-[7px] font-mono text-purple-300/40">{move || hud.get().biome}</span>
+                        <i class="fa-solid fa-location-dot text-[8px]"
+                            style={move || format!("color: rgba({},{},{},0.4)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>
+                        <span class="text-[7px] font-mono text-white/40" style={move || format!("color: rgba({},{},{},0.6)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
+                            {move || hud.get().biome}
+                        </span>
                     </div>
                 </div>
             </div>
 
             // ===== MODE INDICATOR =====
-            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
                 <div class={move || {
                     let fly = hud.get().fly_mode;
-                    let base = "px-4 py-1.5 rounded-full text-[11px] font-mono font-bold tracking-widest uppercase border backdrop-blur-xl transition-all duration-300 shadow-lg";
+                    let base = "px-4 py-1.5 rounded-full text-[11px] font-mono font-bold tracking-widest uppercase backdrop-blur-2xl border transition-all duration-300 shadow-lg bg-white/[0.03]";
                     if fly {
-                        format!("{} bg-cyan-900/30 text-cyan-300 border-cyan-500/25 shadow-cyan-500/10", base)
+                        format!("{} text-cyan-300 border-cyan-500/20", base)
                     } else {
-                        format!("{} bg-emerald-900/30 text-emerald-300 border-emerald-500/25 shadow-emerald-500/10", base)
+                        format!("{} text-emerald-300 border-emerald-500/20", base)
                     }
+                }}
+                style={move || if hud.get().fly_mode {
+                    let (r, g, b) = glow_rgb.get();
+                    format!("box-shadow: 0 4px 20px rgba({},{},{},0.1)", r, g, b)
+                } else {
+                    "box-shadow: 0 4px 20px rgba(52,211,153,0.1)".to_string()
                 }}>
                     <i class={move || if hud.get().fly_mode { "fa-solid fa-wing mr-1.5" } else { "fa-solid fa-person-walking mr-1.5" }}></i>
                     {move || if hud.get().fly_mode { "VUELO" } else { "CAMINAR" }}
                 </div>
             </div>
 
-            // ===== MENU OVERLAY =====
-            {move || {
-                let forms = FormulaType::all();
-                settings_open.get().then(|| view! {
-                <div class="absolute inset-0 z-40 menu-overlay bg-black/80 flex items-center justify-center">
-                    <div class="w-full max-w-lg max-h-[85vh] mx-4 bg-[#0d0d1a]/95 backdrop-blur-2xl rounded-3xl border border-white/[0.06] shadow-2xl shadow-cyan-500/5 overflow-hidden flex flex-col">
+            // ===== SETTINGS PANEL (Right slide-in) =====
+            <div class="absolute top-0 right-0 h-full z-40 flex flex-col
+                        bg-[#0d0d1a]/80 backdrop-blur-glass border-l border-white/[0.06] shadow-2xl
+                        transition-transform duration-400 ease-out overflow-hidden
+                        w-full sm:w-[420px] lg:w-[520px]"
+                style:transform={move || if settings_open.get() { "translateX(0%)" } else { "translateX(100%)" }}
+                style:pointer-events={move || if settings_open.get() { "auto" } else { "none" }}>
 
-                        // Header
-                        <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
-                            <button on:click=move |_| settings_open.set(false)
-                                class="flex items-center gap-1.5 text-white/40 hover:text-white/80 transition-colors text-sm"
-                            >
-                                <i class="fa-solid fa-arrow-left"></i>
-                                <span class="font-mono text-xs tracking-wider">Volver</span>
-                            </button>
-                            <span class="text-xs font-mono font-bold tracking-widest text-white/30 uppercase"
-                                style="font-family: 'Orbitron', monospace;">
-                                Ajustes
-                            </span>
-                            <div class="w-16"></div>
-                        </div>
+                // Header
+                <div class="flex items-center justify-between px-4 lg:px-5 py-3 border-b border-white/[0.04] shrink-0 glass-shimmer"
+                    style={move || format!("box-shadow: 0 1px 0 rgba({},{},{},0.04)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
+                    <span class="text-[11px] font-bold tracking-[0.2em] text-white/40 uppercase"
+                        style="font-family: 'Orbitron', monospace;">
+                        Ajustes
+                    </span>
+                    <button on:click=move |_| settings_open.set(false)
+                        class="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/[0.06] transition-all duration-200 active:scale-90">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
 
-                        // Tabs
-                        <div class="flex gap-2 px-4 pt-3 pb-2">
-                            <button on:click=move |_| menu_tab.set(0)
-                                class={move || {
-                                    let act = menu_tab.get() == 0;
-                                    let base = "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold tracking-wider uppercase transition-all duration-200";
-                                    if act { format!("{} bg-cyan-500/10 text-cyan-300 border border-cyan-400/20 shadow-sm", base) }
-                                    else { format!("{} text-white/30 hover:text-white/60 hover:bg-white/5 border border-transparent", base) }
-                                }}
-                            >
-                                <i class="fa-solid fa-mountain"></i>
-                                <span>Zonas</span>
-                            </button>
-                            <button on:click=move |_| menu_tab.set(1)
-                                class={move || {
-                                    let act = menu_tab.get() == 1;
-                                    let base = "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold tracking-wider uppercase transition-all duration-200";
-                                    if act { format!("{} bg-cyan-500/10 text-cyan-300 border border-cyan-400/20 shadow-sm", base) }
-                                    else { format!("{} text-white/30 hover:text-white/60 hover:bg-white/5 border border-transparent", base) }
-                                }}
-                            >
-                                <i class="fa-solid fa-cube"></i>
-                                <span>Formulas</span>
-                            </button>
-                            <button on:click=move |_| menu_tab.set(2)
-                                class={move || {
-                                    let act = menu_tab.get() == 2;
-                                    let base = "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold tracking-wider uppercase transition-all duration-200";
-                                    if act { format!("{} bg-cyan-500/10 text-cyan-300 border border-cyan-400/20 shadow-sm", base) }
-                                    else { format!("{} text-white/30 hover:text-white/60 hover:bg-white/5 border border-transparent", base) }
-                                }}
-                            >
-                                <i class="fa-solid fa-gear"></i>
-                                <span>Config</span>
-                            </button>
-                            <button on:click=move |_| menu_tab.set(3)
-                                class={move || {
-                                    let act = menu_tab.get() == 3;
-                                    let base = "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold tracking-wider uppercase transition-all duration-200";
-                                    if act { format!("{} bg-cyan-500/10 text-cyan-300 border border-cyan-400/20 shadow-sm", base) }
-                                    else { format!("{} text-white/30 hover:text-white/60 hover:bg-white/5 border border-transparent", base) }
-                                }}
-                            >
-                                <i class="fa-solid fa-gamepad"></i>
-                                <span>Control</span>
-                            </button>
-                        </div>
-
-                        // Content
-                        <div class="flex-1 overflow-y-auto px-4 pb-4 pt-1">
-                            // ===== TAB: ZONAS =====
-                            {move || (menu_tab.get() == 0).then(|| view! {
-                                <div class="grid grid-cols-3 gap-2">
-                                    {zones.iter().map(|&(zone, name, color, icon)| {
-                                        view! {
-                                            <button
-                                                class={move || {
-                                                    let active = state.params.get().zone == zone;
-                                                    let base = "flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl font-bold transition-all duration-200 active:scale-90 border";
-                                                    if active {
-                                                        format!("{} bg-white/10 text-white border-white/15 shadow-lg shadow-cyan-500/5", base)
-                                                    } else {
-                                                        format!("{} bg-white/[0.02] text-white/40 hover:text-white/70 hover:bg-white/5 border-white/[0.04]", base)
-                                                    }
-                                                }}
-                                                on:click=move |_| state.params.update(|p| p.zone = zone)
-                                            >
-                                                <i class={format!("fa-solid {} text-xl", icon)} style={format!("color: {}", color)}></i>
-                                                <span class="text-[9px] font-mono tracking-wider">{name}</span>
-                                            </button>
+                // Tabs + Content
+                <div class="flex flex-1 overflow-hidden">
+                    // Vertical Tabs
+                    <div class="flex flex-col gap-0.5 p-1.5 lg:p-2 w-14 lg:w-40 border-r border-white/[0.04] shrink-0">
+                        {tabs.iter().map(|&(id, icon, label)| {
+                            view! {
+                                <button on:click=move |_| menu_tab.set(id)
+                                    class={move || {
+                                        let active = menu_tab.get() == id;
+                                        let base = "flex items-center justify-center lg:justify-start gap-2 lg:gap-3 px-2 lg:px-3 py-2.5 rounded-lg transition-all duration-200 border-l-2 text-[11px] font-bold tracking-wider";
+                                        if active {
+                                            format!("{} bg-white/[0.05] text-white", base)
+                                        } else {
+                                            format!("{} text-white/30 hover:text-white/60 hover:bg-white/[0.02] border-l-transparent", base)
                                         }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                                // Random seed button
+                                    }}
+                                    style={move || if menu_tab.get() == id {
+                                        let (r, g, b) = glow_rgb.get();
+                                        format!("border-left-color: rgba({},{},{},0.6); box-shadow: 0 0 20px rgba({},{},{},0.04)", r, g, b, r, g, b)
+                                    } else { "".to_string() }}
+                                >
+                                    <i class={format!("fa-solid {} text-base shrink-0", icon)}
+                                        style={move || if menu_tab.get() == id {
+                                            let (r, g, b) = glow_rgb.get();
+                                            format!("color: rgb({},{},{})", r, g, b)
+                                        } else { "".to_string() }}>
+                                    </i>
+                                    <span class="hidden lg:inline truncate">{label}</span>
+                                </button>
+                            }
+                        }).collect::<Vec<_>>()}
+                    </div>
+
+                    // Content Area
+                    <div class="flex-1 overflow-y-auto p-3 lg:p-4 scrollbar-thin">
+
+                        // ===== TAB 0: MUNDO =====
+                        {move || (menu_tab.get() == 0).then(|| view! {
+                            <div class="tab-enter space-y-0.5">
+                                {slider!("Semilla", "<i class='fa-solid fa-seedling'></i>", 1, 9999, 1,
+                                    move || state.params.get().seed as f64,
+                                    move || format!("{:04}", state.params.get().seed),
+                                    move |v| state.params.update(|p| p.seed = v as u32)
+                                )}
                                 <button on:click=move |_| {
                                     state.params.update(|p| p.seed = (js_sys::Math::random() * 9999.0) as u32 + 1);
-                                } class="mt-3 w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/8 text-white/60 hover:text-white/90 text-xs font-mono tracking-wider transition-all duration-200 active:scale-98 flex items-center justify-center gap-2">
+                                } class="w-full py-2 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] text-white/40 hover:text-white/70 text-[10px] font-mono tracking-wider transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
                                     <i class="fa-solid fa-dice"></i>
-                                    <span>Semilla Aleatoria</span>
+                                    <span>Aleatoria</span>
                                 </button>
-                            })}
+                                {slider!("Velocidad", "<i class='fa-solid fa-gauge-high'></i>", 1, 100, 1,
+                                    move || state.params.get().speed,
+                                    move || format!("{:02}", state.params.get().speed as u32),
+                                    move |v| state.params.update(|p| p.speed = v)
+                                )}
+                                {slider!("Sensibilidad", "<i class='fa-solid fa-crosshairs'></i>", 0.1, 5.0, 0.1,
+                                    move || state.params.get().mouse_sensitivity,
+                                    move || format!("{:.1}", state.params.get().mouse_sensitivity),
+                                    move |v| state.params.update(|p| p.mouse_sensitivity = v)
+                                )}
+                                {slider!("Horizonte", "<i class='fa-solid fa-eye'></i>", 2, 8, 1,
+                                    move || state.params.get().render_distance as f64,
+                                    move || format!("{}", state.params.get().render_distance),
+                                    move |v| state.params.update(|p| p.render_distance = v as u32)
+                                )}
+                                {slider!("Agua", "<i class='fa-solid fa-water'></i>", 0.0, 5.0, 0.1,
+                                    move || state.params.get().water_level,
+                                    move || format!("{:.1}", state.params.get().water_level),
+                                    move |v| state.params.update(|p| p.water_level = v)
+                                )}
+                            </div>
+                        })}
 
-                            // ===== TAB: FORMULAS =====
-                            {move || (menu_tab.get() == 1).then(|| view! {
+                        // ===== TAB 1: FÓRMULA =====
+                        {move || (menu_tab.get() == 1).then(|| view! {
+                            <div class="tab-enter space-y-3">
                                 <div class="grid grid-cols-4 gap-1.5">
                                     {forms.iter().map(|f| {
                                         let f = *f;
@@ -484,11 +549,16 @@ pub fn App() -> impl IntoView {
                                                     let active = state.params.get().formula == f;
                                                     let base = "flex flex-col items-center gap-0.5 py-2.5 px-1 rounded-xl font-bold transition-all duration-200 active:scale-90 border";
                                                     if active {
-                                                        format!("{} bg-white/10 text-white border-white/15 shadow-sm", base)
+                                                        format!("{} bg-white/[0.06] text-white border-white/[0.12]", base)
                                                     } else {
-                                                        format!("{} bg-white/[0.02] text-white/35 hover:text-white/65 hover:bg-white/5 border-white/[0.04]", base)
+                                                        format!("{} bg-white/[0.02] text-white/35 hover:text-white/65 hover:bg-white/[0.04] border-white/[0.04]", base)
                                                     }
                                                 }}
+                                                style={move || if state.params.get().formula == f {
+                                                    let h = f.color_hex();
+                                                    let (r, g, b) = parse_hex(h);
+                                                    format!("box-shadow: 0 0 20px rgba({},{},{},0.1); border-color: rgba({},{},{},0.3)", r, g, b, r, g, b)
+                                                } else { "".to_string() }}
                                                 on:click=move |_| state.params.update(|p| p.formula = f)
                                                 title={f.name()}
                                             >
@@ -498,123 +568,57 @@ pub fn App() -> impl IntoView {
                                         }
                                     }).collect::<Vec<_>>()}
                                 </div>
-                                // Formula info
-                                <div class="mt-2 p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                    <div class="text-[10px] font-mono text-cyan-300/60 tabular-nums leading-relaxed">
+                                <div class="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                    <div class="text-[10px] font-mono tabular-nums leading-relaxed"
+                                        style={move || { let (r, g, b) = glow_rgb.get(); format!("color: rgba({},{},{},0.6)", r, g, b) }}>
                                         {move || {
                                             let p = state.params.get();
                                             format!("{}", p.formula.formula_expr(p.scale, p.octaves))
                                         }}
                                     </div>
                                 </div>
-                            })}
+                                {slider!("Frecuencia", "<i class='fa-solid fa-chart-line'></i>", 0.002, 0.15, 0.001,
+                                    move || state.params.get().scale,
+                                    move || format!("{:.3}", state.params.get().scale),
+                                    move |v| state.params.update(|p| p.scale = v)
+                                )}
+                                {slider!("Amplitud", "<i class='fa-solid fa-arrow-up-wide-short'></i>", 0.2, 8.0, 0.1,
+                                    move || state.params.get().amplitude,
+                                    move || format!("{:.1}", state.params.get().amplitude),
+                                    move |v| state.params.update(|p| p.amplitude = v)
+                                )}
+                            </div>
+                        })}
 
-                            // ===== TAB: CONFIG =====
-                            {move || (menu_tab.get() == 2).then(|| view! {
-                                // Simple/Advanced toggle
-                                <div class="flex items-center gap-3 mb-3">
-                                    <span class="text-[10px] font-mono text-white/25 uppercase tracking-wider">Modo</span>
-                                    <button on:click=move |_| simple_mode.update(|v| *v = !*v)
-                                        class={move || {
-                                            let s = simple_mode.get();
-                                            let base = "text-[10px] font-mono tracking-widest uppercase px-3 py-1 rounded-full border transition-all duration-300";
-                                            if s {
-                                                format!("{} bg-cyan-900/20 text-cyan-400 border-cyan-500/20", base)
-                                            } else {
-                                                format!("{} bg-white/5 text-white/40 border-white/10", base)
-                                            }
-                                        }}>
-                                        {move || if simple_mode.get() { "Avanzado" } else { "Simple" }}
-                                    </button>
-                                </div>
-
-                                // Sub-tabs
-                                <div class="flex gap-1 mb-3 bg-white/[0.02] rounded-lg p-0.5">
-                                    {tabs.iter().enumerate().map(|(i, &name)| {
-                                        let i_u8 = i as u8;
+                        // ===== TAB 2: COLOR =====
+                        {move || (menu_tab.get() == 2).then(|| view! {
+                            <div class="tab-enter space-y-3">
+                                <div class="grid grid-cols-3 gap-2">
+                                    {zones.iter().map(|&(zone, name, color, icon)| {
                                         view! {
                                             <button
-                                                on:click=move |_| settings_tab.set(i_u8)
                                                 class={move || {
-                                                    let active = settings_tab.get() == i_u8;
-                                                    let base = "flex-1 text-[9px] font-bold tracking-widest uppercase py-1.5 rounded-md transition-all duration-200";
+                                                    let active = state.params.get().zone == zone;
+                                                    let base = "flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl font-bold transition-all duration-200 active:scale-90 border";
                                                     if active {
-                                                        format!("{} bg-white/10 text-white shadow-sm", base)
+                                                        format!("{} bg-white/[0.06] text-white border-white/[0.12]", base)
                                                     } else {
-                                                        format!("{} text-white/30 hover:text-white/60", base)
+                                                        format!("{} bg-white/[0.02] text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-white/[0.04]", base)
                                                     }
                                                 }}
+                                                style={move || if state.params.get().zone == zone {
+                                                    let (r, g, b) = parse_hex(color);
+                                                    format!("box-shadow: 0 0 20px rgba({},{},{},0.12)", r, g, b)
+                                                } else { "".to_string() }}
+                                                on:click=move |_| state.params.update(|p| p.zone = zone)
                                             >
-                                                {name}
+                                                <i class={format!("fa-solid {} text-xl", icon)} style={format!("color: {}", color)}></i>
+                                                <span class="text-[9px] font-mono tracking-wider">{name}</span>
                                             </button>
                                         }
                                     }).collect::<Vec<_>>()}
                                 </div>
-
-                                // Mundo
-                                {move || (settings_tab.get() == 0).then(|| view! {
-                                    {slider!("Semilla", "<i class='fa-solid fa-seedling'></i>", 1, 9999, 1,
-                                        move || state.params.get().seed as f64,
-                                        move || format!("{:04}", state.params.get().seed),
-                                        move |v| state.params.update(|p| p.seed = v as u32)
-                                    )}
-                                    {slider!("Velocidad", "<i class='fa-solid fa-gauge-high'></i>", 1, 100, 1,
-                                        move || state.params.get().speed,
-                                        move || format!("{:02}", state.params.get().speed as u32),
-                                        move |v| state.params.update(|p| p.speed = v)
-                                    )}
-                                    {slider!("Sensibilidad", "<i class='fa-solid fa-crosshairs'></i>", 0.1, 5.0, 0.1,
-                                        move || state.params.get().mouse_sensitivity,
-                                        move || format!("{:.1}", state.params.get().mouse_sensitivity),
-                                        move |v| state.params.update(|p| p.mouse_sensitivity = v)
-                                    )}
-                                    {slider!("Horizonte", "<i class='fa-solid fa-eye'></i>", 2, 8, 1,
-                                        move || state.params.get().render_distance as f64,
-                                        move || format!("{}", state.params.get().render_distance),
-                                        move |v| state.params.update(|p| p.render_distance = v as u32)
-                                    )}
-                                })}
-
-                                // Formula
-                                {move || (settings_tab.get() == 1).then(|| view! {
-                                    {slider!("Frecuencia", "<i class='fa-solid fa-chart-line'></i>", 0.002, 0.15, 0.001,
-                                        move || state.params.get().scale,
-                                        move || format!("{:.3}", state.params.get().scale),
-                                        move |v| state.params.update(|p| p.scale = v)
-                                    )}
-                                    {move || simple_mode.get().then(|| view! {
-                                        {slider!("Octavas", "<i class='fa-solid fa-layer-group'></i>", 1, 10, 1,
-                                            move || state.params.get().octaves as f64,
-                                            move || format!("{}", state.params.get().octaves),
-                                            move |v| state.params.update(|p| p.octaves = v as u32)
-                                        )}
-                                    })}
-                                    {slider!("Amplitud", "<i class='fa-solid fa-arrow-up-wide-short'></i>", 0.2, 8.0, 0.1,
-                                        move || state.params.get().amplitude,
-                                        move || format!("{:.1}", state.params.get().amplitude),
-                                        move |v| state.params.update(|p| p.amplitude = v)
-                                    )}
-                                    {slider!("Agua", "<i class='fa-solid fa-water'></i>", 0.0, 5.0, 0.1,
-                                        move || state.params.get().water_level,
-                                        move || format!("{:.1}", state.params.get().water_level),
-                                        move |v| state.params.update(|p| p.water_level = v)
-                                    )}
-                                    {move || simple_mode.get().then(|| view! {
-                                        {slider!(move || state.params.get().formula.param_a_label(), "<i class='fa-solid fa-sliders'></i>", 0.0, 2.0, 0.01,
-                                            move || state.params.get().param_a,
-                                            move || format!("{:.2}", state.params.get().param_a),
-                                            move |v| state.params.update(|p| p.param_a = v)
-                                        )}
-                                        {slider!(move || state.params.get().formula.param_b_label(), "<i class='fa-solid fa-sliders'></i>", 0.0, 2.0, 0.01,
-                                            move || state.params.get().param_b,
-                                            move || format!("{:.2}", state.params.get().param_b),
-                                            move |v| state.params.update(|p| p.param_b = v)
-                                        )}
-                                    })}
-                                })}
-
-                                // Color
-                                {move || (settings_tab.get() == 2).then(|| view! {
+                                <div class="border-t border-white/[0.04] pt-3 space-y-0.5">
                                     {slider!("Tono", "<i class='fa-solid fa-palette'></i>", 0, 360, 1,
                                         move || state.params.get().hue_shift,
                                         move || format!("{:03.0}", state.params.get().hue_shift),
@@ -630,93 +634,132 @@ pub fn App() -> impl IntoView {
                                         move || format!("{:.2}", state.params.get().lightness),
                                         move |v| state.params.update(|p| p.lightness = v)
                                     )}
-                                })}
+                                </div>
+                            </div>
+                        })}
 
-                                // Control
-                                {move || (settings_tab.get() == 3).then(|| view! {
-                                    <div class="space-y-2">
-                                        <div class="flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                            <span class="text-xs font-mono text-white/40 flex items-center gap-2">
-                                                <i class="fa-solid fa-wing text-cyan-400/60"></i>
-                                                Vuelo
-                                            </span>
-                                            <button on:click=move |_| state.params.update(|p| p.fly_mode = !p.fly_mode)
-                                                class={move || {
-                                                    let fly = state.params.get().fly_mode;
-                                                    let base = "text-[10px] font-mono font-bold px-3 py-1 rounded-full border transition-all duration-200";
-                                                    if fly {
-                                                        format!("{} bg-cyan-900/20 text-cyan-300 border-cyan-500/20", base)
-                                                    } else {
-                                                        format!("{} bg-white/5 text-white/40 border-white/10", base)
-                                                    }
-                                                }}>
-                                                {move || if state.params.get().fly_mode { "SI" } else { "NO" }}
-                                            </button>
-                                        </div>
-                                        {move || simple_mode.get().then(|| view! {
-                                            <div class="flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                                <span class="text-xs font-mono text-white/40 flex items-center gap-2">
-                                                    <i class="fa-solid fa-gamepad text-cyan-400/60"></i>
-                                                    Control
-                                                </span>
-                                                <button on:click=move |_| state.params.update(|p| p.control_mode = match p.control_mode {
-                                                    crate::state::ControlMode::DPad => crate::state::ControlMode::Joystick,
-                                                    crate::state::ControlMode::Joystick => crate::state::ControlMode::DPad,
-                                                })>
-                                                    <span class="text-[10px] font-mono font-bold px-3 py-1 rounded-full bg-white/10 text-white/60">
-                                                        {move || format!("{:?}", state.params.get().control_mode)}
-                                                    </span>
-                                                </button>
-                                            </div>
-                                        })}
-                                        <div class="px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                            <div class="text-[10px] font-mono text-white/25 leading-relaxed flex flex-wrap gap-x-4 gap-y-1">
-                                                <span><i class="fa-solid fa-keyboard text-white/15 mr-1"></i>WASD</span>
-                                                <span><i class="fa-solid fa-arrows-rotate text-white/15 mr-1"></i>Q/E</span>
-                                                <span><i class="fa-solid fa-arrow-up text-white/15 mr-1"></i>Saltar</span>
-                                                <span><i class="fa-solid fa-arrow-down text-white/15 mr-1"></i>Agachar</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                })}
-                            })}
-
-                            // ===== TAB: CONTROL (ayuda) =====
-                            {move || (menu_tab.get() == 3).then(|| view! {
-                                <div class="space-y-3">
-                                    <div class="p-4 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                        <h3 class="text-xs font-mono font-bold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                            <i class="fa-solid fa-keyboard text-cyan-400/60"></i>
-                                            Teclado
-                                        </h3>
-                                        <div class="grid grid-cols-2 gap-2 text-[10px] font-mono">
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">W</span> Avanzar</div>
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">S</span> Retroceder</div>
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">A</span> Izquierda</div>
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">D</span> Derecha</div>
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">Q</span> Giro Izq</div>
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">E</span> Giro Der</div>
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">Esp</span> Saltar</div>
-                                            <div class="flex items-center gap-2 text-white/30"><span class="px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold text-[9px]">May</span> Agachar</div>
-                                        </div>
-                                    </div>
-                                    <div class="p-4 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                                        <h3 class="text-xs font-mono font-bold text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                            <i class="fa-solid fa-tablet-screen text-cyan-400/60"></i>
-                                            Tactil
-                                        </h3>
-                                        <div class="text-[10px] font-mono text-white/30 leading-relaxed space-y-1">
-                                            <p><i class="fa-regular fa-circle-dot text-cyan-400/60 mr-1.5"></i>Joystick izquierdo para mover</p>
-                                            <p><i class="fa-regular fa-circle-dot text-cyan-400/60 mr-1.5"></i>Botones derecho para acciones</p>
-                                            <p><i class="fa-regular fa-circle-dot text-cyan-400/60 mr-1.5"></i>Deslizar para mirar alrededor</p>
-                                        </div>
+                        // ===== TAB 3: CONTROL =====
+                        {move || (menu_tab.get() == 3).then(|| view! {
+                            <div class="tab-enter space-y-2">
+                                <div class="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                    <span class="text-[11px] font-mono text-white/40 flex items-center gap-2">
+                                        <i class="fa-solid fa-wing"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>
+                                        Vuelo
+                                    </span>
+                                    <button on:click=move |_| state.params.update(|p| p.fly_mode = !p.fly_mode)
+                                        class={move || {
+                                            let fly = state.params.get().fly_mode;
+                                            let base = "text-[10px] font-mono font-bold px-3 py-1 rounded-full border transition-all duration-200";
+                                            if fly {
+                                                format!("{} text-cyan-300 border-cyan-500/20", base)
+                                            } else {
+                                                format!("{} text-white/40 border-white/10 bg-white/[0.02]", base)
+                                            }
+                                        }}
+                                        style={move || if state.params.get().fly_mode {
+                                            let (r, g, b) = glow_rgb.get();
+                                            format!("background-color: rgba({},{},{},0.1); box-shadow: 0 0 12px rgba({},{},{},0.08)", r, g, b, r, g, b)
+                                        } else { "".to_string() }}>
+                                        {move || if state.params.get().fly_mode { "SI" } else { "NO" }}
+                                    </button>
+                                </div>
+                                <div class="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                    <span class="text-[11px] font-mono text-white/40 flex items-center gap-2">
+                                        <i class="fa-solid fa-gamepad"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>
+                                        Control
+                                    </span>
+                                    <button on:click=move |_| state.params.update(|p| p.control_mode = match p.control_mode {
+                                        crate::state::ControlMode::DPad => crate::state::ControlMode::Joystick,
+                                        crate::state::ControlMode::Joystick => crate::state::ControlMode::DPad,
+                                    })>
+                                        <span class="text-[10px] font-mono font-bold px-3 py-1 rounded-full bg-white/[0.05] text-white/60 border border-white/[0.06]">
+                                            {move || format!("{:?}", state.params.get().control_mode)}
+                                        </span>
+                                    </button>
+                                </div>
+                                <div class="px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                    <div class="text-[10px] font-mono text-white/25 leading-relaxed flex flex-wrap gap-x-4 gap-y-1">
+                                        <span><i class="fa-solid fa-keyboard text-white/15 mr-1"></i>WASD</span>
+                                        <span><i class="fa-solid fa-arrows-rotate text-white/15 mr-1"></i>Q/E</span>
+                                        <span><i class="fa-solid fa-arrow-up text-white/15 mr-1"></i>Saltar</span>
+                                        <span><i class="fa-solid fa-arrow-down text-white/15 mr-1"></i>Agachar</span>
                                     </div>
                                 </div>
-                            })}
-                        </div>
+                                <div class="px-3 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                    <div class="text-[11px] font-mono font-bold text-white/30 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                        <i class="fa-solid fa-tablet-screen"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>
+                                        Tactil
+                                    </div>
+                                    <div class="text-[10px] font-mono text-white/30 leading-relaxed space-y-1">
+                                        <p><i class="fa-regular fa-circle-dot mr-1.5"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>Joystick para mover</p>
+                                        <p><i class="fa-regular fa-circle-dot mr-1.5"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>Botones para acciones</p>
+                                        <p><i class="fa-regular fa-circle-dot mr-1.5"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>Deslizar para mirar</p>
+                                    </div>
+                                </div>
+                            </div>
+                        })}
+
+                        // ===== TAB 4: AVANZADO =====
+                        {move || (menu_tab.get() == 4).then(|| view! {
+                            <div class="tab-enter space-y-2">
+                                <div class="flex items-center gap-3 mb-1">
+                                    <span class="text-[10px] font-mono text-white/25 uppercase tracking-wider">Modo</span>
+                                    <button on:click=move |_| simple_mode.update(|v| *v = !*v)
+                                        class={move || {
+                                            let s = simple_mode.get();
+                                            let base = "text-[10px] font-mono tracking-widest uppercase px-3 py-1 rounded-full border transition-all duration-300";
+                                            if s {
+                                                format!("{} bg-white/[0.06] text-white border-white/[0.12]", base)
+                                            } else {
+                                                format!("{} bg-white/[0.02] text-white/40 border-white/[0.06]", base)
+                                            }
+                                        }}
+                                        style={move || if simple_mode.get() {
+                                            let (r, g, b) = glow_rgb.get();
+                                            format!("box-shadow: 0 0 16px rgba({},{},{},0.1)", r, g, b)
+                                        } else { "".to_string() }}>
+                                        {move || if simple_mode.get() { "Avanzado" } else { "Simple" }}
+                                    </button>
+                                </div>
+                                <div class="text-[10px] font-mono text-white/20 mb-2">
+                                    {move || if simple_mode.get() {
+                                        "Controles avanzados visibles"
+                                    } else {
+                                        "Activa el modo avanzado para controles extra"
+                                    }}
+                                </div>
+                                {move || simple_mode.get().then(|| view! {
+                                    <div class="space-y-0.5">
+                                        {slider!("Octavas", "<i class='fa-solid fa-layer-group'></i>", 1, 10, 1,
+                                            move || state.params.get().octaves as f64,
+                                            move || format!("{}", state.params.get().octaves),
+                                            move |v| state.params.update(|p| p.octaves = v as u32)
+                                        )}
+                                        {slider!(move || state.params.get().formula.param_a_label(), "<i class='fa-solid fa-sliders'></i>", 0.0, 2.0, 0.01,
+                                            move || state.params.get().param_a,
+                                            move || format!("{:.2}", state.params.get().param_a),
+                                            move |v| state.params.update(|p| p.param_a = v)
+                                        )}
+                                        {slider!(move || state.params.get().formula.param_b_label(), "<i class='fa-solid fa-sliders'></i>", 0.0, 2.0, 0.01,
+                                            move || state.params.get().param_b,
+                                            move || format!("{:.2}", state.params.get().param_b),
+                                            move |v| state.params.update(|p| p.param_b = v)
+                                        )}
+                                    </div>
+                                })}
+                            </div>
+                        })}
+
                     </div>
                 </div>
-            })}}
+            </div>
+
         </div>
     }
 }
