@@ -4,8 +4,10 @@ pub mod camera;
 pub mod chunk;
 pub mod controls;
 pub mod joystick;
+pub mod minerals;
 pub mod minimap;
 pub mod particles;
+pub mod structures;
 pub mod terrain;
 pub mod vegetation;
 
@@ -17,7 +19,9 @@ use std::rc::Rc;
 
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
-use controls::{Controls, MASK_A, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_W};
+use controls::{Controls, MASK_A, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_G, MASK_H, MASK_M, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+use minerals::MineralData;
+use structures::StructData;
 use vegetation::VegData;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
@@ -40,6 +44,9 @@ pub struct HudData {
     pub fly_mode: bool,
     pub formula: String,
     pub observer_mode: bool,
+    pub waypoints: Vec<(f64, f64, f64, String)>,
+    pub discovered_biomes: Vec<String>,
+    pub discovery_message: Option<String>,
 }
 
 struct GameState {
@@ -48,6 +55,8 @@ struct GameState {
     controls: Controls,
     chunks: Vec<ChunkData>,
     veg_chunks: Vec<VegData>,
+    struct_chunks: Vec<StructData>,
+    mineral_chunks: Vec<MineralData>,
     params: WorldParams,
     prev_cx: i32,
     prev_cz: i32,
@@ -63,6 +72,9 @@ struct GameState {
     observer_mode: bool,
     orbit_radius: f64,
     night_mode: bool,
+    waypoints: Vec<(f64, f64, f64, String)>,
+    discovered_biomes: Vec<String>,
+    discovery_message: Option<(String, f64)>,
 }
 
 pub struct Engine {
@@ -93,6 +105,8 @@ impl Engine {
             controls,
             chunks: Vec::new(),
             veg_chunks: Vec::new(),
+            struct_chunks: Vec::new(),
+            mineral_chunks: Vec::new(),
             params,
             prev_cx: i32::MAX,
             prev_cz: i32::MAX,
@@ -108,6 +122,9 @@ impl Engine {
             observer_mode: false,
             orbit_radius: 15.0,
             night_mode: false,
+            waypoints: Vec::new(),
+            discovered_biomes: Vec::new(),
+            discovery_message: None,
         }));
 
         audio::init();
@@ -140,8 +157,12 @@ impl Engine {
             let key = format!("{},{}", chunk.cx, chunk.cz);
             bridge::remove_chunk(&key);
             bridge::remove_vegetation(&key);
+            bridge::remove_structure(&key);
+            bridge::remove_minerals(&key);
         }
         s.veg_chunks.clear();
+        s.struct_chunks.clear();
+        s.mineral_chunks.clear();
         s.prev_cx = i32::MAX;
         s.prev_cz = i32::MAX;
         drop(s);
@@ -240,6 +261,37 @@ impl Engine {
                     s.controls.keys.set(s.controls.keys.get() & !MASK_F12);
                 }
 
+                // Export OBJ (G key)
+                if keys_mask & MASK_G != 0 {
+                    bridge::export_obj();
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_G);
+                }
+
+                // Save preset (H key) - save current seed to localStorage
+                if keys_mask & MASK_H != 0 {
+                    let seed_str = format!("{}", s.params.seed);
+                    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                        let _ = storage.set_item("worlds_last_seed", &seed_str);
+                    }
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_H);
+                }
+
+                // Waypoint (T key)
+                if keys_mask & MASK_T != 0 {
+                    let wp_name = format!("WP{}", s.waypoints.len() + 1);
+                    let px = s.camera.pos[0];
+                    let py = s.camera.pos[1];
+                    let pz = s.camera.pos[2];
+                    s.waypoints.push((px, py, pz, wp_name));
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_T);
+                }
+
+                // Remove last waypoint (M key)
+                if keys_mask & MASK_M != 0 {
+                    s.waypoints.pop();
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_M);
+                }
+
                 let cx = (s.camera.pos[0] / CHUNK_SIZE) as i32;
                 let cz = (s.camera.pos[2] / CHUNK_SIZE) as i32;
                 if cx != s.prev_cx || cz != s.prev_cz {
@@ -272,12 +324,30 @@ impl Engine {
                 bridge::set_time(s.time_of_day);
                 bridge::set_water_level(s.params.water_level);
 
-                // Ambient particles per zone
+                // Ambient particles + discovery per zone
                 let zone = terrain::get_zone(&s.params, s.camera.pos[0], s.camera.pos[2]);
                 if s.prev_zone.map(|z| z != zone).unwrap_or(true) {
                     s.prev_zone = Some(zone);
                     particles::remove_ambient_particles();
                     particles::spawn_zone_particles(zone, s.camera.pos[0], s.camera.pos[2], s.params.water_level);
+                    // Discovery tracking
+                    let zone_name = zone.as_str().to_string();
+                    if !s.discovered_biomes.contains(&zone_name) {
+                        s.discovered_biomes.push(zone_name.clone());
+                        s.discovery_message = Some((format!("✨ Discovered: {}!", zone_name), now + 3.0));
+                    }
+                }
+
+                // Discovery message timeout
+                let disc_expired = s.discovery_message.as_ref().map(|(_, e)| *e).unwrap_or(f64::MAX) < now;
+                if disc_expired {
+                    s.discovery_message = None;
+                }
+
+                // Hidden structure proximity check
+                let found_name = bridge::check_discovery(s.camera.pos[0] as f32, s.camera.pos[1] as f32, s.camera.pos[2] as f32);
+                if !found_name.is_empty() {
+                    s.discovery_message = Some((format!("🏛️ Found: {}!", found_name), now + 4.0));
                 }
 
                 // Audio + weather
@@ -295,6 +365,7 @@ impl Engine {
                 let zone = terrain::get_zone(&s.params, s.camera.pos[0], s.camera.pos[2]);
                 let angle = (s.camera.yaw.get() * 180.0 / std::f64::consts::PI) as i32;
                 let angle = if angle < 0 { angle + 360 } else { angle % 360 };
+                let disc_msg = s.discovery_message.as_ref().map(|m| m.0.clone());
                 *hud.borrow_mut() = HudData {
                     pos: s.camera.pos,
                     biome: zone.as_str().to_string(),
@@ -306,6 +377,9 @@ impl Engine {
                     fly_mode: s.params.fly_mode,
                     formula: s.params.formula.name().to_string(),
                     observer_mode: s.observer_mode,
+                    waypoints: s.waypoints.clone(),
+                    discovered_biomes: s.discovered_biomes.clone(),
+                    discovery_message: disc_msg,
                 };
             }));
 
@@ -340,6 +414,8 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     let d = s.params.render_distance as i32;
     let mut new_chunks: Vec<ChunkData> = Vec::new();
     let mut new_veg: Vec<VegData> = Vec::new();
+    let mut new_structs: Vec<StructData> = Vec::new();
+    let mut new_minerals: Vec<MineralData> = Vec::new();
     let mut to_compute: Vec<(i32, i32)> = Vec::new();
 
     for x in (cx - d)..=(cx + d) {
@@ -357,7 +433,6 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     // Retain vegetation for existing chunks
     for x in (cx - d)..=(cx + d) {
         for z in (cz - d)..=(cz + d) {
-            let key = (x, z);
             if let Some(idx) = s.veg_chunks.iter().position(|v| v.cx == x && v.cz == z) {
                 let veg = s.veg_chunks.swap_remove(idx);
                 new_veg.push(veg);
@@ -365,13 +440,37 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         }
     }
 
-    // Remove chunks + vegetation that are no longer in range
+    // Retain structures for existing chunks
+    for x in (cx - d)..=(cx + d) {
+        for z in (cz - d)..=(cz + d) {
+            if let Some(idx) = s.struct_chunks.iter().position(|v| v.cx == x && v.cz == z) {
+                let st = s.struct_chunks.swap_remove(idx);
+                new_structs.push(st);
+            }
+        }
+    }
+
+    // Retain minerals for existing chunks
+    for x in (cx - d)..=(cx + d) {
+        for z in (cz - d)..=(cz + d) {
+            if let Some(idx) = s.mineral_chunks.iter().position(|v| v.cx == x && v.cz == z) {
+                let m = s.mineral_chunks.swap_remove(idx);
+                new_minerals.push(m);
+            }
+        }
+    }
+
+    // Remove chunks + sub-systems that are no longer in range
     for old in s.chunks.drain(..) {
         let key = format!("{},{}", old.cx, old.cz);
         bridge::remove_chunk(&key);
         bridge::remove_vegetation(&key);
+        bridge::remove_structure(&key);
+        bridge::remove_minerals(&key);
     }
     s.veg_chunks.clear();
+    s.struct_chunks.clear();
+    s.mineral_chunks.clear();
 
     // Compute new chunk data (parallel via Rayon with `--features parallel`)
     let params = s.params;
@@ -400,7 +499,17 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         .map(|&(cx, cz)| vegetation::compute_chunk_vegetation(&params, cx, cz))
         .collect();
 
-    // Upload chunks + vegetation to Three.js (main thread only)
+    // Compute structures for new chunks
+    let new_struct_data: Vec<StructData> = to_compute.iter()
+        .map(|&(cx, cz)| structures::compute_chunk_structures(&params, cx, cz))
+        .collect();
+
+    // Compute minerals for new chunks
+    let new_mineral_data: Vec<MineralData> = to_compute.iter()
+        .map(|&(cx, cz)| minerals::compute_chunk_minerals(&params, cx, cz))
+        .collect();
+
+    // Upload chunks + sub-systems to Three.js
     for data in &new_data {
         let key = format!("{},{}", data.cx, data.cz);
         let positions = js_sys::Float32Array::from(&data.positions[..]);
@@ -436,10 +545,45 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         bridge::spawn_vegetation(&key, &pos_arr, &size_arr, &type_arr, veg.instances.len() as u32, zone_name.as_str());
     }
 
+    for st in &new_struct_data {
+        if st.instances.is_empty() { continue; }
+        let key = format!("{},{}", st.cx, st.cz);
+        let mut struct_arr = Vec::with_capacity(st.instances.len() * 6);
+        for inst in &st.instances {
+            struct_arr.push(inst.x);
+            struct_arr.push(inst.y);
+            struct_arr.push(inst.z);
+            struct_arr.push(inst.rotation);
+            struct_arr.push(inst.scale);
+            struct_arr.push(inst.struct_type as u8 as f32);
+        }
+        let struct_arr_f32 = js_sys::Float32Array::from(&struct_arr[..]);
+        bridge::spawn_structure(&key, &struct_arr_f32, st.instances.len() as u32, "");
+    }
+
+    for m in &new_mineral_data {
+        if m.deposits.is_empty() { continue; }
+        let key = format!("{},{}", m.cx, m.cz);
+        let mut min_arr = Vec::with_capacity(m.deposits.len() * 5);
+        for d in &m.deposits {
+            min_arr.push(d.x);
+            min_arr.push(d.y);
+            min_arr.push(d.z);
+            min_arr.push(d.mineral_type as f32);
+            min_arr.push(d.size);
+        }
+        let min_arr_f32 = js_sys::Float32Array::from(&min_arr[..]);
+        bridge::spawn_minerals(&key, &min_arr_f32, m.deposits.len() as u32);
+    }
+
     new_chunks.extend(new_data);
     s.chunks = new_chunks;
     new_veg.extend(new_veg_data);
     s.veg_chunks = new_veg;
+    new_structs.extend(new_struct_data);
+    s.struct_chunks = new_structs;
+    new_minerals.extend(new_mineral_data);
+    s.mineral_chunks = new_minerals;
 }
 
 impl Drop for Engine {

@@ -1201,7 +1201,402 @@
     };
 
     // ============================================================
-    // END AUDIO + WEATHER
+    // STRUCTURE SYSTEM
+    // ============================================================
+    var structures = new Map();
+    var structGeos = {};
+
+    function buildStructGeometries() {
+        if (structGeos.hut) return;
+
+        // Hut: box body + cone roof
+        var hutBody = new THREE.BoxGeometry(1.2, 0.8, 1.2);
+        hutBody.translate(0, 0.4, 0);
+        var hutRoof = new THREE.ConeGeometry(0.9, 0.8, 4);
+        hutRoof.translate(0, 1.0, 0);
+        structGeos.hut = mergeBufferGeos([hutBody, hutRoof]);
+
+        // Tower: tall box + crenellation
+        var twBase = new THREE.BoxGeometry(0.6, 2.0, 0.6);
+        twBase.translate(0, 1.0, 0);
+        var twTop = new THREE.BoxGeometry(0.7, 0.2, 0.7);
+        twTop.translate(0, 2.2, 0);
+        structGeos.tower = mergeBufferGeos([twBase, twTop]);
+
+        // Ruins: U-shape walls
+        var rWall1 = new THREE.BoxGeometry(1.2, 0.6, 0.1);
+        rWall1.translate(0, 0.3, -0.55);
+        var rWall2 = new THREE.BoxGeometry(0.1, 0.6, 1.2);
+        rWall2.translate(-0.55, 0.3, 0);
+        var rWall3 = new THREE.BoxGeometry(0.1, 0.6, 1.2);
+        rWall3.translate(0.55, 0.3, 0);
+        structGeos.ruins = mergeBufferGeos([rWall1, rWall2, rWall3]);
+
+        // Arch: two pillars + beam
+        var aPillar = new THREE.BoxGeometry(0.12, 0.8, 0.12);
+        aPillar.translate(-0.4, 0.4, 0);
+        var aPillar2 = new THREE.BoxGeometry(0.12, 0.8, 0.12);
+        aPillar2.translate(0.4, 0.4, 0);
+        var aBeam = new THREE.BoxGeometry(0.92, 0.1, 0.12);
+        aBeam.translate(0, 0.85, 0);
+        structGeos.arch = mergeBufferGeos([aPillar, aPillar2, aBeam]);
+
+        // Pillar: tall cylinder
+        structGeos.pillar = new THREE.CylinderGeometry(0.15, 0.2, 1.5, 6);
+        structGeos.pillar.translate(0, 0.75, 0);
+
+        // Dome: hemisphere (approximate with sphere)
+        structGeos.dome = new THREE.SphereGeometry(0.8, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+        structGeos.dome.scale(1, 0.5, 1);
+
+        // Pyramid
+        structGeos.pyramid = new THREE.ConeGeometry(0.8, 1.2, 4);
+        structGeos.pyramid.translate(0, 0.6, 0);
+
+        // Crystal spire
+        structGeos.crystalSpire = new THREE.ConeGeometry(0.2, 1.8, 5);
+        structGeos.crystalSpire.translate(0, 0.9, 0);
+
+        // Mushroom hut
+        var mStem = new THREE.CylinderGeometry(0.2, 0.3, 0.6, 6);
+        mStem.translate(0, 0.3, 0);
+        var mCap = new THREE.SphereGeometry(0.7, 6, 5);
+        mCap.scale(1, 0.35, 1);
+        mCap.translate(0, 0.7, 0);
+        structGeos.mushroomHut = mergeBufferGeos([mStem, mCap]);
+
+        // Obelisk: tall thin pyramid
+        structGeos.obelisk = new THREE.ConeGeometry(0.15, 1.5, 4);
+        structGeos.obelisk.translate(0, 0.75, 0);
+    }
+
+    var structColorSets = {
+        hut:         [0x8B5E3C, 0xA0703C, 0x6B4226],
+        tower:       [0x7A7A7A, 0x8A8A8A, 0x6A6A6A],
+        ruins:       [0x9A8A7A, 0x8A7A6A, 0xAA9A8A],
+        arch:        [0xCCCCCC, 0xAAAAAA, 0xDDDDDD],
+        pillar:      [0x555555, 0x666666, 0x777777],
+        dome:        [0xCCEEFF, 0xCCDDEE, 0xBBCCDD],
+        pyramid:     [0xD4A853, 0xC49A44, 0xE4B862],
+        crystalSpire:[0x88AAFF, 0xAA88FF, 0x66CCFF],
+        mushroomHut: [0xAA66AA, 0xCC88CC, 0x884488],
+        obelisk:     [0x444444, 0x555555, 0x666666],
+    };
+
+    function getStructTypeName(type) {
+        var names = ['hut', 'tower', 'ruins', 'arch', 'pillar', 'dome', 'pyramid', 'crystalSpire', 'mushroomHut', 'obelisk'];
+        return names[type] || 'hut';
+    }
+
+    window.threeBridgeSpawnStructure = function (key, structArr, count, zone) {
+        removeStructureGroup(key);
+        if (count === 0) return;
+        buildStructGeometries();
+
+        var group = new THREE.Group();
+
+        for (var i = 0; i < count; i++) {
+            var x = structArr[i * 6];
+            var y = structArr[i * 6 + 1];
+            var z = structArr[i * 6 + 2];
+            var rot = structArr[i * 6 + 3];
+            var scale = structArr[i * 6 + 4];
+            var type = Math.round(structArr[i * 6 + 5]);
+
+            var typeName = getStructTypeName(type);
+            var geo = structGeos[typeName];
+            if (!geo) continue;
+
+            var colors = structColorSets[typeName] || [0x888888];
+            var color = colors[i % colors.length];
+
+            var mat = new THREE.MeshLambertMaterial({
+                color: color,
+                flatShading: true,
+            });
+            var mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.rotation.y = rot;
+            mesh.scale.set(scale, scale, scale);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            group.add(mesh);
+
+            // Register hidden structures for discovery (type 3 = Arch, type 7 = CrystalSpire)
+            if (type === 3 || type === 7) {
+                window.threeBridgeRegisterHidden(x, y, z, 'Ancient ' + typeName);
+            }
+        }
+
+        scene.add(group);
+        structures.set(key, group);
+    };
+
+    function removeStructureGroup(key) {
+        var group = structures.get(key);
+        if (group) {
+            scene.remove(group);
+            group.traverse(function (child) {
+                if (child.isMesh) {
+                    child.geometry.dispose();
+                    child.material.dispose();
+                }
+            });
+            structures.delete(key);
+        }
+    }
+
+    window.threeBridgeRemoveStructure = function (key) {
+        removeStructureGroup(key);
+    };
+
+    // ============================================================
+    // MINERAL SYSTEM
+    // ============================================================
+    var minerals = new Map();
+    var mineralColors = [
+        0x44aa88, // cave emerald
+        0x8888cc, // cave sapphire
+        0xcc8844, // cave copper
+        0x88aaff, // crystal quartz
+        0xaa88ff, // crystal amethyst
+        0xff6644, // volcanic ruby
+        0xffaa33, // volcanic topaz
+        0xcc88cc, // fungus pearl
+    ];
+
+    window.threeBridgeSpawnMinerals = function (key, minArr, count) {
+        removeMineralGroup(key);
+        if (count === 0) return;
+
+        var group = new THREE.Group();
+        var geo = new THREE.OctahedronGeometry(0.15, 0);
+
+        for (var i = 0; i < count; i++) {
+            var x = minArr[i * 5];
+            var y = minArr[i * 5 + 1];
+            var z = minArr[i * 5 + 2];
+            var type = Math.round(minArr[i * 5 + 3]);
+            var size = minArr[i * 5 + 4];
+
+            var color = mineralColors[type % mineralColors.length];
+            var mat = new THREE.MeshLambertMaterial({
+                color: color,
+                emissive: color,
+                emissiveIntensity: 0.3,
+                flatShading: true,
+            });
+            var mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.scale.set(size, size * (1.2 + Math.random() * 0.5), size);
+            mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+            mesh.castShadow = true;
+            group.add(mesh);
+        }
+
+        scene.add(group);
+        minerals.set(key, group);
+    };
+
+    function removeMineralGroup(key) {
+        var group = minerals.get(key);
+        if (group) {
+            scene.remove(group);
+            group.traverse(function (child) {
+                if (child.isMesh) {
+                    child.geometry.dispose();
+                    child.material.dispose();
+                }
+            });
+            minerals.delete(key);
+        }
+    }
+
+    window.threeBridgeRemoveMinerals = function (key) {
+        removeMineralGroup(key);
+    };
+
+    // ============================================================
+    // EXPORT + SAVE/LOAD
+    // ============================================================
+
+    function downloadBlob(content, filename, mimeType) {
+        var blob = new Blob([content], {type: mimeType});
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    window.threeBridgeExportOBJ = function () {
+        if (!scene) return;
+        var vertices = [];
+        var faces = [];
+        var norms = [];
+        var offset = 0;
+
+        scene.traverse(function (child) {
+            if (!child.isMesh || !child.geometry) return;
+            var geo = child.geometry;
+            var pos = geo.getAttribute('position');
+            var idx = geo.index;
+            if (!pos) return;
+
+            var v = pos.array;
+            for (var i = 0; i < v.length; i += 3) {
+                var p = new THREE.Vector3(v[i], v[i+1], v[i+2]);
+                p.applyMatrix4(child.matrixWorld);
+                vertices.push('v ' + p.x + ' ' + p.y + ' ' + p.z);
+            }
+
+            if (geo.getAttribute('normal')) {
+                var n = geo.getAttribute('normal').array;
+                for (var i = 0; i < n.length; i += 3) {
+                    var np = new THREE.Vector3(n[i], n[i+1], n[i+2]);
+                    np.applyQuaternion(child.quaternion);
+                    norms.push('vn ' + np.x + ' ' + np.y + ' ' + np.z);
+                }
+            }
+
+            if (idx) {
+                var ind = idx.array;
+                for (var i = 0; i < ind.length; i += 3) {
+                    faces.push('f ' + (ind[i]+1+offset) + '//' + (ind[i]+1+offset) +
+                               ' ' + (ind[i+1]+1+offset) + '//' + (ind[i+1]+1+offset) +
+                               ' ' + (ind[i+2]+1+offset) + '//' + (ind[i+2]+1+offset));
+                }
+            }
+            offset += pos.count;
+        });
+
+        var obj = '# WORLDS Export\n' +
+                  vertices.join('\n') + '\n' +
+                  norms.join('\n') + '\n' +
+                  faces.join('\n');
+        downloadBlob(obj, 'worlds_export.obj', 'text/plain');
+    };
+
+    window.threeBridgeExportSTL = function () {
+        if (!scene) return;
+        var triangles = [];
+
+        scene.traverse(function (child) {
+            if (!child.isMesh || !child.geometry) return;
+            var geo = child.geometry;
+            var pos = geo.getAttribute('position');
+            var idx = geo.index;
+            if (!pos) return;
+
+            var v = pos.array;
+            var ind = idx ? idx.array : null;
+
+            function getVertex(i) {
+                var p = new THREE.Vector3(v[i*3], v[i*3+1], v[i*3+2]);
+                p.applyMatrix4(child.matrixWorld);
+                return p;
+            }
+
+            if (ind) {
+                for (var i = 0; i < ind.length; i += 3) {
+                    var a = getVertex(ind[i]);
+                    var b = getVertex(ind[i+1]);
+                    var c = getVertex(ind[i+2]);
+                    var edge1 = new THREE.Vector3().subVectors(b, a);
+                    var edge2 = new THREE.Vector3().subVectors(c, a);
+                    var n = new THREE.Vector3().crossVectors(edge1, edge2).normalize();
+                    triangles.push({n: n, a: a, b: b, c: c});
+                }
+            } else {
+                for (var i = 0; i < pos.count; i += 3) {
+                    var a = getVertex(i);
+                    var b = getVertex(i+1);
+                    var c = getVertex(i+2);
+                    var edge1 = new THREE.Vector3().subVectors(b, a);
+                    var edge2 = new THREE.Vector3().subVectors(c, a);
+                    var n = new THREE.Vector3().crossVectors(edge1, edge2).normalize();
+                    triangles.push({n: n, a: a, b: b, c: c});
+                }
+            }
+        });
+
+        // Binary STL
+        var header = new Uint8Array(80);
+        var count = triangles.length;
+        var data = new Uint8Array(84 + count * 50);
+        data.set(header, 0);
+        var dv = new DataView(data.buffer);
+        dv.setUint32(80, count, true);
+        var off = 84;
+        for (var i = 0; i < count; i++) {
+            var t = triangles[i];
+            dv.setFloat32(off, t.n.x, true); off += 4;
+            dv.setFloat32(off, t.n.y, true); off += 4;
+            dv.setFloat32(off, t.n.z, true); off += 4;
+            dv.setFloat32(off, t.a.x, true); off += 4;
+            dv.setFloat32(off, t.a.y, true); off += 4;
+            dv.setFloat32(off, t.a.z, true); off += 4;
+            dv.setFloat32(off, t.b.x, true); off += 4;
+            dv.setFloat32(off, t.b.y, true); off += 4;
+            dv.setFloat32(off, t.b.z, true); off += 4;
+            dv.setFloat32(off, t.c.x, true); off += 4;
+            dv.setFloat32(off, t.c.y, true); off += 4;
+            dv.setFloat32(off, t.c.z, true); off += 4;
+            dv.setUint16(off, 0, true); off += 2; // attribute byte count
+        }
+        downloadBlob(data, 'worlds_export.stl', 'application/octet-stream');
+    };
+
+    // ============================================================
+    // MINING SYSTEM
+    // ============================================================
+    var mineTarget = null;
+    var raycaster = new THREE.Raycaster();
+
+    window.threeBridgeMineAt = function (screenX, screenY) {
+        if (!camera || !scene) return null;
+        raycaster.setFromCamera(new THREE.Vector2(screenX, screenY), camera);
+        var intersects = raycaster.intersectObjects(scene.children, true);
+        for (var i = 0; i < intersects.length; i++) {
+            var obj = intersects[i].object;
+            if (obj.isMesh && obj.geometry && obj.geometry.getAttribute('position')) {
+                var pos = obj.position.clone();
+                return { x: pos.x, y: pos.y, z: pos.z };
+            }
+        }
+        return null;
+    };
+
+    // ============================================================
+    // HIDDEN STRUCTURES
+    // ============================================================
+    var foundStructures = [];
+
+    window.threeBridgeRegisterHidden = function (x, y, z, name) {
+        foundStructures.push({x: x, y: y, z: z, name: name, found: false});
+    };
+
+    window.threeBridgeCheckDiscovery = function (px, py, pz) {
+        var radius = 5;
+        for (var i = 0; i < foundStructures.length; i++) {
+            var s = foundStructures[i];
+            if (!s.found) {
+                var dx = s.x - px;
+                var dy = s.y - py;
+                var dz = s.z - pz;
+                var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                if (dist < radius) {
+                    s.found = true;
+                    return s.name || 'Hidden Structure';
+                }
+            }
+        }
+        return '';
+    };
+
+    // ============================================================
+    // END
     // ============================================================
 
     // Add clamp polyfill for older browsers

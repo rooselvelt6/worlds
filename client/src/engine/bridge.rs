@@ -83,4 +83,26 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeUpdateWind)]
     pub fn update_wind(time: f32);
+
+    // Structures
+    #[wasm_bindgen(js_name = threeBridgeSpawnStructure)]
+    pub fn spawn_structure(key: &str, struct_data: &js_sys::Float32Array, count: u32, zone: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveStructure)]
+    pub fn remove_structure(key: &str);
+
+    // Export
+    #[wasm_bindgen(js_name = threeBridgeExportOBJ)]
+    pub fn export_obj();
+
+    // Discovery
+    #[wasm_bindgen(js_name = threeBridgeCheckDiscovery)]
+    pub fn check_discovery(px: f32, py: f32, pz: f32) -> String;
+
+    // Minerals
+    #[wasm_bindgen(js_name = threeBridgeSpawnMinerals)]
+    pub fn spawn_minerals(key: &str, min_data: &js_sys::Float32Array, count: u32);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveMinerals)]
+    pub fn remove_minerals(key: &str);
 }

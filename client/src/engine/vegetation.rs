@@ -166,5 +166,5 @@ fn veg_size(veg_type: VegType, zone: Zone, r: f64) -> f32 {
         Zone::Volcanic | Zone::Lava | Zone::Magma => 0.8,
         _ => 1.0,
     };
-    base * scale as f32
+    (base * scale) as f32
 }

@@ -22,7 +22,7 @@ web-sys = { version = "0.3", features = [
     "KeyboardEventInit", "Navigator", "Performance",
     "TouchEvent", "TouchList", "Touch",
     "console", "DomRect", "HtmlDivElement", "HtmlInputElement",
-    "PointerEvent", "Event",
+    "PointerEvent", "Event", "Storage",
 ] }
 
 [features]

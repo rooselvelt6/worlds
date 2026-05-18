@@ -1,5 +1,6 @@
 use crate::math::*;
 use crate::state::{FormulaType, WorldParams};
+use std::f64::consts::PI;
 
 pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
     let scale = params.scale;
@@ -234,10 +235,15 @@ pub fn zone_effects(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {
             }
         }
         Zone::Cave => {
-            let cave = (wx * 12.9898 + wz * 78.233 + params.seed as f64).sin() * 43758.5453;
-            let n = (cave - cave.floor()) * 2.0 - 1.0;
-            if n > 0.3 {
-                *h = 2.0 + n * 3.0;
+            let cave_n = fbm(wx * 0.04 + params.seed as f64 * 0.01, wz * 0.04, 3);
+            let canyon = (wx * 0.08).sin() * (wz * 0.08).cos() + (wx * 0.12 + wz * 0.15).sin() * 0.5;
+            if canyon < -0.3 || cave_n < -0.2 {
+                let depth = ((-canyon).max(0.0) * 3.0 + (-cave_n).max(0.0) * 2.0);
+                *h = (*h - depth).max(params.water_level - 4.0);
+            }
+            let pillar = (wx * 0.2).sin() * (wz * 0.2).cos();
+            if pillar > 0.6 && *h > params.water_level {
+                *h += (pillar - 0.6) * 3.0;
             }
         }
         Zone::Fungus => {

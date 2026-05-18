@@ -430,6 +430,23 @@ pub fn App() -> impl IntoView {
                 </div>
             </div>
 
+            // ===== DISCOVERY MESSAGE =====
+            <Show when={move || hud.get().discovery_message.is_some()}>
+                <div class="absolute top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
+                    <div class="px-5 py-2 rounded-xl bg-white/[0.06] backdrop-blur-2xl border border-white/10 text-sm font-bold text-white/90 shadow-xl">
+                        {move || hud.get().discovery_message.clone().unwrap_or_default()}
+                    </div>
+                </div>
+            </Show>
+
+            // ===== WAYPOINTS COUNTER =====
+            <div class="absolute bottom-4 right-4 z-10">
+                <div class="px-3 py-1.5 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] text-[10px] font-mono text-white/30">
+                    <i class="fa-solid fa-flag mr-1"></i>
+                    {move || format!("{} WP | {} biomas", hud.get().waypoints.len(), hud.get().discovered_biomes.len())}
+                </div>
+            </div>
+
             // ===== MODE INDICATOR =====
             <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
                 <div class={move || {

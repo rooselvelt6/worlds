@@ -69,7 +69,16 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             normals.push(1.0 / len);
             normals.push((-dz_h as f32) / len);
 
-            let c = terrain::get_formula_color(params.formula, heights[idx], max_h);
+            let mut c = terrain::get_formula_color(params.formula, heights[idx], max_h);
+            // Subsurface rock blending for cave/underground areas
+            let water = params.water_level as f32;
+            if heights[idx] as f32 <= water - 1.0 {
+                let rock_t = ((water - 1.0 - heights[idx] as f32) / 4.0).clamp(0.0, 1.0);
+                let rock = [0.25, 0.22, 0.20];
+                c[0] = c[0] * (1.0 - rock_t) + rock[0] * rock_t;
+                c[1] = c[1] * (1.0 - rock_t) + rock[1] * rock_t;
+                c[2] = c[2] * (1.0 - rock_t) + rock[2] * rock_t;
+            }
             let (h, s, l) = rgb_to_hsl(c[0], c[1], c[2]);
             let (r, g, b) = hsl_to_rgb(
                 (h + params.hue_shift as f32 / 360.0) % 1.0,
