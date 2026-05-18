@@ -33,6 +33,8 @@
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
             renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
             resizeRenderer();
             new ResizeObserver(resizeRenderer).observe(canvas);
@@ -42,6 +44,16 @@
 
             sunLight = new THREE.DirectionalLight(0xff8844, 1.4);
             sunLight.position.set(-40, 60, -20);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 200;
+            sunLight.shadow.camera.left = -80;
+            sunLight.shadow.camera.right = 80;
+            sunLight.shadow.camera.top = 80;
+            sunLight.shadow.camera.bottom = -80;
+            sunLight.shadow.bias = -0.001;
             scene.add(sunLight);
 
             fillLight = new THREE.DirectionalLight(0x4488ff, 0.6);
@@ -55,17 +67,66 @@
             rim.position.set(0, -30, 0);
             scene.add(rim);
 
-            // Water
-            var waterGeo = new THREE.PlaneGeometry(500, 500, 1, 1);
-            var waterMat = new THREE.MeshLambertMaterial({
-                color: 0x1a5276,
+            // Vignette overlay
+            var vignetteEl = document.createElement('div');
+            vignetteEl.id = 'vignette-overlay';
+            vignetteEl.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%);opacity:0.8;transition:opacity 0.5s;';
+            document.body.appendChild(vignetteEl);
+
+            // Water with custom shader
+            var waterGeo = new THREE.PlaneGeometry(500, 500, 64, 64);
+            var waterMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uColorDeep: { value: new THREE.Color(0x0a2a4a) },
+                    uColorShallow: { value: new THREE.Color(0x1a8a9a) },
+                    uColorFoam: { value: new THREE.Color(0x8ad4e8) },
+                    uWaterLevel: { value: 0 },
+                },
+                vertexShader: [
+                    "uniform float uTime;",
+                    "varying vec2 vUv;",
+                    "varying float vHeight;",
+                    "void main() {",
+                    "  vUv = uv;",
+                    "  vec3 pos = position;",
+                    "  float wave1 = sin(pos.x * 0.05 + uTime * 0.8) * 0.3;",
+                    "  float wave2 = sin(pos.y * 0.08 + uTime * 0.5 + 1.3) * 0.2;",
+                    "  float wave3 = sin((pos.x + pos.y) * 0.03 + uTime * 0.3) * 0.4;",
+                    "  pos.z += wave1 + wave2 + wave3;",
+                    "  vHeight = pos.z;",
+                    "  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);",
+                    "}"
+                ].join("\n"),
+                fragmentShader: [
+                    "uniform vec3 uColorDeep;",
+                    "uniform vec3 uColorShallow;",
+                    "uniform vec3 uColorFoam;",
+                    "uniform float uTime;",
+                    "varying vec2 vUv;",
+                    "varying float vHeight;",
+                    "void main() {",
+                    "  vec2 uv = vUv * 8.0;",
+                    "  float wave = sin(uv.x * 3.0 + uTime) * cos(uv.y * 3.0 + uTime * 0.7);",
+                    "  float foam = smoothstep(0.3, 0.7, wave);",
+                    "  float depth = (vHeight + 1.5) / 3.0;",
+                    "  depth = clamp(depth, 0.0, 1.0);",
+                    "  vec3 col = mix(uColorDeep, uColorShallow, depth);",
+                    "  col = mix(col, uColorFoam, foam * 0.3);",
+                    "  float shimmer = sin(uv.x * 10.0 + uTime * 2.0) * sin(uv.y * 10.0 + uTime * 1.7);",
+                    "  col += vec3(0.1, 0.15, 0.2) * max(0.0, shimmer * 0.3);",
+                    "  float alpha = 0.35 + depth * 0.25;",
+                    "  gl_FragColor = vec4(col, alpha);",
+                    "}"
+                ].join("\n"),
                 transparent: true,
-                opacity: 0.4,
                 side: THREE.DoubleSide,
+                depthWrite: false,
             });
             waterMesh = new THREE.Mesh(waterGeo, waterMat);
             waterMesh.rotation.x = -Math.PI / 2;
             waterMesh.position.y = 0;
+            waterMesh.receiveShadow = true;
             scene.add(waterMesh);
 
             // Post-processing
@@ -104,6 +165,8 @@
             });
             var mesh = new THREE.Mesh(geo, mat);
             mesh.position.set(ox, 0, oz);
+            mesh.receiveShadow = true;
+            mesh.castShadow = true;
             scene.add(mesh);
             meshes.set(key, mesh);
         } catch (e) {
@@ -168,6 +231,12 @@
 
         if (waterMesh) {
             waterMesh.position.y = -1 + dayFactor * 0.5;
+            if (waterMesh.material.uniforms) {
+                var deepCol = new THREE.Color().setHSL(0.6, 0.6, 0.05 + dayFactor * 0.1);
+                var shallowCol = new THREE.Color().setHSL(0.55, 0.6, 0.2 + dayFactor * 0.25);
+                waterMesh.material.uniforms.uColorDeep.value.copy(deepCol);
+                waterMesh.material.uniforms.uColorShallow.value.copy(shallowCol);
+            }
         }
 
         // Bloom intensity varies with time
@@ -179,6 +248,9 @@
     window.threeBridgeSetWaterLevel = function (level) {
         if (waterMesh) {
             waterMesh.position.y = level;
+            if (waterMesh.material.uniforms) {
+                waterMesh.material.uniforms.uWaterLevel.value = level;
+            }
         }
     };
 
@@ -241,8 +313,8 @@
         if (!renderer || !scene || !camera) return;
         frameCount++;
 
-        if (waterMesh && waterMesh.material) {
-            waterMesh.material.opacity = 0.3 + Math.sin(frameCount * 0.01) * 0.05;
+        if (waterMesh && waterMesh.material.uniforms) {
+            waterMesh.material.uniforms.uTime.value = frameCount * 0.016;
         }
 
         if (composer) {
@@ -893,6 +965,50 @@
         weatherActive = false;
         if (scene && scene.fog) {
             // Fog will be reset by next setTime call in game loop
+        }
+    };
+
+    // ============================================================
+    // BIOME TINT
+    // ============================================================
+    var biomeColors = {
+        forest:   [0.0, 0.03, 0.0],
+        plains:   [0.0, 0.01, 0.0],
+        desert:   [0.04, 0.02, 0.0],
+        tundra:   [0.0, 0.0, 0.02],
+        jungle:   [0.0, 0.04, 0.0],
+        volcanic: [0.04, 0.01, 0.0],
+        ocean:    [0.0, 0.0, 0.03],
+        crystal:  [0.01, 0.0, 0.04],
+        cave:     [0.0, 0.0, 0.0],
+        lava:     [0.05, 0.01, 0.0],
+        fungus:   [0.03, 0.0, 0.03],
+        abyss:    [0.0, 0.0, 0.0],
+        storm:    [0.0, 0.0, 0.02],
+        aurora:   [0.0, 0.02, 0.04],
+        magma:    [0.04, 0.01, 0.0],
+    };
+
+    window.threeBridgeSetBiomeTint = function (biome) {
+        if (!ambientLight) return;
+        var tint = biomeColors[biome] || [0, 0, 0];
+        ambientLight.color.setRGB(
+            0.15 + tint[0] * 0.5,
+            0.15 + tint[1] * 0.5,
+            0.15 + tint[2] * 0.5
+        );
+        // Vignette intensity per biome
+        var vg = document.getElementById('vignette-overlay');
+        if (vg) {
+            var darkBiomes = ['abyss', 'cave', 'storm'];
+            var brightBiomes = ['desert', 'tundra', 'crystal'];
+            if (darkBiomes.indexOf(biome) >= 0) {
+                vg.style.opacity = '0.95';
+            } else if (brightBiomes.indexOf(biome) >= 0) {
+                vg.style.opacity = '0.5';
+            } else {
+                vg.style.opacity = '0.75';
+            }
         }
     };
 

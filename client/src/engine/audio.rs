@@ -22,11 +22,12 @@ pub fn init() {
 pub fn update(zone: Zone, formula_seed: u32, walking: bool, speed: f64) {
     let prev = unsafe { PREV_ZONE };
 
-    // Zone changed -> play effect + switch ambient
+    // Zone changed -> play effect + switch ambient + biome tint
     if prev.map(|z| z != zone).unwrap_or(true) {
         unsafe { PREV_ZONE = Some(zone) };
         bridge::audio_play_ambient(zone.as_str());
         bridge::audio_play_effect("zone");
+        bridge::set_biome_tint(zone.as_str());
 
         // Update weather based on zone
         let weather = weather_for_zone(zone);

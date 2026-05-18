@@ -69,4 +69,8 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeClearWeather)]
     pub fn clear_weather();
+
+    // Visual
+    #[wasm_bindgen(js_name = threeBridgeSetBiomeTint)]
+    pub fn set_biome_tint(biome: &str);
 }
