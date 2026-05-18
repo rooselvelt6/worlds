@@ -43,4 +43,30 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeCaptureScreenshot)]
     pub fn capture_screenshot(seed: u32, formula: &str, zone: &str, x: f64, y: f64, z: f64);
+
+    // Audio
+    #[wasm_bindgen(js_name = threeBridgeAudioInit)]
+    pub fn audio_init();
+
+    #[wasm_bindgen(js_name = threeBridgeAudioPlayAmbient)]
+    pub fn audio_play_ambient(zone: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeAudioStopAmbient)]
+    pub fn audio_stop_ambient();
+
+    #[wasm_bindgen(js_name = threeBridgeAudioPlayFootstep)]
+    pub fn audio_play_footstep(intensity: f32);
+
+    #[wasm_bindgen(js_name = threeBridgeAudioPlayEffect)]
+    pub fn audio_play_effect(effect_type: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeAudioSetMasterVolume)]
+    pub fn audio_set_master_volume(vol: f32);
+
+    // Weather
+    #[wasm_bindgen(js_name = threeBridgeSetWeather)]
+    pub fn set_weather(weather_type: &str, intensity: f32);
+
+    #[wasm_bindgen(js_name = threeBridgeClearWeather)]
+    pub fn clear_weather();
 }

@@ -1,3 +1,4 @@
+use crate::engine::audio;
 use crate::engine::bridge;
 use crate::engine::joystick::Joystick;
 use crate::engine::minimap::Minimap;
@@ -80,6 +81,7 @@ pub fn App() -> impl IntoView {
         let init_cb = Rc::new(RefCell::new(None::<Closure<dyn FnMut()>>));
         let init_cb2 = init_cb.clone();
         let cb = Closure::<dyn FnMut()>::new(move || {
+            audio::init();
             if let Some(canvas) = canvas_ref.get() {
                 match Engine::new(canvas, params) {
                     Ok(mut e) => { e.start(); *engine.borrow_mut() = Some(e); }
@@ -144,6 +146,13 @@ pub fn App() -> impl IntoView {
         Effect::new(move || {
             let params = state.params.get();
             if let Some(ref mut eng) = *engine.borrow_mut() { eng.update_params(&params); }
+        })
+    };
+
+    let _volume_effect = {
+        Effect::new(move || {
+            let vol = state.params.get().volume;
+            bridge::audio_set_master_volume(vol as f32);
         })
     };
 
@@ -702,6 +711,13 @@ pub fn App() -> impl IntoView {
                                             style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>Deslizar para mirar</p>
                                     </div>
                                 </div>
+                            </div>
+                            <div class="border-t border-white/[0.04] pt-2 mt-2 space-y-0.5">
+                                {slider!("Volumen", "<i class='fa-solid fa-volume-high'></i>", 0.0, 1.0, 0.05,
+                                    move || state.params.get().volume,
+                                    move || format!("{:.0}%", state.params.get().volume * 100.0),
+                                    move |v| state.params.update(|p| p.volume = v)
+                                )}
                             </div>
                         })}
 

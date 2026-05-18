@@ -242,6 +242,7 @@ pub struct WorldParams {
     pub lightness: f64,
     pub param_a: f64,
     pub param_b: f64,
+    pub volume: f64,
 }
 
 impl Default for WorldParams {
@@ -264,6 +265,7 @@ impl Default for WorldParams {
             lightness: 1.0,
             param_a: 0.5,
             param_b: 0.5,
+            volume: 0.3,
         }
     }
 }

@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod bridge;
 pub mod camera;
 pub mod chunk;
@@ -104,6 +105,8 @@ impl Engine {
             orbit_radius: 15.0,
             night_mode: false,
         }));
+
+        audio::init();
 
         {
             let mut s = state.borrow_mut();
@@ -270,6 +273,12 @@ impl Engine {
                     particles::remove_ambient_particles();
                     particles::spawn_zone_particles(zone, s.camera.pos[0], s.camera.pos[2], s.params.water_level);
                 }
+
+                // Audio + weather
+                let walking = !s.params.fly_mode
+                    && (s.camera.pos[1] - terrain::get_height(&s.params, s.camera.pos[0], s.camera.pos[2])).abs() < 0.5
+                    && (keys_mask & (MASK_W | MASK_S | MASK_A | MASK_D)) != 0;
+                audio::update(zone, s.params.seed, walking, s.params.speed);
 
                 bridge::render();
 
