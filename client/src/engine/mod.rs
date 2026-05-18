@@ -7,6 +7,7 @@ pub mod joystick;
 pub mod minimap;
 pub mod particles;
 pub mod terrain;
+pub mod vegetation;
 
 use std::cell::{Cell, RefCell};
 use std::panic::AssertUnwindSafe;
@@ -17,6 +18,7 @@ use std::rc::Rc;
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
 use controls::{Controls, MASK_A, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_W};
+use vegetation::VegData;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
@@ -45,6 +47,7 @@ struct GameState {
     camera: Camera,
     controls: Controls,
     chunks: Vec<ChunkData>,
+    veg_chunks: Vec<VegData>,
     params: WorldParams,
     prev_cx: i32,
     prev_cz: i32,
@@ -89,6 +92,7 @@ impl Engine {
             camera,
             controls,
             chunks: Vec::new(),
+            veg_chunks: Vec::new(),
             params,
             prev_cx: i32::MAX,
             prev_cz: i32::MAX,
@@ -135,7 +139,9 @@ impl Engine {
         for chunk in s.chunks.drain(..) {
             let key = format!("{},{}", chunk.cx, chunk.cz);
             bridge::remove_chunk(&key);
+            bridge::remove_vegetation(&key);
         }
+        s.veg_chunks.clear();
         s.prev_cx = i32::MAX;
         s.prev_cz = i32::MAX;
         drop(s);
@@ -280,6 +286,9 @@ impl Engine {
                     && (keys_mask & (MASK_W | MASK_S | MASK_A | MASK_D)) != 0;
                 audio::update(zone, s.params.seed, walking, s.params.speed);
 
+                // Wind animation
+                bridge::update_wind(now as f32 * 0.001);
+
                 bridge::render();
 
                 let ground_y = terrain::get_height(&s.params, s.camera.pos[0], s.camera.pos[2]);
@@ -330,6 +339,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
 
     let d = s.params.render_distance as i32;
     let mut new_chunks: Vec<ChunkData> = Vec::new();
+    let mut new_veg: Vec<VegData> = Vec::new();
     let mut to_compute: Vec<(i32, i32)> = Vec::new();
 
     for x in (cx - d)..=(cx + d) {
@@ -344,11 +354,24 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         }
     }
 
-    // Remove chunks that are no longer in range
+    // Retain vegetation for existing chunks
+    for x in (cx - d)..=(cx + d) {
+        for z in (cz - d)..=(cz + d) {
+            let key = (x, z);
+            if let Some(idx) = s.veg_chunks.iter().position(|v| v.cx == x && v.cz == z) {
+                let veg = s.veg_chunks.swap_remove(idx);
+                new_veg.push(veg);
+            }
+        }
+    }
+
+    // Remove chunks + vegetation that are no longer in range
     for old in s.chunks.drain(..) {
         let key = format!("{},{}", old.cx, old.cz);
         bridge::remove_chunk(&key);
+        bridge::remove_vegetation(&key);
     }
+    s.veg_chunks.clear();
 
     // Compute new chunk data (parallel via Rayon with `--features parallel`)
     let params = s.params;
@@ -372,7 +395,12 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
             .collect()
     };
 
-    // Upload to Three.js (main thread only)
+    // Compute vegetation for new chunks
+    let new_veg_data: Vec<VegData> = to_compute.iter()
+        .map(|&(cx, cz)| vegetation::compute_chunk_vegetation(&params, cx, cz))
+        .collect();
+
+    // Upload chunks + vegetation to Three.js (main thread only)
     for data in &new_data {
         let key = format!("{},{}", data.cx, data.cz);
         let positions = js_sys::Float32Array::from(&data.positions[..]);
@@ -388,8 +416,30 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         );
     }
 
+    for veg in &new_veg_data {
+        if veg.instances.is_empty() { continue; }
+        let key = format!("{},{}", veg.cx, veg.cz);
+        let mut pos_data = Vec::with_capacity(veg.instances.len() * 3);
+        let mut size_data = Vec::with_capacity(veg.instances.len());
+        let mut type_data = Vec::with_capacity(veg.instances.len());
+        for inst in &veg.instances {
+            pos_data.push(inst.x);
+            pos_data.push(inst.y);
+            pos_data.push(inst.z);
+            size_data.push(inst.size);
+            type_data.push(inst.veg_type as u8);
+        }
+        let pos_arr = js_sys::Float32Array::from(&pos_data[..]);
+        let size_arr = js_sys::Float32Array::from(&size_data[..]);
+        let type_arr = js_sys::Uint8Array::from(&type_data[..]);
+        let zone_name = terrain::get_zone(&params, veg.cx as f64 * CHUNK_SIZE + 12.0, veg.cz as f64 * CHUNK_SIZE + 12.0);
+        bridge::spawn_vegetation(&key, &pos_arr, &size_arr, &type_arr, veg.instances.len() as u32, zone_name.as_str());
+    }
+
     new_chunks.extend(new_data);
     s.chunks = new_chunks;
+    new_veg.extend(new_veg_data);
+    s.veg_chunks = new_veg;
 }
 
 impl Drop for Engine {

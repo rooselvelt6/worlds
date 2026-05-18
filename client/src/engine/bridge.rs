@@ -73,4 +73,14 @@ extern "C" {
     // Visual
     #[wasm_bindgen(js_name = threeBridgeSetBiomeTint)]
     pub fn set_biome_tint(biome: &str);
+
+    // Vegetation
+    #[wasm_bindgen(js_name = threeBridgeSpawnVegetation)]
+    pub fn spawn_vegetation(key: &str, pos_data: &js_sys::Float32Array, size_data: &js_sys::Float32Array, type_data: &js_sys::Uint8Array, count: u32, zone: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveVegetation)]
+    pub fn remove_vegetation(key: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeUpdateWind)]
+    pub fn update_wind(time: f32);
 }

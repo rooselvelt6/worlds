@@ -1013,6 +1013,194 @@
     };
 
     // ============================================================
+    // VEGETATION SYSTEM
+    // ============================================================
+    var vegetation = new Map(); // key -> { meshes: [], windData: [] }
+    var vegGeos = {};
+
+    function buildVegGeometries() {
+        if (vegGeos.tree) return;
+
+        // Tree: merged trunk + canopy
+        var trunk = new THREE.CylinderGeometry(0.08, 0.12, 0.8, 5);
+        trunk.translate(0, 0.6, 0);
+        var canopy = new THREE.ConeGeometry(0.5, 0.9, 5);
+        canopy.translate(0, 1.6, 0);
+        vegGeos.tree = mergeBufferGeos([trunk, canopy]);
+
+        // Bush
+        vegGeos.bush = new THREE.SphereGeometry(0.4, 5, 5);
+        vegGeos.bush.scale(1, 0.6, 1);
+
+        // Rock
+        vegGeos.rock = new THREE.IcosahedronGeometry(0.3, 0);
+        vegGeos.rock = new THREE.IcosahedronGeometry(0.3, 1);
+
+        // Cactus
+        vegGeos.cactus = new THREE.CylinderGeometry(0.1, 0.15, 1.2, 6);
+        vegGeos.cactus.translate(0, 0.6, 0);
+
+        // Mushroom
+        var stem = new THREE.CylinderGeometry(0.05, 0.08, 0.5, 5);
+        stem.translate(0, 0.35, 0);
+        var cap = new THREE.SphereGeometry(0.3, 5, 4);
+        cap.scale(1, 0.3, 1);
+        cap.translate(0, 0.7, 0);
+        vegGeos.mushroom = mergeBufferGeos([stem, cap]);
+
+        // Crystal spire
+        vegGeos.crystal = new THREE.ConeGeometry(0.15, 0.8, 4);
+        vegGeos.crystal.translate(0, 0.4, 0);
+
+        // Dead tree
+        vegGeos.deadTree = new THREE.CylinderGeometry(0.06, 0.1, 0.8, 4);
+        vegGeos.deadTree.translate(0, 0.4, 0);
+
+        // Flower
+        vegGeos.flower = new THREE.SphereGeometry(0.08, 4, 4);
+    }
+
+    function mergeBufferGeos(geos) {
+        var totalVerts = 0, totalIdx = 0;
+        for (var i = 0; i < geos.length; i++) {
+            totalVerts += geos[i].getAttribute('position').count;
+            totalIdx += geos[i].index.count;
+        }
+        var pos = new Float32Array(totalVerts * 3);
+        var idx = new (totalVerts > 65535 ? Uint32Array : Uint16Array)(totalIdx);
+        var vertOffset = 0, idxOffset = 0;
+        for (var i = 0; i < geos.length; i++) {
+            var g = geos[i];
+            var p = g.getAttribute('position').array;
+            pos.set(p, vertOffset * 3);
+            var ind = g.index.array;
+            for (var j = 0; j < ind.length; j++) {
+                idx[idxOffset + j] = ind[j] + vertOffset;
+            }
+            vertOffset += g.getAttribute('position').count;
+            idxOffset += ind.length;
+        }
+        var geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setIndex(new THREE.BufferAttribute(idx, 1));
+        geo.computeVertexNormals();
+        return geo;
+    }
+
+    var vegColors = {
+        tree:     [new THREE.Color(0x4a7a3a), new THREE.Color(0x6a9a4a), new THREE.Color(0x8aba5a)],
+        bush:     [new THREE.Color(0x5a8a3a), new THREE.Color(0x7aaa4a)],
+        rock:     [new THREE.Color(0x888888), new THREE.Color(0x666666), new THREE.Color(0x999999)],
+        cactus:   [new THREE.Color(0x4a8a3a), new THREE.Color(0x5a9a4a)],
+        mushroom: [new THREE.Color(0xaa66aa), new THREE.Color(0xcc88cc), new THREE.Color(0x884488)],
+        crystal:  [new THREE.Color(0x88aaff), new THREE.Color(0xaa88ff), new THREE.Color(0x66ccff)],
+        deadTree: [new THREE.Color(0x554433), new THREE.Color(0x443322)],
+        flower:   [new THREE.Color(0xff6688), new THREE.Color(0xffaa44), new THREE.Color(0xff4488)],
+    };
+
+    function getVegTypeName(type) {
+        var names = ['tree', 'bush', 'rock', 'cactus', 'mushroom', 'crystal', 'deadTree', 'flower'];
+        return names[type] || 'rock';
+    }
+
+    window.threeBridgeSpawnVegetation = function (key, posArr, sizeArr, typeArr, count, zone) {
+        removeVegetation(key);
+        if (count === 0) return;
+        buildVegGeometries();
+
+        // Group instances by type for InstancedMesh
+        var byType = {};
+        for (var i = 0; i < count; i++) {
+            var t = typeArr[i];
+            if (!byType[t]) byType[t] = [];
+            byType[t].push({
+                pos: [posArr[i*3], posArr[i*3+1], posArr[i*3+2]],
+                size: sizeArr[i],
+            });
+        }
+
+        var meshes = [];
+        var windData = [];
+        var dummy = new THREE.Object3D();
+
+        for (var typeId in byType) {
+            var typeName = getVegTypeName(parseInt(typeId));
+            var geo = vegGeos[typeName];
+            if (!geo) continue;
+
+            var cols = vegColors[typeName] || [new THREE.Color(0x888888)];
+            var inst = byType[typeId];
+            var im = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({
+                color: cols[0],
+                flatShading: true,
+            }), inst.length);
+            im.receiveShadow = true;
+            im.castShadow = true;
+
+            for (var j = 0; j < inst.length; j++) {
+                var p = inst[j];
+                var s = p.size * (0.8 + Math.random() * 0.4);
+                dummy.position.set(p.pos[0], p.pos[1], p.pos[2]);
+                dummy.scale.set(s, s, s);
+                dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+                dummy.updateMatrix();
+                im.setMatrixAt(j, dummy.matrix);
+
+                // Store wind data per instance
+                windData.push({
+                    idx: meshes.length + j,
+                    meshIdx: meshes.length,
+                    windPhase: Math.random() * Math.PI * 2,
+                    windAmp: 0.02 + Math.random() * 0.04,
+                    basePos: [p.pos[0], p.pos[1], p.pos[2]],
+                    baseRot: dummy.rotation.y,
+                });
+            }
+            im.instanceMatrix.needsUpdate = true;
+            scene.add(im);
+            meshes.push(im);
+        }
+
+        vegetation.set(key, { meshes: meshes, windData: windData });
+    };
+
+    function removeVegetation(key) {
+        var entry = vegetation.get(key);
+        if (entry) {
+            for (var i = 0; i < entry.meshes.length; i++) {
+                scene.remove(entry.meshes[i]);
+                entry.meshes[i].geometry.dispose();
+                entry.meshes[i].material.dispose();
+            }
+            vegetation.delete(key);
+        }
+    }
+
+    window.threeBridgeRemoveVegetation = function (key) {
+        removeVegetation(key);
+    };
+
+    window.threeBridgeUpdateWind = function (time) {
+        var dummy = new THREE.Object3D();
+        for (var entry of vegetation.values()) {
+            if (!entry.windData || entry.windData.length === 0) continue;
+            var meshes = entry.meshes;
+            for (var wd of entry.windData) {
+                var im = meshes[wd.meshIdx];
+                if (!im) continue;
+                // Reconstruct matrix from stored data
+                var sway = Math.sin(time * 1.5 + wd.windPhase) * wd.windAmp;
+                dummy.position.set(wd.basePos[0], wd.basePos[1], wd.basePos[2]);
+                dummy.scale.set(1, 1, 1);
+                dummy.rotation.set(sway, wd.baseRot + sway * 0.2, sway * 0.3);
+                dummy.updateMatrix();
+                im.setMatrixAt(wd.idx, dummy.matrix);
+                im.instanceMatrix.needsUpdate = true;
+            }
+        }
+    };
+
+    // ============================================================
     // END AUDIO + WEATHER
     // ============================================================
 
