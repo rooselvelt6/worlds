@@ -8,36 +8,9 @@
     var sunLight = null, fillLight = null, ambientLight = null;
     var timeOfDay = 0.5;
     var particles = [];
-    var composer = null;
-    var bloomPass = null;
-    var lutPass = null;
-    var dofPass = null;
-    var heatHazePass = null;
     var currentBiome = 'plains';
-    var addonsLoaded = false;
 
-    // Dynamic import for Three.js addon modules (jsm ES modules)
-    (async function loadThreeAddons() {
-        try {
-            var mods = await Promise.all([
-                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js'),
-                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js'),
-                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js'),
-                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/ShaderPass.js'),
-                import('https://unpkg.com/three@0.160.0/examples/jsm/shaders/CopyShader.js'),
-                import('https://unpkg.com/three@0.160.0/examples/jsm/shaders/LuminosityHighPassShader.js'),
-            ]);
-            THREE.EffectComposer = mods[0].EffectComposer;
-            THREE.RenderPass = mods[1].RenderPass;
-            THREE.UnrealBloomPass = mods[2].UnrealBloomPass;
-            THREE.ShaderPass = mods[3].ShaderPass;
-            THREE.CopyShader = mods[4].CopyShader;
-            THREE.LuminosityHighPassShader = mods[5].LuminosityHighPassShader;
-            addonsLoaded = true;
-        } catch (e) {
-            console.warn('[bridge] Three addon imports failed, running without post-processing:', e);
-        }
-    })();
+    // Post-processing disabled for color accuracy; using direct render
 
     function resizeRenderer() {
         if (!renderer || !camera || !renderer.domElement) return;
@@ -47,36 +20,6 @@
         renderer.setSize(w, h, false);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
-        if (composer) composer.setSize(w, h);
-    }
-
-    function tryInitComposer() {
-        if (composer || !renderer || !scene || !camera) return;
-        if (!addonsLoaded || typeof THREE.EffectComposer === 'undefined') return;
-        try {
-            composer = new THREE.EffectComposer(renderer);
-            var renderPass = new THREE.RenderPass(scene, camera);
-            composer.addPass(renderPass);
-
-            bloomPass = new THREE.UnrealBloomPass(
-                new THREE.Vector2(renderer.domElement.clientWidth, renderer.domElement.clientHeight),
-                0.3, 0.2, 0.1
-            );
-            composer.addPass(bloomPass);
-
-            // Phase 3: LUT Color Grading
-            initLUTPass();
-
-            // Phase 3: Depth of Field
-            initDoFPass();
-
-            // Phase 3: Heat Haze (disabled by default)
-            initHeatHazePass();
-
-            console.log('[bridge] Post-processing initialized with LUT + DoF + Heat Haze');
-        } catch (e) {
-            console.warn('[bridge] Composer init error:', e);
-        }
     }
 
     window.threeBridgeInit = function (canvas) {
@@ -96,8 +39,8 @@
             resizeRenderer();
             new ResizeObserver(resizeRenderer).observe(canvas);
 
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.2;
+            renderer.toneMapping = THREE.NoToneMapping;
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
 
             sunLight = new THREE.DirectionalLight(0xff8844, 1.4);
             sunLight.position.set(-40, 60, -20);
@@ -127,7 +70,7 @@
             // Vignette overlay
             var vignetteEl = document.createElement('div');
             vignetteEl.id = 'vignette-overlay';
-            vignetteEl.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%);opacity:0.8;transition:opacity 0.5s;';
+            vignetteEl.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%);opacity:0.3;transition:opacity 0.5s;';
             document.body.appendChild(vignetteEl);
 
             // Water with custom shader
@@ -186,8 +129,7 @@
             waterMesh.receiveShadow = true;
             scene.add(waterMesh);
 
-            // Post-processing (lazy init when addons load)
-            tryInitComposer();
+            // Post-processing disabled
 
         } catch (e) {
             console.error("[bridge] init error:", e);
@@ -283,10 +225,6 @@
             }
         }
 
-        // Bloom intensity varies with time
-        if (bloomPass) {
-            bloomPass.strength = 0.15 + nightFactor * 0.35;
-        }
     };
 
     window.threeBridgeSetWaterLevel = function (level) {
@@ -305,13 +243,9 @@
         }
     };
 
-    window.threeBridgeSetBloom = function (strength, radius, threshold) {
-        if (bloomPass) {
-            bloomPass.strength = strength;
-            bloomPass.radius = radius;
-            bloomPass.threshold = threshold;
-        }
-    };
+    window.threeBridgeSetBloom = function () {};
+    window.threeBridgeSetLUT = function () {};
+    window.threeBridgeSetHeatHaze = function () {};
 
     window.threeBridgeSpawnParticles = function (key, posArr, colArr, count) {
         if (!scene) return;
@@ -357,30 +291,11 @@
         if (!renderer || !scene || !camera) return;
         frameCount++;
 
-        // Lazy composer init (addons may load after first frame)
-        if (!composer && addonsLoaded) {
-            tryInitComposer();
-        }
-
         if (waterMesh && waterMesh.material.uniforms) {
             waterMesh.material.uniforms.uTime.value = frameCount * 0.016;
         }
 
-        // Update heat haze time uniform
-        if (heatHazePass && heatHazePass.enabled && heatHazePass.material.uniforms) {
-            heatHazePass.material.uniforms.uTime.value = frameCount * 0.016;
-        }
-
-        // Update DoF focal distance based on camera height
-        if (dofPass && dofPass.enabled && camera && dofPass.material.uniforms) {
-            dofPass.material.uniforms.uFocusDistance.value = Math.max(10, camera.position.length() * 0.5);
-        }
-
-        if (composer) {
-            composer.render();
-        } else {
-            renderer.render(scene, camera);
-        }
+        renderer.render(scene, camera);
     };
 
     window.threeBridgeResize = function () {
@@ -407,6 +322,8 @@
         link.click();
         document.body.removeChild(link);
     };
+
+    // Vignette opacity set in init after element creation
 
     // ============================================================
     // AUDIO SYSTEM
@@ -1056,17 +973,17 @@
             0.15 + tint[1] * 0.5,
             0.15 + tint[2] * 0.5
         );
-        // Vignette intensity per biome
+        // Vignette subtle per biome
         var vg = document.getElementById('vignette-overlay');
         if (vg) {
             var darkBiomes = ['abyss', 'cave', 'storm'];
             var brightBiomes = ['desert', 'tundra', 'crystal'];
             if (darkBiomes.indexOf(biome) >= 0) {
-                vg.style.opacity = '0.95';
+                vg.style.opacity = '0.2';
             } else if (brightBiomes.indexOf(biome) >= 0) {
-                vg.style.opacity = '0.5';
+                vg.style.opacity = '0.1';
             } else {
-                vg.style.opacity = '0.75';
+                vg.style.opacity = '0.15';
             }
         }
     };
@@ -1075,262 +992,8 @@
     // CINEMATIC POST-PROCESSING (Phase 3)
     // ============================================================
 
-    // --- LUT Color Grading ---
+    // Post-processing (LUT, DoF, Heat Haze) disabled for color accuracy
 
-    // Enhanced LUT data per biome with richer color transformations
-    var lutPresets = {
-        forest:   { warmth: 0.05, vibrance: 1.1, contrast: 1.05, hueShift: 0.02 },
-        plains:   { warmth: 0.02, vibrance: 1.0, contrast: 1.0,  hueShift: 0.0  },
-        desert:   { warmth: 0.15, vibrance: 1.15, contrast: 1.1,  hueShift: -0.02 },
-        tundra:   { warmth: -0.05, vibrance: 0.9, contrast: 1.15, hueShift: 0.01 },
-        jungle:   { warmth: 0.08, vibrance: 1.2, contrast: 1.05, hueShift: 0.03 },
-        volcanic: { warmth: 0.2,  vibrance: 1.25, contrast: 1.2,  hueShift: -0.03 },
-        ocean:    { warmth: -0.08, vibrance: 1.05, contrast: 1.0, hueShift: 0.04 },
-        crystal:  { warmth: -0.02, vibrance: 1.3, contrast: 1.1,  hueShift: 0.06 },
-        cave:     { warmth: -0.1,  vibrance: 0.85, contrast: 1.3,  hueShift: 0.01 },
-        lava:     { warmth: 0.25, vibrance: 1.3, contrast: 1.25, hueShift: -0.04 },
-        fungus:   { warmth: 0.0,  vibrance: 1.15, contrast: 1.05, hueShift: 0.05 },
-        abyss:    { warmth: -0.15, vibrance: 0.8, contrast: 1.4,  hueShift: 0.0  },
-        storm:    { warmth: -0.05, vibrance: 0.9, contrast: 1.2,  hueShift: -0.01 },
-        aurora:   { warmth: -0.1,  vibrance: 1.2, contrast: 1.0,  hueShift: 0.08 },
-        magma:    { warmth: 0.25, vibrance: 1.3, contrast: 1.25, hueShift: -0.04 },
-    };
-
-    var lutTexture = null;
-    var lutBlend = 1.0;
-    var lutTargetBiome = 'plains';
-
-    function generateLUT(biome) {
-        var preset = lutPresets[biome] || lutPresets.plains;
-        var canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 16;
-        var ctx = canvas.getContext('2d');
-        var imgData = ctx.createImageData(256, 16);
-        var d = imgData.data;
-        for (var b = 0; b < 16; b++) {
-            for (var g = 0; g < 16; g++) {
-                for (var r = 0; r < 16; r++) {
-                    var idx = (b * 256 + g * 16 + r) * 4;
-                    var ri = r / 15, gi = g / 15, bi = b / 15;
-                    // Apply preset transformations
-                    var ro = Math.pow(ri, 1 / preset.contrast);
-                    ro += preset.warmth * 0.15;
-                    ro = Math.max(0, Math.min(1, ro));
-                    var go = Math.pow(gi, 1 / preset.contrast);
-                    go += preset.warmth * 0.05;
-                    go = Math.max(0, Math.min(1, go));
-                    var bo = Math.pow(bi, 1 / preset.contrast);
-                    bo -= preset.warmth * 0.1;
-                    bo = Math.max(0, Math.min(1, bo));
-                    // Vibrance boost
-                    var gray = (ro + go + bo) / 3;
-                    var vib = preset.vibrance;
-                    ro = gray + (ro - gray) * vib;
-                    go = gray + (go - gray) * vib;
-                    bo = gray + (bo - gray) * vib;
-                    ro = Math.max(0, Math.min(1, ro));
-                    go = Math.max(0, Math.min(1, go));
-                    bo = Math.max(0, Math.min(1, bo));
-                    d[idx] = ro * 255;
-                    d[idx + 1] = go * 255;
-                    d[idx + 2] = bo * 255;
-                    d[idx + 3] = 255;
-                }
-            }
-        }
-        ctx.putImageData(imgData, 0, 0);
-        var tex = new THREE.CanvasTexture(canvas);
-        tex.magFilter = THREE.LinearFilter;
-        tex.minFilter = THREE.LinearFilter;
-        tex.wrapS = THREE.ClampToEdgeWrapping;
-        tex.wrapT = THREE.ClampToEdgeWrapping;
-        return tex;
-    }
-
-    function initLUTPass() {
-        if (!THREE.ShaderPass) return;
-        lutTexture = generateLUT('plains');
-        lutPass = new THREE.ShaderPass({
-            uniforms: {
-                tDiffuse: { value: null },
-                tLUT: { value: lutTexture },
-                uLUTSize: { value: 16.0 },
-                uBlend: { value: 1.0 },
-            },
-            vertexShader: [
-                "varying vec2 vUv;",
-                "void main() {",
-                "  vUv = uv;",
-                "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
-                "}"
-            ].join("\n"),
-            fragmentShader: [
-                "uniform sampler2D tDiffuse;",
-                "uniform sampler2D tLUT;",
-                "uniform float uLUTSize;",
-                "uniform float uBlend;",
-                "varying vec2 vUv;",
-                "void main() {",
-                "  vec4 col = texture2D(tDiffuse, vUv);",
-                "  float lutSize = uLUTSize;",
-                "  float scale = (lutSize - 1.0) / lutSize;",
-                "  float offset = 0.5 / lutSize;",
-                "  vec3 lutCoord = col.rgb * scale + offset;",
-                "  float b = floor(lutCoord.b * lutSize);",
-                "  float tb = b / lutSize + offset;",
-                "  float tn = (b + 1.0) / lutSize + offset;",
-                "  float bb = fract(lutCoord.b * lutSize);",
-                "  vec3 lutPosB = vec3(lutCoord.r, lutCoord.g, tb);",
-                "  vec3 lutPosN = vec3(lutCoord.r, lutCoord.g, tn);",
-                "  vec4 lutB = texture2D(tLUT, lutPosB.xy);",
-                "  vec4 lutN = texture2D(tLUT, lutPosN.xy);",
-                "  vec3 lut = mix(lutB.rgb, lutN.rgb, bb);",
-                "  gl_FragColor = vec4(mix(col.rgb, lut, uBlend), col.a);",
-                "}"
-            ].join("\n"),
-        });
-        lutPass.needsSwap = true;
-        // Insert LUT after bloom, before DoF
-        var idx = composer.passes.indexOf(bloomPass);
-        if (idx >= 0) {
-            composer.insertPass(lutPass, idx + 1);
-        } else {
-            composer.addPass(lutPass);
-        }
-    }
-
-    // --- Depth of Field ---
-
-    function initDoFPass() {
-        if (!THREE.ShaderPass) return;
-        dofPass = new THREE.ShaderPass({
-            uniforms: {
-                tDiffuse: { value: null },
-                uFocusDistance: { value: 30.0 },
-                uAperture: { value: 0.015 },
-                uMaxBlur: { value: 0.02 },
-            },
-            vertexShader: [
-                "varying vec2 vUv;",
-                "void main() {",
-                "  vUv = uv;",
-                "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
-                "}"
-            ].join("\n"),
-            fragmentShader: [
-                "uniform sampler2D tDiffuse;",
-                "uniform float uFocusDistance;",
-                "uniform float uAperture;",
-                "uniform float uMaxBlur;",
-                "varying vec2 vUv;",
-                "void main() {",
-                "  vec2 dim = vec2(textureSize(tDiffuse, 0));",
-                "  float aspect = dim.x / dim.y;",
-                "  vec2 texel = vec2(1.0 / dim.x, 1.0 / dim.y);",
-                "  vec4 col = texture2D(tDiffuse, vUv);",
-                "  float depth = col.a;",
-                "  float coc = abs(depth - 0.5) * uAperture * 50.0;",
-                "  coc = min(coc, uMaxBlur);",
-                "  int samples = 9;",
-                "  vec3 blur = vec3(0.0);",
-                "  float total = 0.0;",
-                "  for (int x = -4; x <= 4; x++) {",
-                "    for (int y = -4; y <= 4; y++) {",
-                "      float d = float(x * x + y * y);",
-                "      float weight = exp(-d * 20.0 * coc);",
-                "      vec2 off = vec2(float(x) * texel.x * coc * 50.0, float(y) * texel.y * coc * 50.0 / aspect);",
-                "      blur += texture2D(tDiffuse, vUv + off).rgb * weight;",
-                "      total += weight;",
-                "    }",
-                "  }",
-                "  blur /= max(total, 0.001);",
-                "  gl_FragColor = vec4(blur, 1.0);",
-                "}"
-            ].join("\n"),
-        });
-        dofPass.needsSwap = true;
-        // Insert DoF after LUT
-        var idx = composer.passes.indexOf(lutPass || bloomPass);
-        if (idx >= 0) {
-            composer.insertPass(dofPass, idx + 1);
-        } else {
-            composer.addPass(dofPass);
-        }
-    }
-
-    // --- Heat Haze ---
-
-    function initHeatHazePass() {
-        if (!THREE.ShaderPass) return;
-        heatHazePass = new THREE.ShaderPass({
-            uniforms: {
-                tDiffuse: { value: null },
-                uTime: { value: 0 },
-                uIntensity: { value: 0.0 },
-            },
-            vertexShader: [
-                "varying vec2 vUv;",
-                "void main() {",
-                "  vUv = uv;",
-                "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
-                "}"
-            ].join("\n"),
-            fragmentShader: [
-                "uniform sampler2D tDiffuse;",
-                "uniform float uTime;",
-                "uniform float uIntensity;",
-                "varying vec2 vUv;",
-                "void main() {",
-                "  vec2 uv = vUv;",
-                "  float distortX = sin(uv.y * 40.0 + uTime * 2.0) * 0.003 * uIntensity;",
-                "  float distortY = sin(uv.x * 30.0 + uTime * 1.5 + 1.2) * 0.002 * uIntensity;",
-                "  uv += vec2(distortX, distortY);",
-                "  gl_FragColor = texture2D(tDiffuse, uv);",
-                "}"
-            ].join("\n"),
-        });
-        heatHazePass.enabled = false;
-        heatHazePass.needsSwap = true;
-        composer.addPass(heatHazePass);
-    }
-
-    // Bridge: set LUT per biome
-    window.threeBridgeSetLUT = function (biome) {
-        if (biome === lutTargetBiome) return;
-        lutTargetBiome = biome;
-        if (lutPass && lutPass.material && lutPass.material.uniforms) {
-            lutTexture = generateLUT(biome);
-            lutPass.material.uniforms.tLUT.value = lutTexture;
-            lutPass.material.uniforms.uBlend.value = 1.0;
-            // Also adjust bloom per biome
-            var bloomStrength = 0.3;
-            var hotBiomes = ['volcanic', 'magma', 'lava', 'desert'];
-            var darkBiomes = ['cave', 'abyss', 'storm'];
-            if (hotBiomes.indexOf(biome) >= 0) bloomStrength = 0.5;
-            else if (darkBiomes.indexOf(biome) >= 0) bloomStrength = 0.15;
-            else bloomStrength = 0.3;
-            if (bloomPass) {
-                bloomPass.strength = bloomStrength;
-            }
-        }
-    };
-
-    // Bridge: toggle heat haze
-    window.threeBridgeSetHeatHaze = function (active) {
-        if (!heatHazePass) return;
-        heatHazePass.enabled = active;
-        if (heatHazePass.material && heatHazePass.material.uniforms) {
-            heatHazePass.material.uniforms.uIntensity.value = active ? 1.0 : 0.0;
-        }
-    };
-
-    // Bridge: set DoF parameters
-    window.threeBridgeSetDoF = function (focus, aperture) {
-        if (!dofPass || !dofPass.material || !dofPass.material.uniforms) return;
-        dofPass.material.uniforms.uFocusDistance.value = focus;
-        dofPass.material.uniforms.uAperture.value = aperture;
-    };
     var vegetation = new Map(); // key -> { meshes: [], windData: [] }
     var vegGeos = {};
 

@@ -157,7 +157,7 @@ impl Engine {
             vel_y: 0.0,
             joy_dx: joy_dx.clone(),
             joy_dy: joy_dy.clone(),
-            time_of_day: 0.5,
+            time_of_day: 0.25,
             prev_zone: None,
             observer_mode: false,
             orbit_radius: 15.0,
@@ -476,7 +476,7 @@ impl Engine {
                 if s.night_mode {
                     s.time_of_day = 0.0;
                 } else {
-                    s.time_of_day += delta * 0.02;
+                    s.time_of_day += delta * 0.003;
                     if s.time_of_day > 1.0 { s.time_of_day -= 1.0; }
                 }
                 bridge::set_time(s.time_of_day);
