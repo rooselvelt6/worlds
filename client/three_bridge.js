@@ -12,6 +12,280 @@
 
     // Post-processing disabled for color accuracy; using direct render
 
+    // Procedural PBR texture cache
+    var pbrTextures = {};
+
+    function generatePBRTextures() {
+        var size = 256;
+        function makeCanvas(fn) {
+            var c = document.createElement('canvas');
+            c.width = size; c.height = size;
+            var ctx = c.getContext('2d');
+            var d = ctx.createImageData(size, size);
+            fn(d.data, size);
+            ctx.putImageData(d, 0, 0);
+            return c;
+        }
+        function simpleNoise(x, y, seed) {
+            var n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
+            return n - Math.floor(n);
+        }
+        function fbm(x, y, octaves, seed) {
+            var v = 0, a = 1, t = 0;
+            for (var i = 0; i < octaves; i++) {
+                v += a * simpleNoise(x * (1 << i), y * (1 << i), seed + i * 100);
+                t += a; a *= 0.5;
+            }
+            return v / t;
+        }
+        function genColor(type) {
+            return makeCanvas(function(data, s) {
+                for (var y = 0; y < s; y++) for (var x = 0; x < s; x++) {
+                    var i = (y * s + x) * 4;
+                    var nx = x / s, ny = y / s;
+                    var n = fbm(nx * 4, ny * 4, 4, type.charCodeAt(0) + 42);
+                    var n2 = fbm(nx * 8, ny * 8, 3, type.charCodeAt(1) + 99);
+                    var r, g, b;
+                    if (type === 'grass') {
+                        r = 30 + n * 60 + n2 * 10;
+                        g = 100 + n * 80 + n2 * 20;
+                        b = 20 + n * 30;
+                    } else if (type === 'rock') {
+                        r = 80 + n * 60 + n2 * 20;
+                        g = 75 + n * 55 + n2 * 15;
+                        b = 65 + n * 50 + n2 * 10;
+                    } else if (type === 'sand') {
+                        r = 180 + n * 40 + n2 * 10;
+                        g = 160 + n * 35 + n2 * 10;
+                        b = 100 + n * 30;
+                    } else if (type === 'snow') {
+                        r = 220 + n * 35;
+                        g = 225 + n * 30;
+                        b = 230 + n * 25;
+                    } else if (type === 'dirt') {
+                        r = 90 + n * 40 + n2 * 15;
+                        g = 60 + n * 30 + n2 * 10;
+                        b = 30 + n * 20;
+                    } else if (type === 'bark') {
+                        var streak = Math.abs(Math.sin(y * 0.3 + n * 2)) * 0.3;
+                        r = 60 + n * 30 + streak * 40;
+                        g = 40 + n * 25 + streak * 20;
+                        b = 20 + n * 15;
+                    } else if (type === 'leaves') {
+                        r = 20 + n * 30 + n2 * 20;
+                        g = 80 + n * 60 + n2 * 30;
+                        b = 10 + n * 20;
+                    } else {
+                        r = 128; g = 128; b = 128;
+                    }
+                    data[i] = Math.max(0, Math.min(255, r));
+                    data[i+1] = Math.max(0, Math.min(255, g));
+                    data[i+2] = Math.max(0, Math.min(255, b));
+                    data[i+3] = 255;
+                }
+            });
+        }
+        function genNormal(colorCanvas, strength) {
+            strength = strength || 1.0;
+            var c2 = document.createElement('canvas');
+            c2.width = size; c2.height = size;
+            var ctx2 = c2.getContext('2d');
+            ctx2.drawImage(colorCanvas, 0, 0);
+            var src = ctx2.getImageData(0, 0, size, size);
+            var dst = ctx2.createImageData(size, size);
+            for (var y = 0; y < size; y++) for (var x = 0; x < size; x++) {
+                var i = (y * size + x) * 4;
+                var lx = (y * size + Math.max(0, x-1)) * 4;
+                var rx = (y * size + Math.min(size-1, x+1)) * 4;
+                var ly = (Math.max(0, y-1) * size + x) * 4;
+                var ry = (Math.min(size-1, y+1) * size + x) * 4;
+                var dx = (src.data[rx] + src.data[rx+1] + src.data[rx+2]) / 3 -
+                         (src.data[lx] + src.data[lx+1] + src.data[lx+2]) / 3;
+                var dy = (src.data[ry] + src.data[ry+1] + src.data[ry+2]) / 3 -
+                         (src.data[ly] + src.data[ly+1] + src.data[ly+2]) / 3;
+                var nx = -dx * strength;
+                var ny = -dy * strength;
+                var nz = 1.0 / Math.sqrt(1 + nx*nx + ny*ny);
+                nx *= nz; ny *= nz;
+                dst.data[i] = Math.floor((nx * 0.5 + 0.5) * 255);
+                dst.data[i+1] = Math.floor((ny * 0.5 + 0.5) * 255);
+                dst.data[i+2] = Math.floor((nz * 0.5 + 0.5) * 255);
+                dst.data[i+3] = 255;
+            }
+            ctx2.putImageData(dst, 0, 0);
+            return c2;
+        }
+        function toTex(canvas) {
+            var t = new THREE.CanvasTexture(canvas);
+            t.wrapS = t.wrapT = THREE.RepeatWrapping;
+            t.anisotropy = renderer ? renderer.capabilities.getMaxAnisotropy() : 4;
+            t.colorSpace = THREE.SRGBColorSpace;
+            return t;
+        }
+        function toNormalTex(canvas) {
+            var t = new THREE.CanvasTexture(canvas);
+            t.wrapS = t.wrapT = THREE.RepeatWrapping;
+            return t;
+        }
+        var types = ['grass','rock','sand','snow','dirt','bark','leaves'];
+        types.forEach(function(t) {
+            var colCanvas = genColor(t);
+            var normCanvas = genNormal(colCanvas, 2.0);
+            pbrTextures[t] = {
+                map: toTex(colCanvas),
+                normalMap: toNormalTex(normCanvas),
+                roughness: t === 'rock' ? 0.8 : t === 'sand' ? 0.6 : t === 'snow' ? 0.3 : t === 'bark' ? 0.7 : 0.5,
+                metalness: 0.0,
+            };
+        });
+    }
+
+    // Terrain lighting uniforms (synced with scene lights)
+    var terrainLightUniforms = {
+        uSunDir: { value: new THREE.Vector3(-0.5, 0.7, -0.3) },
+        uSunColor: { value: new THREE.Color(0xff8844) },
+        uSunIntensity: { value: 1.4 },
+        uFillDir: { value: new THREE.Vector3(0.3, 0.2, 0.4) },
+        uFillColor: { value: new THREE.Color(0x4488ff) },
+        uFillIntensity: { value: 0.6 },
+        uAmbientColor: { value: new THREE.Color(0x222244) },
+        uAmbientIntensity: { value: 0.4 },
+        uRimDir: { value: new THREE.Vector3(0, -0.5, 0) },
+        uRimColor: { value: new THREE.Color(0x6644aa) },
+        uRimIntensity: { value: 0.3 },
+    };
+
+    var terrainShaderVert = [
+        "varying vec3 vWorldPos;",
+        "varying vec3 vNormal;",
+        "varying vec3 vColor;",
+        "void main() {",
+        "  vec4 wp = modelMatrix * vec4(position, 1.0);",
+        "  vWorldPos = wp.xyz;",
+        "  vNormal = normalize(normalMatrix * normal);",
+        "  vColor = color;",
+        "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+        "}"
+    ].join("\n");
+
+    var terrainShaderFrag = [
+        "uniform sampler2D uTexGrass, uTexRock, uTexSand, uTexSnow, uTexDirt;",
+        "uniform sampler2D uNormGrass, uNormRock, uNormSand, uNormSnow, uNormDirt;",
+        "uniform float uTexScale;",
+        "uniform float uHeightBlend;",
+        "uniform vec3 uSunDir;",
+        "uniform vec3 uSunColor;",
+        "uniform float uSunIntensity;",
+        "uniform vec3 uFillDir;",
+        "uniform vec3 uFillColor;",
+        "uniform float uFillIntensity;",
+        "uniform vec3 uAmbientColor;",
+        "uniform float uAmbientIntensity;",
+        "uniform vec3 uRimDir;",
+        "uniform vec3 uRimColor;",
+        "uniform float uRimIntensity;",
+        "varying vec3 vWorldPos;",
+        "varying vec3 vNormal;",
+        "varying vec3 vColor;",
+        "",
+        "vec3 getNormal(sampler2D normTex, vec3 pos, vec3 normal, float scale) {",
+        "  vec3 blend = abs(normal);",
+        "  blend /= blend.x + blend.y + blend.z;",
+        "  vec3 nx = texture2D(normTex, pos.zy / scale).xyz * 2.0 - 1.0;",
+        "  vec3 ny = texture2D(normTex, pos.xz / scale).xyz * 2.0 - 1.0;",
+        "  vec3 nz = texture2D(normTex, pos.xy / scale).xyz * 2.0 - 1.0;",
+        "  vec3 n = nx * blend.x + ny * blend.y + nz * blend.z;",
+        "  return normalize(n + normal * 0.6);",
+        "}",
+        "",
+        "vec4 triPlanar(sampler2D tex, vec3 pos, vec3 normal, float scale) {",
+        "  vec3 blend = abs(normal);",
+        "  blend /= blend.x + blend.y + blend.z;",
+        "  vec4 cx = texture2D(tex, pos.zy / scale);",
+        "  vec4 cy = texture2D(tex, pos.xz / scale);",
+        "  vec4 cz = texture2D(tex, pos.xy / scale);",
+        "  return cx * blend.x + cy * blend.y + cz * blend.z;",
+        "}",
+        "",
+        "void main() {",
+        "  vec3 normal = normalize(vNormal);",
+        "  float height = vWorldPos.y;",
+        // Height-based blend
+        "  float grassW = 1.0 - smoothstep(0.5, 2.5, height);",
+        "  float sandW = (1.0 - grassW) * smoothstep(0.0, 0.3, height) * (1.0 - smoothstep(0.5, 1.5, height));",
+        "  float rockW = smoothstep(1.0, 3.0, height) * (1.0 - smoothstep(5.0, 10.0, height));",
+        "  float snowW = smoothstep(6.0, 12.0, height);",
+        "  float dirtW = max(0.0, 1.0 - grassW - sandW - rockW - snowW);",
+        // Sample textures
+        "  vec4 col = vec4(0);",
+        "  col += triPlanar(uTexGrass, vWorldPos, normal, uTexScale) * grassW;",
+        "  col += triPlanar(uTexSand, vWorldPos, normal, uTexScale) * sandW;",
+        "  col += triPlanar(uTexRock, vWorldPos, normal, uTexScale) * rockW;",
+        "  col += triPlanar(uTexSnow, vWorldPos, normal, uTexScale) * snowW;",
+        "  col += triPlanar(uTexDirt, vWorldPos, normal, uTexScale) * dirtW;",
+        // Sample normal maps
+        "  vec3 nm = vec3(0);",
+        "  nm += getNormal(uNormGrass, vWorldPos, normal, uTexScale) * grassW;",
+        "  nm += getNormal(uNormSand, vWorldPos, normal, uTexScale) * sandW;",
+        "  nm += getNormal(uNormRock, vWorldPos, normal, uTexScale) * rockW;",
+        "  nm += getNormal(uNormSnow, vWorldPos, normal, uTexScale) * snowW;",
+        "  nm += getNormal(uNormDirt, vWorldPos, normal, uTexScale) * dirtW;",
+        "  normal = normalize(nm);",
+        // Apply vertex color (biome tint)
+        "  col *= vec4(vColor, 1.0);",
+        // Blinn-Phong lighting
+        "  vec3 viewDir = normalize(cameraPosition - vWorldPos);",
+        "  vec3 totalLight = vec3(0);",
+        // Ambient
+        "  totalLight += uAmbientColor * uAmbientIntensity;",
+        // Sun light
+        "  float NdotL = max(dot(normal, normalize(uSunDir)), 0.0);",
+        "  totalLight += uSunColor * uSunIntensity * NdotL;",
+        // Fill light
+        "  NdotL = max(dot(normal, normalize(uFillDir)), 0.0);",
+        "  totalLight += uFillColor * uFillIntensity * NdotL;",
+        // Rim light
+        "  NdotL = max(dot(normal, normalize(uRimDir)), 0.0);",
+        "  totalLight += uRimColor * uRimIntensity * NdotL;",
+        // Specular (simple)
+        "  vec3 halfVec = normalize(normalize(uSunDir) + viewDir);",
+        "  float spec = pow(max(dot(normal, halfVec), 0.0), 16.0);",
+        "  totalLight += uSunColor * uSunIntensity * spec * 0.3;",
+        // Final
+        "  gl_FragColor = vec4(col.rgb * totalLight, 1.0);",
+        "}"
+    ].join("\n");
+
+    var terrainMat = null;
+
+    function createTerrainMaterial() {
+        if (terrainMat) return terrainMat;
+        var uniforms = THREE.UniformsUtils.merge([
+            {
+                uTexGrass: { value: pbrTextures.grass.map },
+                uTexRock: { value: pbrTextures.rock.map },
+                uTexSand: { value: pbrTextures.sand.map },
+                uTexSnow: { value: pbrTextures.snow.map },
+                uTexDirt: { value: pbrTextures.dirt.map },
+                uNormGrass: { value: pbrTextures.grass.normalMap },
+                uNormRock: { value: pbrTextures.rock.normalMap },
+                uNormSand: { value: pbrTextures.sand.normalMap },
+                uNormSnow: { value: pbrTextures.snow.normalMap },
+                uNormDirt: { value: pbrTextures.dirt.normalMap },
+                uTexScale: { value: 6.0 },
+                uHeightBlend: { value: 3.0 },
+            },
+            terrainLightUniforms,
+        ]);
+        terrainMat = new THREE.ShaderMaterial({
+            uniforms: uniforms,
+            vertexShader: terrainShaderVert,
+            fragmentShader: terrainShaderFrag,
+            vertexColors: true,
+        });
+        return terrainMat;
+    }
+
     function resizeRenderer() {
         if (!renderer || !camera || !renderer.domElement) return;
         var w = renderer.domElement.clientWidth;
@@ -39,8 +313,21 @@
             resizeRenderer();
             new ResizeObserver(resizeRenderer).observe(canvas);
 
-            renderer.toneMapping = THREE.NoToneMapping;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
             renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+            // Generate PBR textures
+            generatePBRTextures();
+
+            // Environment map from scene background
+            var pmrem = new THREE.PMREMGenerator(renderer);
+            pmrem.compileEquirectangularShader();
+            var envScene = new THREE.Scene();
+            envScene.background = new THREE.Color(0x87ceeb);
+            var envMap = pmrem.fromScene(envScene, 0, 0.1, 100).texture;
+            pmrem.dispose();
+            scene.environment = envMap;
 
             sunLight = new THREE.DirectionalLight(0xff8844, 1.4);
             sunLight.position.set(-40, 60, -20);
@@ -73,8 +360,8 @@
             vignetteEl.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%);opacity:0.3;transition:opacity 0.5s;';
             document.body.appendChild(vignetteEl);
 
-            // Water with custom shader
-            var waterGeo = new THREE.PlaneGeometry(500, 500, 64, 64);
+            // Water with realistic shader (Gerstner waves + Fresnel + envMap reflection)
+            var waterGeo = new THREE.PlaneGeometry(500, 500, 80, 80);
             var waterMat = new THREE.ShaderMaterial({
                 uniforms: {
                     uTime: { value: 0 },
@@ -82,19 +369,51 @@
                     uColorShallow: { value: new THREE.Color(0x1a8a9a) },
                     uColorFoam: { value: new THREE.Color(0x8ad4e8) },
                     uWaterLevel: { value: 0 },
+                    uSkyColor: { value: new THREE.Color(0x87ceeb) },
+                    uSunDir: terrainLightUniforms.uSunDir,
+                    uSunColor: terrainLightUniforms.uSunColor,
+                    uSunIntensity: terrainLightUniforms.uSunIntensity,
                 },
                 vertexShader: [
                     "uniform float uTime;",
                     "varying vec2 vUv;",
                     "varying float vHeight;",
+                    "varying vec3 vWorldPos;",
+                    "varying vec3 vWorldNormal;",
+                    // Gerstner waves
+                    "vec3 gerstner(float x, float y, float t) {",
+                    "  vec3 p = vec3(x, y, 0);",
+                    "  float w, a, q;",
+                    // Wave 1
+                    "  w = 0.8; a = 0.4; q = a * w;",
+                    "  float angle = w * (x * 0.8 + y * 0.6) + t * 0.8;",
+                    "  p.x += q * cos(angle) * 0.8;",
+                    "  p.y += q * sin(angle) * 0.6;",
+                    "  p.z += a * sin(angle);",
+                    // Wave 2
+                    "  w = 0.5; a = 0.3; q = a * w;",
+                    "  angle = w * (x * -0.4 + y * 0.9) + t * 0.5;",
+                    "  p.x += q * cos(angle) * -0.4;",
+                    "  p.y += q * sin(angle) * 0.9;",
+                    "  p.z += a * sin(angle);",
+                    // Wave 3
+                    "  w = 0.3; a = 0.5; q = a * w;",
+                    "  angle = w * (x * 0.2 + y * -0.7) + t * 0.3;",
+                    "  p.x += q * cos(angle) * 0.2;",
+                    "  p.y += q * sin(angle) * -0.7;",
+                    "  p.z += a * sin(angle);",
+                    "  return p;",
+                    "}",
                     "void main() {",
-                    "  vUv = uv;",
                     "  vec3 pos = position;",
-                    "  float wave1 = sin(pos.x * 0.05 + uTime * 0.8) * 0.3;",
-                    "  float wave2 = sin(pos.y * 0.08 + uTime * 0.5 + 1.3) * 0.2;",
-                    "  float wave3 = sin((pos.x + pos.y) * 0.03 + uTime * 0.3) * 0.4;",
-                    "  pos.z += wave1 + wave2 + wave3;",
+                    "  vec3 g = gerstner(pos.x, pos.y, uTime);",
+                    "  pos.xy = g.xy;",
+                    "  pos.z = g.z;",
+                    "  vUv = uv;",
                     "  vHeight = pos.z;",
+                    "  vec4 wp = modelMatrix * vec4(pos, 1.0);",
+                    "  vWorldPos = wp.xyz;",
+                    "  vWorldNormal = normalize((modelMatrix * vec4(0,0,1,0)).xyz);",
                     "  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);",
                     "}"
                 ].join("\n"),
@@ -103,20 +422,39 @@
                     "uniform vec3 uColorShallow;",
                     "uniform vec3 uColorFoam;",
                     "uniform float uTime;",
+                    "uniform vec3 uSkyColor;",
+                    "uniform vec3 uSunDir;",
+                    "uniform vec3 uSunColor;",
+                    "uniform float uSunIntensity;",
                     "varying vec2 vUv;",
                     "varying float vHeight;",
+                    "varying vec3 vWorldPos;",
+                    "varying vec3 vWorldNormal;",
                     "void main() {",
-                    "  vec2 uv = vUv * 8.0;",
-                    "  float wave = sin(uv.x * 3.0 + uTime) * cos(uv.y * 3.0 + uTime * 0.7);",
-                    "  float foam = smoothstep(0.3, 0.7, wave);",
-                    "  float depth = (vHeight + 1.5) / 3.0;",
-                    "  depth = clamp(depth, 0.0, 1.0);",
-                    "  vec3 col = mix(uColorDeep, uColorShallow, depth);",
-                    "  col = mix(col, uColorFoam, foam * 0.3);",
-                    "  float shimmer = sin(uv.x * 10.0 + uTime * 2.0) * sin(uv.y * 10.0 + uTime * 1.7);",
-                    "  col += vec3(0.1, 0.15, 0.2) * max(0.0, shimmer * 0.3);",
-                    "  float alpha = 0.35 + depth * 0.25;",
-                    "  gl_FragColor = vec4(col, alpha);",
+                    "  vec3 normal = normalize(vWorldNormal);",
+                    "  vec3 viewDir = normalize(cameraPosition - vWorldPos);",
+                    // Fresnel
+                    "  float fresnel = 1.0 - max(dot(normal, viewDir), 0.0);",
+                    "  fresnel = pow(fresnel, 3.0);",
+                    // Pseudo-reflection using sky color
+                    "  vec3 reflectDir = reflect(-viewDir, normal);",
+                    "  float skyMix = 0.5 + 0.5 * reflectDir.y;",
+                    "  vec3 reflectColor = mix(uSkyColor, vec3(1.0), skyMix * 0.3);",
+                    // Depth-based water color
+                    "  float depth = clamp((vHeight + 2.0) / 4.0, 0.0, 1.0);",
+                    "  vec3 waterCol = mix(uColorDeep, uColorShallow, depth);",
+                    // Foam on wave crests
+                    "  float foam = smoothstep(0.0, 0.3, vHeight) * 0.5;",
+                    "  waterCol = mix(waterCol, uColorFoam, foam);",
+                    // Sun specular (shimmer)
+                    "  vec3 halfVec = normalize(normalize(uSunDir) + viewDir);",
+                    "  float spec = pow(max(dot(normal, halfVec), 0.0), 64.0);",
+                    "  waterCol += uSunColor * uSunIntensity * spec * 0.8;",
+                    // Blend reflection and water color by Fresnel
+                    "  vec3 finalCol = mix(waterCol, reflectColor, fresnel * 0.5);",
+                    // Alpha
+                    "  float alpha = 0.3 + depth * 0.5;",
+                    "  gl_FragColor = vec4(finalCol, alpha);",
                     "}"
                 ].join("\n"),
                 transparent: true,
@@ -145,10 +483,7 @@
             geo.setIndex(new THREE.BufferAttribute(idxArr, 1));
             geo.computeVertexNormals();
 
-            var mat = new THREE.MeshLambertMaterial({
-                vertexColors: true,
-                flatShading: false,
-            });
+            var mat = createTerrainMaterial();
             var mesh = new THREE.Mesh(geo, mat);
             mesh.position.set(ox, 0, oz);
             mesh.receiveShadow = true;
@@ -223,6 +558,30 @@
                 waterMesh.material.uniforms.uColorDeep.value.copy(deepCol);
                 waterMesh.material.uniforms.uColorShallow.value.copy(shallowCol);
             }
+        }
+
+        // Sky reflection (envMap) - update periodically
+        if (scene.environment && scene.environment.isTexture) {
+            scene.environment.needsUpdate = true;
+        }
+
+        // Sync water shader sky color
+        if (waterMesh && waterMesh.material.uniforms) {
+            waterMesh.material.uniforms.uSkyColor.value.copy(skyColor);
+        }
+
+        // Sync terrain shader uniforms with scene lights
+        if (terrainMat) {
+            var sd = new THREE.Vector3().copy(sunLight.position).normalize();
+            terrainMat.uniforms.uSunDir.value.copy(sd);
+            terrainMat.uniforms.uSunColor.value.copy(sunLight.color);
+            terrainMat.uniforms.uSunIntensity.value = sunLight.intensity;
+            var fd = new THREE.Vector3().copy(fillLight.position).normalize();
+            terrainMat.uniforms.uFillDir.value.copy(fd);
+            terrainMat.uniforms.uFillColor.value.copy(fillLight.color);
+            terrainMat.uniforms.uFillIntensity.value = fillLight.intensity;
+            terrainMat.uniforms.uAmbientColor.value.copy(ambientLight.color);
+            terrainMat.uniforms.uAmbientIntensity.value = ambientLight.intensity;
         }
 
     };
