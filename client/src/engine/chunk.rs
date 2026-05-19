@@ -21,7 +21,26 @@ impl ChunkData {
     }
 }
 
+fn apply_mutation(params: &WorldParams, cx: i32, cz: i32) -> WorldParams {
+    if params.mutation <= 0.0 {
+        return *params;
+    }
+    let mut p = *params;
+    let h = ((params.seed as i64).wrapping_mul(374761393)
+        .wrapping_add(cx as i64 * 668265263)
+        .wrapping_add(cz as i64 * 1274126177)) as f64;
+    let norm = (h.sin() * 43758.5453).fract().abs();
+    let offset = (norm - 0.5) * 2.0 * params.mutation;
+    p.scale *= 1.0 + offset * 0.1;
+    p.amplitude *= 1.0 + offset * 0.15;
+    p.blend_a = (p.blend_a + offset * 0.05).clamp(0.0, 1.0);
+    p
+}
+
 pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
+    let mutated = apply_mutation(params, cx, cz);
+    let p = &mutated;
+
     let ox = cx as f64 * CHUNK_SIZE;
     let oz = cz as f64 * CHUNK_SIZE;
     let step = CHUNK_SIZE / RES as f64;
@@ -39,8 +58,8 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             let idx = iz as usize * verts_per_side + ix as usize;
             let wx = ox + ix as f64 * step;
             let wz = oz + iz as f64 * step;
-            let mut h = terrain::get_height(params, wx, wz);
-            terrain::zone_effects(params, wx, wz, &mut h);
+            let mut h = terrain::get_height(p, wx, wz);
+            terrain::zone_effects(p, wx, wz, &mut h);
             heights[idx] = h;
         }
     }
@@ -58,10 +77,10 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             positions.push(h);
             positions.push(wz as f32);
 
-            let h_l = terrain::get_height(params, wx - NORMAL_DX, wz);
-            let h_r = terrain::get_height(params, wx + NORMAL_DX, wz);
-            let h_d = terrain::get_height(params, wx, wz - NORMAL_DX);
-            let h_u = terrain::get_height(params, wx, wz + NORMAL_DX);
+            let h_l = terrain::get_height(p, wx - NORMAL_DX, wz);
+            let h_r = terrain::get_height(p, wx + NORMAL_DX, wz);
+            let h_d = terrain::get_height(p, wx, wz - NORMAL_DX);
+            let h_u = terrain::get_height(p, wx, wz + NORMAL_DX);
             let dx_h = (h_r - h_l) / (2.0 * NORMAL_DX);
             let dz_h = (h_u - h_d) / (2.0 * NORMAL_DX);
             let len = (dx_h * dx_h + 1.0 + dz_h * dz_h).sqrt() as f32;
@@ -69,7 +88,7 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             normals.push(1.0 / len);
             normals.push((-dz_h as f32) / len);
 
-            let mut c = terrain::get_formula_color(params.formula, heights[idx], max_h);
+            let mut c = terrain::get_blended_formula_color(params.formula, params.formula_b, params.blend_a, heights[idx], max_h);
             // Subsurface rock blending for cave/underground areas
             let water = params.water_level as f32;
             if heights[idx] as f32 <= water - 1.0 {

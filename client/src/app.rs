@@ -4,7 +4,7 @@ use crate::engine::joystick::Joystick;
 use crate::engine::minimap::Minimap;
 use crate::engine::terrain::Zone;
 use crate::engine::{Engine, HudData};
-use crate::state::{AppState, FormulaType};
+use crate::state::{AppState, FormulaType, SaveData};
 use leptos::html;
 use leptos::prelude::*;
 use std::cell::RefCell;
@@ -12,6 +12,25 @@ use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::window;
+
+/// Safe wrapper for Rc<RefCell<Option<Engine>>> to satisfy Send bound.
+/// WASM is single-threaded, so this is safe.
+#[derive(Clone)]
+struct SendEngine(Rc<RefCell<Option<Engine>>>);
+unsafe impl Send for SendEngine {}
+
+impl SendEngine {
+    fn save_to_slot(&self, slot: u32, name: &str) {
+        if let Some(ref eng) = *self.0.borrow() {
+            eng.save_to_slot(slot, name);
+        }
+    }
+    fn apply_save(&self, data: &SaveData) {
+        if let Some(ref mut eng) = *self.0.borrow_mut() {
+            eng.apply_save(data);
+        }
+    }
+}
 
 fn parse_hex(hex: &str) -> (u8, u8, u8) {
     let h = hex.trim_start_matches('#');
@@ -191,7 +210,6 @@ pub fn App() -> impl IntoView {
         (Zone::Magma, "Magma", "#ea580c", "fa-star"),
     ];
 
-    let forms = FormulaType::all();
     let simple_mode = RwSignal::new(false);
 
     let tabs = [
@@ -202,6 +220,7 @@ pub fn App() -> impl IntoView {
         (4, "fa-sliders", "Avanzado"),
     ];
 
+    let send_engine = SendEngine(engine.clone());
     view! {
         <div class="w-screen h-screen overflow-hidden relative select-none antialiased"
             style="font-family: 'Inter', 'Orbitron', system-ui, sans-serif; background: #0a0a12;">
@@ -279,6 +298,9 @@ pub fn App() -> impl IntoView {
                         {move || hud.get().biome}
                     </span>
                     <span class="text-white/20 text-[10px] font-mono">{move || format!("{}fps", hud.get().fps)}</span>
+                    <Show when={move || hud.get().gamepad_connected}>
+                        <span class="text-emerald-400/60 text-[10px]"><i class="fa-solid fa-gamepad"></i></span>
+                    </Show>
                     <button on:click=move |_| settings_open.update(|v| *v = !*v)
                         class={move || {
                             let open = settings_open.get();
@@ -567,7 +589,7 @@ pub fn App() -> impl IntoView {
                         {move || (menu_tab.get() == 1).then(|| view! {
                             <div class="tab-enter space-y-3">
                                 <div class="grid grid-cols-4 gap-1.5">
-                                    {forms.iter().map(|f| {
+                                    {FormulaType::all().iter().map(|f| {
                                         let f = *f;
                                         view! {
                                             <button
@@ -599,7 +621,11 @@ pub fn App() -> impl IntoView {
                                         style={move || { let (r, g, b) = glow_rgb.get(); format!("color: rgba({},{},{},0.6)", r, g, b) }}>
                                         {move || {
                                             let p = state.params.get();
-                                            format!("{}", p.formula.formula_expr(p.scale, p.octaves))
+                                            if p.blend_a > 0.01 && p.formula_b != p.formula {
+                                                format!("{} → {} ({}%)", p.formula.name(), p.formula_b.name(), (p.blend_a * 100.0) as u32)
+                                            } else {
+                                                format!("{}", p.formula.formula_expr(p.scale, p.octaves))
+                                            }
                                         }}
                                     </div>
                                 </div>
@@ -613,6 +639,44 @@ pub fn App() -> impl IntoView {
                                     move || format!("{:.1}", state.params.get().amplitude),
                                     move |v| state.params.update(|p| p.amplitude = v)
                                 )}
+                                <div class="border-t border-white/[0.04] pt-3 space-y-2">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <i class="fa-solid fa-shuffle text-[10px]"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>
+                                        <span class="text-[10px] font-mono text-white/30 uppercase tracking-wider">Mezcla</span>
+                                    </div>
+                                    {slider!("Mezcla", "<i class='fa-solid fa-circle-half-stroke'></i>", 0.0, 1.0, 0.01,
+                                        move || state.params.get().blend_a,
+                                        move || format!("{:.0}%", state.params.get().blend_a * 100.0),
+                                        move |v| state.params.update(|p| p.blend_a = v)
+                                    )}
+                                    <Show when={move || state.params.get().blend_a > 0.01}>
+                                        <div class="flex items-center gap-2 mt-1.5 px-1">
+                                            <span class="text-[9px] font-mono text-white/25 uppercase tracking-wider shrink-0">Formula B</span>
+                                            <select
+                                                class="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-[10px] font-mono text-white/70 outline-none cursor-pointer appearance-none"
+                                                style={move || format!("border-color: rgba({},{},{},0.15)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}
+                                                on:change=move |ev| {
+                                                    let val = event_target_value(&ev);
+                                                    if let Some(f) = FormulaType::all().iter().find(|f| f.name() == val) {
+                                                        state.params.update(|p| p.formula_b = *f);
+                                                    }
+                                                }
+                                                prop:value={move || state.params.get().formula_b.name()}
+                                            >
+                                                {FormulaType::all().iter().map(|f| {
+                                                    let f = *f;
+                                                    let selected = state.params.get().formula_b == f;
+                                                    view! {
+                                                        <option value={f.name()} selected=selected class="bg-[#1a1a2e] text-white/80">
+                                                            {f.emoji()} {f.name()}
+                                                        </option>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </select>
+                                        </div>
+                                    </Show>
+                                </div>
                             </div>
                         })}
 
@@ -784,8 +848,55 @@ pub fn App() -> impl IntoView {
                                             move || format!("{:.2}", state.params.get().param_b),
                                             move |v| state.params.update(|p| p.param_b = v)
                                         )}
+                                        {slider!("Mutacion", "<i class='fa-solid fa-dna'></i>", 0.0, 1.0, 0.01,
+                                            move || state.params.get().mutation,
+                                            move || format!("{:.0}%", state.params.get().mutation * 100.0),
+                                            move |v| state.params.update(|p| p.mutation = v)
+                                        )}
                                     </div>
                                 })}
+
+                                // Save/Load section
+                                <div class="border-t border-white/[0.04] pt-3 mt-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <i class="fa-solid fa-floppy-disk text-[10px]"
+                                            style={move || format!("color: rgba({},{},{},0.5)", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}></i>
+                                        <span class="text-[10px] font-mono text-white/30 uppercase tracking-wider">Guardar / Cargar</span>
+                                    </div>
+                                    {let eng = send_engine.clone(); (0u32..3).map(|slot| {
+                                        let slot_name = match slot { 0 => "Auto", 1 => "Slot 2", _ => "Slot 3" };
+                                        let state_load = state.clone();
+                                        let save_eng = eng.clone();
+                                        let load_eng = eng.clone();
+                                        view! {
+                                            <div class="flex items-center gap-1.5 mb-1">
+                                                <span class="text-[9px] font-mono text-white/20 w-12">{slot_name}</span>
+                                                <button
+                                                    class="flex-1 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-[10px] font-mono text-white/40 hover:text-white/70 transition-all duration-200 active:scale-95"
+                                                    on:click=move |_| {
+                                                        save_eng.save_to_slot(slot, &format!("Slot {}", slot + 1));
+                                                    }>
+                                                    <i class="fa-solid fa-floppy-disk mr-1"></i>Guardar
+                                                </button>
+                                                <button
+                                                    class="flex-1 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-[10px] font-mono text-white/40 hover:text-white/70 transition-all duration-200 active:scale-95"
+                                                    on:click=move |_| {
+                                                        if let Some(data) = Engine::load_from_slot(slot) {
+                                                            state_load.params.set(data.params);
+                                                            load_eng.apply_save(&data);
+                                                        }
+                                                    }>
+                                                    <i class="fa-solid fa-upload mr-1"></i>Cargar
+                                                </button>
+                                                <button
+                                                    class="w-7 h-7 rounded-lg bg-white/[0.02] hover:bg-red-500/20 border border-white/[0.04] text-white/20 hover:text-red-400 text-[9px] transition-all duration-200 active:scale-90"
+                                                    on:click=move |_| { Engine::delete_slot(slot); }>
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </div>
                             </div>
                         })}
 

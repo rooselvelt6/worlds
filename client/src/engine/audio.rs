@@ -28,6 +28,10 @@ pub fn update(zone: Zone, formula_seed: u32, walking: bool, speed: f64) {
         bridge::audio_play_ambient(zone.as_str());
         bridge::audio_play_effect("zone");
         bridge::set_biome_tint(zone.as_str());
+        bridge::set_lut(zone.as_str());
+        // Heat haze for hot biomes
+        let is_hot = matches!(zone, Zone::Volcanic | Zone::Lava | Zone::Magma);
+        bridge::set_heat_haze(is_hot);
 
         // Update weather based on zone
         let weather = weather_for_zone(zone);

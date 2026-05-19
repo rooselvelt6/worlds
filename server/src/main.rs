@@ -1,3 +1,5 @@
+mod ws;
+
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -18,6 +20,7 @@ struct AppState {
     generator: Arc<WorldGenerator>,
     start_time: Instant,
     assets_dir: PathBuf,
+    ws_state: ws::WsState,
 }
 
 impl AppState {
@@ -26,6 +29,9 @@ impl AppState {
             generator: Arc::new(WorldGenerator::new(seed)),
             start_time: Instant::now(),
             assets_dir,
+            ws_state: ws::WsState {
+                rooms: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            },
         }
     }
 }
@@ -116,6 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(serve_index))
         .route("/health", get(health_check))
         .route("/api/chunk/{x}/{y}/{z}", get(get_chunk))
+        .route("/ws", get(ws::ws_handler))
         .route("/{*path}", get(serve_asset))
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()).layer(CompressionLayer::new()).layer(ConcurrencyLimitLayer::new(1000)).layer(cors))
         .with_state(state);

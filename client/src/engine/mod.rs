@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod camera;
 pub mod chunk;
 pub mod controls;
+pub mod gamepad;
 pub mod joystick;
 pub mod minerals;
 pub mod minimap;
@@ -27,7 +28,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
 use crate::engine::terrain::Zone;
-use crate::state::WorldParams;
+use crate::state::{SaveData, WorldParams};
 
 const GRAVITY: f64 = 20.0;
 const JUMP_SPEED: f64 = 12.0;
@@ -44,6 +45,7 @@ pub struct HudData {
     pub fly_mode: bool,
     pub formula: String,
     pub observer_mode: bool,
+    pub gamepad_connected: bool,
     pub waypoints: Vec<(f64, f64, f64, String)>,
     pub discovered_biomes: Vec<String>,
     pub discovery_message: Option<String>,
@@ -75,6 +77,7 @@ struct GameState {
     waypoints: Vec<(f64, f64, f64, String)>,
     discovered_biomes: Vec<String>,
     discovery_message: Option<(String, f64)>,
+    gamepad_connected: bool,
 }
 
 pub struct Engine {
@@ -125,12 +128,29 @@ impl Engine {
             waypoints: Vec::new(),
             discovered_biomes: Vec::new(),
             discovery_message: None,
+            gamepad_connected: false,
         }));
 
         audio::init();
 
+        // Auto-load from save slot 0 if exists
+        if let Some(data) = Self::load_from_slot(0) {
+            let mut s = state.borrow_mut();
+            s.params = data.params;
+            s.camera.pos = data.pos;
+            s.camera.yaw.set(data.yaw);
+            s.camera.pitch.set(data.pitch);
+            s.waypoints = data.waypoints;
+            s.discovered_biomes = data.discovered_biomes;
+            s.time_of_day = data.time_of_day;
+            s.params.fly_mode = data.fly_mode;
+            s.observer_mode = data.observer_mode;
+            drop(s);
+        }
+
         {
             let mut s = state.borrow_mut();
+            bridge::ws_connect(s.params.seed);
             let cx = (s.camera.pos[0] / CHUNK_SIZE) as i32;
             let cz = (s.camera.pos[2] / CHUNK_SIZE) as i32;
             generate_chunks(&mut s, cx, cz);
@@ -206,6 +226,39 @@ impl Engine {
                     if joy_dx < -0.3 { keys_mask |= MASK_A; }
                     if joy_dx > 0.3 { keys_mask |= MASK_D; }
                 }
+
+                // Gamepad polling
+                let gp = gamepad::poll_gamepad();
+                s.gamepad_connected = gp.connected;
+                if gp.connected {
+                    let sens = s.params.mouse_sensitivity;
+                    if gp.axes[0].abs() > 0.15 {
+                        if gp.axes[0] < -0.15 { keys_mask |= MASK_A; }
+                        if gp.axes[0] > 0.15 { keys_mask |= MASK_D; }
+                    }
+                    if gp.axes[1].abs() > 0.15 {
+                        if gp.axes[1] < -0.15 { keys_mask |= MASK_W; }
+                        if gp.axes[1] > 0.15 { keys_mask |= MASK_S; }
+                    }
+                    // Right stick -> camera (axes[2] = horizontal, axes[3] = vertical)
+                    let yaw_now = s.controls.yaw.get();
+                    let pitch_now = s.controls.pitch.get();
+                    s.controls.yaw.set(yaw_now - gp.axes[2] * 0.05 * sens);
+                    let new_pitch = (pitch_now - gp.axes[3] * 0.05 * sens).max(-1.5).min(1.5);
+                    s.controls.pitch.set(new_pitch);
+                    // Buttons
+                    if gp.a { keys_mask |= MASK_SPACE; }
+                    if gp.b { keys_mask |= MASK_SHIFT; }
+                    if gp.x { keys_mask |= MASK_C; }
+                    if gp.y { keys_mask |= MASK_F12; }
+                    if gp.lb { keys_mask |= MASK_Q; }
+                    if gp.rb { keys_mask |= MASK_E; }
+                    if gp.dpad_up { keys_mask |= MASK_W; }
+                    if gp.dpad_down { keys_mask |= MASK_S; }
+                    if gp.dpad_left { keys_mask |= MASK_A; }
+                    if gp.dpad_right { keys_mask |= MASK_D; }
+                }
+
                 let yaw_val = s.controls.yaw.get();
                 let pitch_val = s.controls.pitch.get();
                 s.camera.yaw.set(yaw_val);
@@ -359,6 +412,12 @@ impl Engine {
                 // Wind animation
                 bridge::update_wind(now as f32 * 0.001);
 
+                // Multiplayer: send position every frame
+                bridge::ws_send_position(
+                    s.camera.pos[0], s.camera.pos[1], s.camera.pos[2],
+                    s.camera.yaw.get(), s.camera.pitch.get(),
+                );
+
                 bridge::render();
 
                 let ground_y = terrain::get_height(&s.params, s.camera.pos[0], s.camera.pos[2]);
@@ -377,6 +436,7 @@ impl Engine {
                     fly_mode: s.params.fly_mode,
                     formula: s.params.formula.name().to_string(),
                     observer_mode: s.observer_mode,
+                    gamepad_connected: s.gamepad_connected,
                     waypoints: s.waypoints.clone(),
                     discovered_biomes: s.discovered_biomes.clone(),
                     discovery_message: disc_msg,
@@ -404,6 +464,45 @@ impl Engine {
     pub fn joystick_cells(&self) -> (Rc<Cell<f64>>, Rc<Cell<f64>>) {
         let s = self.state.borrow();
         (s.joy_dx.clone(), s.joy_dy.clone())
+    }
+
+    pub fn save_to_slot(&self, slot: u32, name: &str) {
+        let s = self.state.borrow();
+        let data = SaveData::new(
+            name, &s.params, s.camera.pos, s.camera.yaw.get(), s.camera.pitch.get(),
+            &s.waypoints, &s.discovered_biomes,
+            s.time_of_day, s.params.fly_mode, s.observer_mode,
+        );
+        if let Ok(json) = serde_json::to_string(&data) {
+            bridge::save_slot(slot, &json);
+        }
+    }
+
+    pub fn load_from_slot(slot: u32) -> Option<SaveData> {
+        let json = bridge::load_slot(slot);
+        if json.is_empty() { return None; }
+        serde_json::from_str(&json).ok()
+    }
+
+    pub fn delete_slot(slot: u32) {
+        bridge::delete_slot(slot);
+    }
+
+    pub fn apply_save(&mut self, data: &SaveData) {
+        let mut s = self.state.borrow_mut();
+        s.params = data.params;
+        s.camera.pos = data.pos;
+        s.camera.yaw.set(data.yaw);
+        s.camera.pitch.set(data.pitch);
+        s.waypoints = data.waypoints.clone();
+        s.discovered_biomes = data.discovered_biomes.clone();
+        s.time_of_day = data.time_of_day;
+        s.params.fly_mode = data.fly_mode;
+        s.observer_mode = data.observer_mode;
+        s.prev_cx = i32::MAX;
+        s.prev_cz = i32::MAX;
+        drop(s);
+        self.regenerate_all();
     }
 }
 
@@ -591,5 +690,7 @@ impl Drop for Engine {
         if let Some(id) = self.anim_id {
             web_sys::window().unwrap().cancel_animation_frame(id).ok();
         }
+        audio::stop();
+        bridge::ws_disconnect();
     }
 }

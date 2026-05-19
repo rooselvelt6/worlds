@@ -1,6 +1,7 @@
 use leptos::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FormulaType {
     FBM, Perlin, Simplex, Voronoi, Mandelbrot,
     Sierpinski, Julia, Tetrahedron, Cube, Sphere,
@@ -217,13 +218,13 @@ impl FormulaType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ControlMode {
     DPad,
     Joystick,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub struct WorldParams {
     pub seed: u32,
     pub scale: f64,
@@ -233,6 +234,9 @@ pub struct WorldParams {
     pub render_distance: u32,
     pub zone: crate::engine::terrain::Zone,
     pub formula: FormulaType,
+    pub formula_b: FormulaType,
+    pub blend_a: f64,
+    pub mutation: f64,
     pub speed: f64,
     pub mouse_sensitivity: f64,
     pub fly_mode: bool,
@@ -256,6 +260,9 @@ impl Default for WorldParams {
             render_distance: 2,
             zone: crate::engine::terrain::Zone::Forest,
             formula: FormulaType::FBM,
+            formula_b: FormulaType::FBM,
+            blend_a: 0.0,
+            mutation: 0.0,
             speed: 18.0,
             mouse_sensitivity: 1.0,
             fly_mode: false,
@@ -279,6 +286,41 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             params: RwSignal::new(WorldParams::default()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SaveData {
+    pub slot_name: String,
+    pub params: WorldParams,
+    pub pos: [f64; 3],
+    pub yaw: f64,
+    pub pitch: f64,
+    pub waypoints: Vec<(f64, f64, f64, String)>,
+    pub discovered_biomes: Vec<String>,
+    pub time_of_day: f64,
+    pub fly_mode: bool,
+    pub observer_mode: bool,
+    pub created_at: f64,
+}
+
+impl SaveData {
+    pub fn new(slot_name: &str, params: &WorldParams, pos: [f64; 3], yaw: f64, pitch: f64,
+               waypoints: &[(f64, f64, f64, String)], discovered: &[String],
+               time_of_day: f64, fly_mode: bool, observer_mode: bool) -> Self {
+        Self {
+            slot_name: slot_name.to_string(),
+            params: *params,
+            pos,
+            yaw,
+            pitch,
+            waypoints: waypoints.to_vec(),
+            discovered_biomes: discovered.to_vec(),
+            time_of_day,
+            fly_mode,
+            observer_mode,
+            created_at: js_sys::Date::now(),
         }
     }
 }

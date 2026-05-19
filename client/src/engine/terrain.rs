@@ -1,17 +1,10 @@
 use crate::math::*;
 use crate::state::{FormulaType, WorldParams};
-use std::f64::consts::PI;
+use serde::{Deserialize, Serialize};
 
-pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
-    let scale = params.scale;
+fn eval_formula(formula: FormulaType, nx: f64, nz: f64, params: &WorldParams) -> f64 {
     let octaves = params.octaves;
-    let amplitude = params.amplitude;
-    let water_level = params.water_level;
-
-    let nx = wx * scale;
-    let nz = wz * scale;
-
-    let base = match params.formula {
+    match formula {
         FormulaType::FBM => fbm(nx, nz, octaves),
         FormulaType::Perlin => perlin_noise(nx, nz),
         FormulaType::Simplex => simplex_noise(nx, nz),
@@ -39,9 +32,11 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         FormulaType::Terrazas => terrazas(nx, nz, params.param_a * 5.0 + 2.0),
         FormulaType::Erosion => erosion(nx, nz),
         FormulaType::Thermal => thermal(nx, nz),
-    };
+    }
+}
 
-    let height = match params.formula {
+fn formula_to_height(formula: FormulaType, base: f64, amplitude: f64, water_level: f64) -> f64 {
+    match formula {
         FormulaType::Mandelbrot => base * amplitude * 0.3,
         FormulaType::Sierpinski => base * amplitude * 2.0,
         FormulaType::Voronoi => base * amplitude * 0.2 + water_level,
@@ -63,6 +58,29 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         FormulaType::Erosion => base * amplitude * 1.0 + water_level,
         FormulaType::Thermal => base * amplitude * 0.8 + water_level,
         _ => base * amplitude + water_level,
+    }
+}
+
+pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
+    let scale = params.scale;
+    let amplitude = params.amplitude;
+    let water_level = params.water_level;
+
+    let nx = wx * scale;
+    let nz = wz * scale;
+
+    let base_a = eval_formula(params.formula, nx, nz, params);
+    let height_a = formula_to_height(params.formula, base_a, amplitude, water_level);
+
+    let base_b = eval_formula(params.formula_b, nx, nz, params);
+    let height_b = formula_to_height(params.formula_b, base_b, amplitude, water_level);
+
+    let blend = params.blend_a.clamp(0.0, 1.0);
+    let _base = if blend <= 0.0 { base_a } else if blend >= 1.0 { base_b } else {
+        base_a * (1.0 - blend) + base_b * blend
+    };
+    let height = if blend <= 0.0 { height_a } else if blend >= 1.0 { height_b } else {
+        height_a * (1.0 - blend) + height_b * blend
     };
 
     let mut h = height.max(0.0);
@@ -83,7 +101,7 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
     h
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Zone {
     Forest, Plains, Desert, Tundra, Jungle,
     Volcanic, Ocean, Crystal, Cave, Lava,
@@ -168,6 +186,29 @@ fn gradient(stops: &[[f32; 3]], t: f32) -> [f32; 3] {
 
 pub fn get_formula_color(formula: FormulaType, h: f64, max_h: f64) -> [f32; 3] {
     let t = (h / max_h.max(0.1)).clamp(0.0, 1.0) as f32;
+    formula_color_map(formula, t)
+}
+
+pub fn get_blended_formula_color(formula_a: FormulaType, formula_b: FormulaType, blend: f64, h: f64, max_h: f64) -> [f32; 3] {
+    let t = (h / max_h.max(0.1)).clamp(0.0, 1.0) as f32;
+    let blend = blend.clamp(0.0, 1.0);
+    if blend <= 0.0 {
+        return formula_color_map(formula_a, t);
+    }
+    if blend >= 1.0 {
+        return formula_color_map(formula_b, t);
+    }
+    let ca = formula_color_map(formula_a, t);
+    let cb = formula_color_map(formula_b, t);
+    let b = blend as f32;
+    [
+        ca[0] * (1.0 - b) + cb[0] * b,
+        ca[1] * (1.0 - b) + cb[1] * b,
+        ca[2] * (1.0 - b) + cb[2] * b,
+    ]
+}
+
+fn formula_color_map(formula: FormulaType, t: f32) -> [f32; 3] {
     match formula {
         FormulaType::FBM =>
             gradient(&[[0.05,0.15,0.30],[0.10,0.35,0.25],[0.25,0.55,0.20],[0.55,0.50,0.25],[0.85,0.80,0.70],[1.0,1.0,1.0]], t),

@@ -2840,6 +2840,8 @@ dependencies = [
  "js-sys",
  "leptos",
  "rayon",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-rayon",

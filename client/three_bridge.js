@@ -10,6 +10,34 @@
     var particles = [];
     var composer = null;
     var bloomPass = null;
+    var lutPass = null;
+    var dofPass = null;
+    var heatHazePass = null;
+    var currentBiome = 'plains';
+    var addonsLoaded = false;
+
+    // Dynamic import for Three.js addon modules (jsm ES modules)
+    (async function loadThreeAddons() {
+        try {
+            var mods = await Promise.all([
+                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js'),
+                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js'),
+                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js'),
+                import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/ShaderPass.js'),
+                import('https://unpkg.com/three@0.160.0/examples/jsm/shaders/CopyShader.js'),
+                import('https://unpkg.com/three@0.160.0/examples/jsm/shaders/LuminosityHighPassShader.js'),
+            ]);
+            THREE.EffectComposer = mods[0].EffectComposer;
+            THREE.RenderPass = mods[1].RenderPass;
+            THREE.UnrealBloomPass = mods[2].UnrealBloomPass;
+            THREE.ShaderPass = mods[3].ShaderPass;
+            THREE.CopyShader = mods[4].CopyShader;
+            THREE.LuminosityHighPassShader = mods[5].LuminosityHighPassShader;
+            addonsLoaded = true;
+        } catch (e) {
+            console.warn('[bridge] Three addon imports failed, running without post-processing:', e);
+        }
+    })();
 
     function resizeRenderer() {
         if (!renderer || !camera || !renderer.domElement) return;
@@ -20,6 +48,35 @@
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
         if (composer) composer.setSize(w, h);
+    }
+
+    function tryInitComposer() {
+        if (composer || !renderer || !scene || !camera) return;
+        if (!addonsLoaded || typeof THREE.EffectComposer === 'undefined') return;
+        try {
+            composer = new THREE.EffectComposer(renderer);
+            var renderPass = new THREE.RenderPass(scene, camera);
+            composer.addPass(renderPass);
+
+            bloomPass = new THREE.UnrealBloomPass(
+                new THREE.Vector2(renderer.domElement.clientWidth, renderer.domElement.clientHeight),
+                0.3, 0.2, 0.1
+            );
+            composer.addPass(bloomPass);
+
+            // Phase 3: LUT Color Grading
+            initLUTPass();
+
+            // Phase 3: Depth of Field
+            initDoFPass();
+
+            // Phase 3: Heat Haze (disabled by default)
+            initHeatHazePass();
+
+            console.log('[bridge] Post-processing initialized with LUT + DoF + Heat Haze');
+        } catch (e) {
+            console.warn('[bridge] Composer init error:', e);
+        }
     }
 
     window.threeBridgeInit = function (canvas) {
@@ -129,21 +186,8 @@
             waterMesh.receiveShadow = true;
             scene.add(waterMesh);
 
-            // Post-processing
-            if (typeof THREE.EffectComposer !== 'undefined') {
-                composer = new THREE.EffectComposer(renderer);
-                var renderPass = new THREE.RenderPass(scene, camera);
-                composer.addPass(renderPass);
-
-                bloomPass = new THREE.UnrealBloomPass(
-                    new THREE.Vector2(
-                        renderer.domElement.clientWidth,
-                        renderer.domElement.clientHeight
-                    ),
-                    0.3, 0.2, 0.1
-                );
-                composer.addPass(bloomPass);
-            }
+            // Post-processing (lazy init when addons load)
+            tryInitComposer();
 
         } catch (e) {
             console.error("[bridge] init error:", e);
@@ -313,8 +357,23 @@
         if (!renderer || !scene || !camera) return;
         frameCount++;
 
+        // Lazy composer init (addons may load after first frame)
+        if (!composer && addonsLoaded) {
+            tryInitComposer();
+        }
+
         if (waterMesh && waterMesh.material.uniforms) {
             waterMesh.material.uniforms.uTime.value = frameCount * 0.016;
+        }
+
+        // Update heat haze time uniform
+        if (heatHazePass && heatHazePass.enabled && heatHazePass.material.uniforms) {
+            heatHazePass.material.uniforms.uTime.value = frameCount * 0.016;
+        }
+
+        // Update DoF focal distance based on camera height
+        if (dofPass && dofPass.enabled && camera && dofPass.material.uniforms) {
+            dofPass.material.uniforms.uFocusDistance.value = Math.max(10, camera.position.length() * 0.5);
         }
 
         if (composer) {
@@ -1013,8 +1072,265 @@
     };
 
     // ============================================================
-    // VEGETATION SYSTEM
+    // CINEMATIC POST-PROCESSING (Phase 3)
     // ============================================================
+
+    // --- LUT Color Grading ---
+
+    // Enhanced LUT data per biome with richer color transformations
+    var lutPresets = {
+        forest:   { warmth: 0.05, vibrance: 1.1, contrast: 1.05, hueShift: 0.02 },
+        plains:   { warmth: 0.02, vibrance: 1.0, contrast: 1.0,  hueShift: 0.0  },
+        desert:   { warmth: 0.15, vibrance: 1.15, contrast: 1.1,  hueShift: -0.02 },
+        tundra:   { warmth: -0.05, vibrance: 0.9, contrast: 1.15, hueShift: 0.01 },
+        jungle:   { warmth: 0.08, vibrance: 1.2, contrast: 1.05, hueShift: 0.03 },
+        volcanic: { warmth: 0.2,  vibrance: 1.25, contrast: 1.2,  hueShift: -0.03 },
+        ocean:    { warmth: -0.08, vibrance: 1.05, contrast: 1.0, hueShift: 0.04 },
+        crystal:  { warmth: -0.02, vibrance: 1.3, contrast: 1.1,  hueShift: 0.06 },
+        cave:     { warmth: -0.1,  vibrance: 0.85, contrast: 1.3,  hueShift: 0.01 },
+        lava:     { warmth: 0.25, vibrance: 1.3, contrast: 1.25, hueShift: -0.04 },
+        fungus:   { warmth: 0.0,  vibrance: 1.15, contrast: 1.05, hueShift: 0.05 },
+        abyss:    { warmth: -0.15, vibrance: 0.8, contrast: 1.4,  hueShift: 0.0  },
+        storm:    { warmth: -0.05, vibrance: 0.9, contrast: 1.2,  hueShift: -0.01 },
+        aurora:   { warmth: -0.1,  vibrance: 1.2, contrast: 1.0,  hueShift: 0.08 },
+        magma:    { warmth: 0.25, vibrance: 1.3, contrast: 1.25, hueShift: -0.04 },
+    };
+
+    var lutTexture = null;
+    var lutBlend = 1.0;
+    var lutTargetBiome = 'plains';
+
+    function generateLUT(biome) {
+        var preset = lutPresets[biome] || lutPresets.plains;
+        var canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 16;
+        var ctx = canvas.getContext('2d');
+        var imgData = ctx.createImageData(256, 16);
+        var d = imgData.data;
+        for (var b = 0; b < 16; b++) {
+            for (var g = 0; g < 16; g++) {
+                for (var r = 0; r < 16; r++) {
+                    var idx = (b * 256 + g * 16 + r) * 4;
+                    var ri = r / 15, gi = g / 15, bi = b / 15;
+                    // Apply preset transformations
+                    var ro = Math.pow(ri, 1 / preset.contrast);
+                    ro += preset.warmth * 0.15;
+                    ro = Math.max(0, Math.min(1, ro));
+                    var go = Math.pow(gi, 1 / preset.contrast);
+                    go += preset.warmth * 0.05;
+                    go = Math.max(0, Math.min(1, go));
+                    var bo = Math.pow(bi, 1 / preset.contrast);
+                    bo -= preset.warmth * 0.1;
+                    bo = Math.max(0, Math.min(1, bo));
+                    // Vibrance boost
+                    var gray = (ro + go + bo) / 3;
+                    var vib = preset.vibrance;
+                    ro = gray + (ro - gray) * vib;
+                    go = gray + (go - gray) * vib;
+                    bo = gray + (bo - gray) * vib;
+                    ro = Math.max(0, Math.min(1, ro));
+                    go = Math.max(0, Math.min(1, go));
+                    bo = Math.max(0, Math.min(1, bo));
+                    d[idx] = ro * 255;
+                    d[idx + 1] = go * 255;
+                    d[idx + 2] = bo * 255;
+                    d[idx + 3] = 255;
+                }
+            }
+        }
+        ctx.putImageData(imgData, 0, 0);
+        var tex = new THREE.CanvasTexture(canvas);
+        tex.magFilter = THREE.LinearFilter;
+        tex.minFilter = THREE.LinearFilter;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        return tex;
+    }
+
+    function initLUTPass() {
+        if (!THREE.ShaderPass) return;
+        lutTexture = generateLUT('plains');
+        lutPass = new THREE.ShaderPass({
+            uniforms: {
+                tDiffuse: { value: null },
+                tLUT: { value: lutTexture },
+                uLUTSize: { value: 16.0 },
+                uBlend: { value: 1.0 },
+            },
+            vertexShader: [
+                "varying vec2 vUv;",
+                "void main() {",
+                "  vUv = uv;",
+                "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+                "}"
+            ].join("\n"),
+            fragmentShader: [
+                "uniform sampler2D tDiffuse;",
+                "uniform sampler2D tLUT;",
+                "uniform float uLUTSize;",
+                "uniform float uBlend;",
+                "varying vec2 vUv;",
+                "void main() {",
+                "  vec4 col = texture2D(tDiffuse, vUv);",
+                "  float lutSize = uLUTSize;",
+                "  float scale = (lutSize - 1.0) / lutSize;",
+                "  float offset = 0.5 / lutSize;",
+                "  vec3 lutCoord = col.rgb * scale + offset;",
+                "  float b = floor(lutCoord.b * lutSize);",
+                "  float tb = b / lutSize + offset;",
+                "  float tn = (b + 1.0) / lutSize + offset;",
+                "  float bb = fract(lutCoord.b * lutSize);",
+                "  vec3 lutPosB = vec3(lutCoord.r, lutCoord.g, tb);",
+                "  vec3 lutPosN = vec3(lutCoord.r, lutCoord.g, tn);",
+                "  vec4 lutB = texture2D(tLUT, lutPosB.xy);",
+                "  vec4 lutN = texture2D(tLUT, lutPosN.xy);",
+                "  vec3 lut = mix(lutB.rgb, lutN.rgb, bb);",
+                "  gl_FragColor = vec4(mix(col.rgb, lut, uBlend), col.a);",
+                "}"
+            ].join("\n"),
+        });
+        lutPass.needsSwap = true;
+        // Insert LUT after bloom, before DoF
+        var idx = composer.passes.indexOf(bloomPass);
+        if (idx >= 0) {
+            composer.insertPass(lutPass, idx + 1);
+        } else {
+            composer.addPass(lutPass);
+        }
+    }
+
+    // --- Depth of Field ---
+
+    function initDoFPass() {
+        if (!THREE.ShaderPass) return;
+        dofPass = new THREE.ShaderPass({
+            uniforms: {
+                tDiffuse: { value: null },
+                uFocusDistance: { value: 30.0 },
+                uAperture: { value: 0.015 },
+                uMaxBlur: { value: 0.02 },
+            },
+            vertexShader: [
+                "varying vec2 vUv;",
+                "void main() {",
+                "  vUv = uv;",
+                "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+                "}"
+            ].join("\n"),
+            fragmentShader: [
+                "uniform sampler2D tDiffuse;",
+                "uniform float uFocusDistance;",
+                "uniform float uAperture;",
+                "uniform float uMaxBlur;",
+                "varying vec2 vUv;",
+                "void main() {",
+                "  vec2 dim = vec2(textureSize(tDiffuse, 0));",
+                "  float aspect = dim.x / dim.y;",
+                "  vec2 texel = vec2(1.0 / dim.x, 1.0 / dim.y);",
+                "  vec4 col = texture2D(tDiffuse, vUv);",
+                "  float depth = col.a;",
+                "  float coc = abs(depth - 0.5) * uAperture * 50.0;",
+                "  coc = min(coc, uMaxBlur);",
+                "  int samples = 9;",
+                "  vec3 blur = vec3(0.0);",
+                "  float total = 0.0;",
+                "  for (int x = -4; x <= 4; x++) {",
+                "    for (int y = -4; y <= 4; y++) {",
+                "      float d = float(x * x + y * y);",
+                "      float weight = exp(-d * 20.0 * coc);",
+                "      vec2 off = vec2(float(x) * texel.x * coc * 50.0, float(y) * texel.y * coc * 50.0 / aspect);",
+                "      blur += texture2D(tDiffuse, vUv + off).rgb * weight;",
+                "      total += weight;",
+                "    }",
+                "  }",
+                "  blur /= max(total, 0.001);",
+                "  gl_FragColor = vec4(blur, 1.0);",
+                "}"
+            ].join("\n"),
+        });
+        dofPass.needsSwap = true;
+        // Insert DoF after LUT
+        var idx = composer.passes.indexOf(lutPass || bloomPass);
+        if (idx >= 0) {
+            composer.insertPass(dofPass, idx + 1);
+        } else {
+            composer.addPass(dofPass);
+        }
+    }
+
+    // --- Heat Haze ---
+
+    function initHeatHazePass() {
+        if (!THREE.ShaderPass) return;
+        heatHazePass = new THREE.ShaderPass({
+            uniforms: {
+                tDiffuse: { value: null },
+                uTime: { value: 0 },
+                uIntensity: { value: 0.0 },
+            },
+            vertexShader: [
+                "varying vec2 vUv;",
+                "void main() {",
+                "  vUv = uv;",
+                "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+                "}"
+            ].join("\n"),
+            fragmentShader: [
+                "uniform sampler2D tDiffuse;",
+                "uniform float uTime;",
+                "uniform float uIntensity;",
+                "varying vec2 vUv;",
+                "void main() {",
+                "  vec2 uv = vUv;",
+                "  float distortX = sin(uv.y * 40.0 + uTime * 2.0) * 0.003 * uIntensity;",
+                "  float distortY = sin(uv.x * 30.0 + uTime * 1.5 + 1.2) * 0.002 * uIntensity;",
+                "  uv += vec2(distortX, distortY);",
+                "  gl_FragColor = texture2D(tDiffuse, uv);",
+                "}"
+            ].join("\n"),
+        });
+        heatHazePass.enabled = false;
+        heatHazePass.needsSwap = true;
+        composer.addPass(heatHazePass);
+    }
+
+    // Bridge: set LUT per biome
+    window.threeBridgeSetLUT = function (biome) {
+        if (biome === lutTargetBiome) return;
+        lutTargetBiome = biome;
+        if (lutPass && lutPass.material && lutPass.material.uniforms) {
+            lutTexture = generateLUT(biome);
+            lutPass.material.uniforms.tLUT.value = lutTexture;
+            lutPass.material.uniforms.uBlend.value = 1.0;
+            // Also adjust bloom per biome
+            var bloomStrength = 0.3;
+            var hotBiomes = ['volcanic', 'magma', 'lava', 'desert'];
+            var darkBiomes = ['cave', 'abyss', 'storm'];
+            if (hotBiomes.indexOf(biome) >= 0) bloomStrength = 0.5;
+            else if (darkBiomes.indexOf(biome) >= 0) bloomStrength = 0.15;
+            else bloomStrength = 0.3;
+            if (bloomPass) {
+                bloomPass.strength = bloomStrength;
+            }
+        }
+    };
+
+    // Bridge: toggle heat haze
+    window.threeBridgeSetHeatHaze = function (active) {
+        if (!heatHazePass) return;
+        heatHazePass.enabled = active;
+        if (heatHazePass.material && heatHazePass.material.uniforms) {
+            heatHazePass.material.uniforms.uIntensity.value = active ? 1.0 : 0.0;
+        }
+    };
+
+    // Bridge: set DoF parameters
+    window.threeBridgeSetDoF = function (focus, aperture) {
+        if (!dofPass || !dofPass.material || !dofPass.material.uniforms) return;
+        dofPass.material.uniforms.uFocusDistance.value = focus;
+        dofPass.material.uniforms.uAperture.value = aperture;
+    };
     var vegetation = new Map(); // key -> { meshes: [], windData: [] }
     var vegGeos = {};
 
@@ -1603,4 +1919,203 @@
     if (!Math.clamp) {
         Math.clamp = function (v, min, max) { return Math.min(Math.max(v, min), max); };
     }
+
+    // ============================================================
+    // MULTIPLAYER (Phase 4)
+    // ============================================================
+    var ws = null;
+    var wsConnected = false;
+    var wsPlayerId = '';
+    var remotePlayers = new Map(); // id -> { mesh, target, current }
+
+    function createRemotePlayerMesh(name) {
+        var group = new THREE.Group();
+
+        // Capsule-like body: cylinder + 2 hemispheres
+        var bodyGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8);
+        bodyGeo.translate(0, 0.3, 0);
+        var bodyMat = new THREE.MeshLambertMaterial({ color: 0x4488ff, flatShading: true });
+        var body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.castShadow = true;
+        group.add(body);
+
+        // Head
+        var headGeo = new THREE.SphereGeometry(0.2, 6, 6);
+        headGeo.translate(0, 0.7, 0);
+        var headMat = new THREE.MeshLambertMaterial({ color: 0xffccaa, flatShading: true });
+        var head = new THREE.Mesh(headGeo, headMat);
+        head.castShadow = true;
+        group.add(head);
+
+        // Name indicator (small sphere on top)
+        var pingGeo = new THREE.SphereGeometry(0.04, 4, 4);
+        var pingMat = new THREE.MeshBasicMaterial({ color: 0x22ff88 });
+        var ping = new THREE.Mesh(pingGeo, pingMat);
+        ping.position.y = 0.9;
+        group.add(ping);
+
+        // Glow ring at feet
+        var ringGeo = new THREE.RingGeometry(0.2, 0.35, 16);
+        var ringMat = new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+        var ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.02;
+        group.add(ring);
+
+        group.visible = false;
+        scene.add(group);
+        return group;
+    }
+
+    function updateRemotePlayerPositions() {
+        for (var entry of remotePlayers.entries()) {
+            var id = entry[0];
+            var rp = entry[1];
+            if (!rp.mesh.visible) continue;
+
+            // Interpolate
+            var lerpFactor = 0.15;
+            rp.current.x += (rp.target.x - rp.current.x) * lerpFactor;
+            rp.current.y += (rp.target.y - rp.current.y) * lerpFactor;
+            rp.current.z += (rp.target.z - rp.current.z) * lerpFactor;
+            rp.current.yaw += (rp.target.yaw - rp.current.yaw) * lerpFactor;
+            rp.current.pitch += (rp.target.pitch - rp.current.pitch) * lerpFactor;
+
+            rp.mesh.position.set(rp.current.x, rp.current.y, rp.current.z);
+            rp.mesh.rotation.y = rp.current.yaw;
+        }
+    }
+
+    window.threeBridgeWsConnect = function (seed) {
+        if (ws) return;
+        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var host = window.location.host;
+        var url = protocol + '//' + host + '/ws';
+
+        try {
+            ws = new WebSocket(url);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = function () {
+                wsConnected = true;
+                ws.send(JSON.stringify({ type: 'join', seed: seed }));
+                console.log('[mp] Connected to', url);
+            };
+
+            ws.onmessage = function (event) {
+                try {
+                    var msg = JSON.parse(event.data);
+                    switch (msg.type) {
+                        case 'welcome':
+                            wsPlayerId = msg.your_id;
+                            console.log('[mp] Welcome! ID:', wsPlayerId.slice(0, 6), 'Players:', msg.count);
+                            break;
+                        case 'pos':
+                            for (var i = 0; i < msg.players.length; i++) {
+                                var p = msg.players[i];
+                                if (p.id === wsPlayerId) continue;
+                                if (!remotePlayers.has(p.id)) {
+                                    var mesh = createRemotePlayerMesh(p.name || 'Player');
+                                    remotePlayers.set(p.id, {
+                                        mesh: mesh,
+                                        target: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch },
+                                        current: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch },
+                                    });
+                                }
+                                var rp = remotePlayers.get(p.id);
+                                rp.target.x = p.x;
+                                rp.target.y = p.y;
+                                rp.target.z = p.z;
+                                rp.target.yaw = p.yaw;
+                                rp.target.pitch = p.pitch;
+                                rp.mesh.visible = true;
+                            }
+                            break;
+                        case 'leave':
+                            var leftId = msg.your_id;
+                            if (remotePlayers.has(leftId)) {
+                                var rp = remotePlayers.get(leftId);
+                                scene.remove(rp.mesh);
+                                rp.mesh.traverse(function (c) { if (c.isMesh) { c.geometry.dispose(); c.material.dispose(); } });
+                                remotePlayers.delete(leftId);
+                            }
+                            break;
+                    }
+                } catch (e) {
+                    console.warn('[mp] msg error:', e);
+                }
+            };
+
+            ws.onclose = function () {
+                wsConnected = false;
+                ws = null;
+                // Cleanup all remote players
+                for (var entry of remotePlayers.entries()) {
+                    scene.remove(entry[1].mesh);
+                    entry[1].mesh.traverse(function (c) { if (c.isMesh) { c.geometry.dispose(); c.material.dispose(); } });
+                }
+                remotePlayers.clear();
+                console.log('[mp] Disconnected');
+            };
+
+            ws.onerror = function (e) {
+                console.warn('[mp] Error:', e);
+            };
+        } catch (e) {
+            console.warn('[mp] Connection failed:', e);
+        }
+    };
+
+    window.threeBridgeWsSendPosition = function (x, y, z, yaw, pitch) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+            type: 'pos',
+            x: x, y: y, z: z,
+            yaw: yaw, pitch: pitch,
+        }));
+    };
+
+    window.threeBridgeWsDisconnect = function () {
+        if (ws) {
+            ws.close();
+            ws = null;
+        }
+    };
+
+    // ============================================================
+    // SAVE/LOAD (Phase 5)
+    // ============================================================
+
+    window.threeBridgeSaveSlot = function (slot, json) {
+        try {
+            localStorage.setItem('worlds_save_' + slot, json);
+        } catch (e) {
+            console.warn('[save] localStorage error:', e);
+        }
+    };
+
+    window.threeBridgeLoadSlot = function (slot) {
+        try {
+            return localStorage.getItem('worlds_save_' + slot) || '';
+        } catch (e) {
+            return '';
+        }
+    };
+
+    window.threeBridgeDeleteSlot = function (slot) {
+        try {
+            localStorage.removeItem('worlds_save_' + slot);
+        } catch (e) {}
+    };
+
+    // Hook into existing render function
+    var frameCount = 0;
+    window.threeBridgeRender = (function (origRender) {
+        return function () {
+            if (wsConnected) {
+                updateRemotePlayerPositions();
+            }
+            return origRender.apply(this, arguments);
+        };
+    })(window.threeBridgeRender);
 })();

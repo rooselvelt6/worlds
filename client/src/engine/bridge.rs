@@ -74,6 +74,33 @@ extern "C" {
     #[wasm_bindgen(js_name = threeBridgeSetBiomeTint)]
     pub fn set_biome_tint(biome: &str);
 
+    // Phase 3: Cinematic Post-Processing
+    #[wasm_bindgen(js_name = threeBridgeSetLUT)]
+    pub fn set_lut(biome: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeSetHeatHaze)]
+    pub fn set_heat_haze(active: bool);
+
+    // Phase 4: Multiplayer
+    #[wasm_bindgen(js_name = threeBridgeWsConnect)]
+    pub fn ws_connect(seed: u32);
+
+    #[wasm_bindgen(js_name = threeBridgeWsSendPosition)]
+    pub fn ws_send_position(x: f64, y: f64, z: f64, yaw: f64, pitch: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeWsDisconnect)]
+    pub fn ws_disconnect();
+
+    // Phase 5: Save/Load
+    #[wasm_bindgen(js_name = threeBridgeSaveSlot)]
+    pub fn save_slot(slot: u32, json: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeLoadSlot)]
+    pub fn load_slot(slot: u32) -> String;
+
+    #[wasm_bindgen(js_name = threeBridgeDeleteSlot)]
+    pub fn delete_slot(slot: u32);
+
     // Vegetation
     #[wasm_bindgen(js_name = threeBridgeSpawnVegetation)]
     pub fn spawn_vegetation(key: &str, pos_data: &js_sys::Float32Array, size_data: &js_sys::Float32Array, type_data: &js_sys::Uint8Array, count: u32, zone: &str);
