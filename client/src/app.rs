@@ -463,9 +463,21 @@ pub fn App() -> impl IntoView {
 
             // ===== WAYPOINTS COUNTER =====
             <div class="absolute bottom-4 right-4 z-10">
-                <div class="px-3 py-1.5 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] text-[10px] font-mono text-white/30">
+                <div class="px-3 py-1.5 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] text-[10px] font-mono text-white/30 flex items-center gap-2">
                     <i class="fa-solid fa-flag mr-1"></i>
                     {move || format!("{} WP | {} biomas", hud.get().waypoints.len(), hud.get().discovered_biomes.len())}
+                    <span class="text-white/15">|</span>
+                    <i class="fa-solid fa-star text-amber-400/40"></i>
+                    {move || format!("{} pts", hud.get().achievement_points)}
+                    <span class="text-white/15">|</span>
+                    <span class={move || {
+                        let s = hud.get().season;
+                        match s { 0 => "🌸", 1 => "☀️", 2 => "🍂", _ => "❄️" }
+                    }}></span>
+                    {move || match hud.get().season { 0 => "Spring", 1 => "Summer", 2 => "Autumn", _ => "Winter" }}
+                    <Show when={move || hud.get().vr_mode}>
+                        <span class="text-purple-400/60"><i class="fa-solid fa-vr-cardboard"></i>VR</span>
+                    </Show>
                 </div>
             </div>
 
@@ -488,8 +500,30 @@ pub fn App() -> impl IntoView {
                 }}>
                     <i class={move || if hud.get().fly_mode { "fa-solid fa-wing mr-1.5" } else { "fa-solid fa-person-walking mr-1.5" }}></i>
                     {move || if hud.get().fly_mode { "VUELO" } else { "CAMINAR" }}
+                    {move || if hud.get().build_mode { " | CONSTRUIR" } else { "" }}
                 </div>
             </div>
+
+            // ===== BUILD MODE INVENTORY BAR =====
+            <Show when={move || hud.get().build_mode}>
+                <div class="absolute bottom-16 left-1/2 -translate-x-1/2 z-10">
+                    <div class="flex gap-1 px-3 py-2 rounded-xl bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08] shadow-xl">
+                        {move || hud.get().inventory.iter().enumerate().map(|(i, (t, c))| {
+                            let colors = ["#998866","#888888","#885533","#339933","#9966ff","#cc5500","#88ccff","#d4b87a","#558833"];
+                            let names = ["Dirt","Stone","Wood","Leaves","Crystal","Lava Stone","Ice","Sand","Moss"];
+                            let sel = hud.get().selected_slot == i as u8;
+                            let idx = *t as usize;
+                            let color = colors.get(idx).unwrap_or(&"#888888").to_string();
+                            view! {
+                                <div class={if sel { "w-10 h-10 rounded-lg bg-white/[0.12] border border-white/20 flex flex-col items-center justify-center" } else { "w-10 h-10 rounded-lg bg-white/[0.03] border border-white/[0.04] flex flex-col items-center justify-center" }}>
+                                    <div class="w-4 h-4 rounded-sm" style={format!("background-color: {}", color)}></div>
+                                    <span class="text-[7px] font-mono text-white/50">{*c}</span>
+                                </div>
+                            }
+                        }).collect::<Vec<_>>()}
+                    </div>
+                </div>
+            </Show>
 
             // ===== SETTINGS PANEL (Right slide-in) =====
             <div class="absolute top-0 right-0 h-full z-40 flex flex-col

@@ -16,6 +16,9 @@ pub struct Controls {
     _touch: Vec<Closure<dyn Fn(MouseEvent)>>,
     _pointer_change: Option<Closure<dyn Fn(web_sys::Event)>>,
     _click: Option<Closure<dyn Fn(MouseEvent)>>,
+    _mousedown: Option<Closure<dyn Fn(MouseEvent)>>,
+    _mouseup: Option<Closure<dyn Fn(MouseEvent)>>,
+    _ctxmenu: Option<Closure<dyn Fn(web_sys::Event)>>,
 }
 
 pub const MASK_W: u16 = 1 << 0;
@@ -32,6 +35,8 @@ pub const MASK_G: u16 = 1 << 10;
 pub const MASK_H: u16 = 1 << 11;
 pub const MASK_T: u16 = 1 << 12;
 pub const MASK_M: u16 = 1 << 13;
+pub const MASK_B: u16 = 1 << 14;
+pub const MASK_LCLICK: u16 = 1 << 15;
 
 impl Controls {
     pub fn new(yaw: Rc<Cell<f64>>, pitch: Rc<Cell<f64>>) -> Self {
@@ -47,12 +52,16 @@ impl Controls {
             _touch: Vec::new(),
             _pointer_change: None,
             _click: None,
+            _mousedown: None,
+            _mouseup: None,
+            _ctxmenu: None,
         }
     }
 
     pub fn attach(&mut self, canvas: &HtmlCanvasElement) {
         let doc = web_sys::window().unwrap().document().unwrap();
         let keys = self.keys.clone();
+        let keys_mouse = self.keys.clone();
         let kbd_down = Closure::<dyn Fn(KeyboardEvent)>::new(move |e: KeyboardEvent| {
             let mut k = keys.get();
             match e.key().as_str() {
@@ -70,6 +79,7 @@ impl Controls {
                 "h" | "H" => k |= MASK_H,
                 "t" | "T" => k |= MASK_T,
                 "m" | "M" => k |= MASK_M,
+                "b" | "B" => k |= MASK_B,
                 _ => {}
             }
             keys.set(k);
@@ -95,6 +105,7 @@ impl Controls {
                 "h" | "H" => k &= !MASK_H,
                 "t" | "T" => k &= !MASK_T,
                 "m" | "M" => k &= !MASK_M,
+                "b" | "B" => k &= !MASK_B,
                 _ => {}
             }
             keys2.set(k);
@@ -130,11 +141,35 @@ impl Controls {
         });
         el.add_event_listener_with_callback("click", click.as_ref().unchecked_ref()).ok();
 
+        // Mining: left click = mine/place
+        let keys_md = keys_mouse.clone();
+        let mousedown = Closure::<dyn Fn(MouseEvent)>::new(move |e: MouseEvent| {
+            if e.button() == 0 {
+                keys_md.set(keys_md.get() | MASK_LCLICK);
+            }
+        });
+        el.add_event_listener_with_callback("mousedown", mousedown.as_ref().unchecked_ref()).ok();
+
+        let keys_mu = keys_mouse.clone();
+        let mouseup = Closure::<dyn Fn(MouseEvent)>::new(move |e: MouseEvent| {
+            if e.button() == 0 {
+                keys_mu.set(keys_mu.get() & !MASK_LCLICK);
+            }
+        });
+        el.add_event_listener_with_callback("mouseup", mouseup.as_ref().unchecked_ref()).ok();
+
+        // Prevent context menu on right click
+        let prevent = Closure::<dyn Fn(web_sys::Event)>::new(move |e: web_sys::Event| { e.prevent_default(); });
+        el.add_event_listener_with_callback("contextmenu", prevent.as_ref().unchecked_ref()).ok();
+
         self._kbd_down = Some(kbd_down);
         self._kbd_up = Some(kbd_up);
         self._mouse_move = Some(mouse_move);
         self._pointer_change = Some(pc);
         self._click = Some(click);
+        self._mousedown = Some(mousedown);
+        self._mouseup = Some(mouseup);
+        self._ctxmenu = Some(prevent);
 
         canvas.focus().ok();
     }

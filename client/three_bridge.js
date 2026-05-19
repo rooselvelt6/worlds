@@ -2108,12 +2108,451 @@
         } catch (e) {}
     };
 
-    // Hook into existing render function
-    var frameCount = 0;
+    // ============================================================
+    // F6: MINING & BUILDING SYSTEM
+    // ============================================================
+
+    var placedBlocks = new Map(); // "x,y,z" -> blockType
+    var removedBlocks = new Set(); // "x,y,z" removed from terrain
+    var blockGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+    var blockMeshes = new Map();
+
+    function getBlockKey(x, y, z) { return Math.round(x)+','+Math.round(y)+','+Math.round(z); }
+
+    function createBlockMesh(x, y, z, type) {
+        var colors = [
+            0x998866, 0x888888, 0x885533, 0x339933, 0x9966ff, 0xcc5500, 0x88ccff, 0xd4b87a, 0x558833
+        ];
+        var mat = new THREE.MeshLambertMaterial({ color: colors[type] || 0x888888, flatShading: true });
+        var mesh = new THREE.Mesh(blockGeo, mat);
+        mesh.position.set(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(z) + 0.5);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        return mesh;
+    }
+
+    window.threeBridgeMineAt = function (ox, oy, oz, yaw, pitch) {
+        // Raycast from center of screen
+        var dir = new THREE.Vector3(0, 0, -1);
+        var euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+        dir.applyEuler(euler);
+        var origin = new THREE.Vector3(ox, oy, oz);
+        var raycaster = new THREE.Raycaster(origin, dir, 1, 8);
+        var targets = [];
+        // Collect all block meshes + terrain meshes
+        for (var entry of meshes.entries()) {
+            targets.push(entry[1]);
+        }
+        for (var bm of blockMeshes.values()) {
+            targets.push(bm);
+        }
+        var hits = raycaster.intersectObjects(targets);
+        if (hits.length > 0) {
+            var hit = hits[0];
+            var p = hit.point;
+            var nx = Math.floor(p.x);
+            var ny = Math.floor(p.y);
+            var nz = Math.floor(p.z);
+            // Check if it's a placed block
+            var bk = getBlockKey(nx, ny, nz);
+            if (blockMeshes.has(bk)) {
+                var mesh = blockMeshes.get(bk);
+                scene.remove(mesh);
+                mesh.geometry && mesh.geometry.dispose();
+                mesh.material && mesh.material.dispose();
+                blockMeshes.delete(bk);
+                placedBlocks.delete(bk);
+                return nx + ny * 10000 + nz * 100000000;
+            }
+            // Remove from terrain
+            removedBlocks.add(bk);
+            return 1;
+        }
+        return -1;
+    };
+
+    window.threeBridgePlaceBlock = function (ox, oy, oz, yaw, pitch, blockType) {
+        var dir = new THREE.Vector3(0, 0, -1);
+        var euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+        dir.applyEuler(euler);
+        var origin = new THREE.Vector3(ox, oy, oz);
+        var raycaster = new THREE.Raycaster(origin, dir, 1, 8);
+        var targets = [];
+        for (var entry of meshes.entries()) {
+            targets.push(entry[1]);
+        }
+        for (var bm of blockMeshes.values()) {
+            targets.push(bm);
+        }
+        var hits = raycaster.intersectObjects(targets);
+        if (hits.length > 0) {
+            var hit = hits[0];
+            var normal = hit.face.normal.clone();
+            // Place block adjacent to hit face
+            var px = Math.floor(hit.point.x + normal.x * 0.5);
+            var py = Math.floor(hit.point.y + normal.y * 0.5);
+            var pz = Math.floor(hit.point.z + normal.z * 0.5);
+            var bk = getBlockKey(px, py, pz);
+            if (!blockMeshes.has(bk) && !removedBlocks.has(bk)) {
+                createBlockMesh(px, py, pz, blockType);
+                blockMeshes.set(bk, blockMeshes.get(bk) || createBlockMesh(px, py, pz, blockType));
+                placedBlocks.set(bk, blockType);
+                return true;
+            }
+        }
+        return false;
+    };
+
+    window.threeBridgeGetBlocks = function () {
+        return JSON.stringify({ placed: Array.from(placedBlocks.entries()), removed: Array.from(removedBlocks) });
+    };
+
+    window.threeBridgeSetBlocks = function (json) {
+        try {
+            var data = JSON.parse(json);
+            if (data.placed) {
+                for (var entry of data.placed) {
+                    var parts = entry[0].split(',');
+                    createBlockMesh(parseFloat(parts[0]), parseFloat(parts[1]), parseFloat(parts[2]), entry[1]);
+                    blockMeshes.set(entry[0], blockMeshes.get(entry[0]));
+                    placedBlocks.set(entry[0], entry[1]);
+                }
+            }
+            if (data.removed) {
+                for (var k of data.removed) { removedBlocks.add(k); }
+            }
+        } catch(e) {}
+    };
+
+    // ============================================================
+    // F8: SEASONS
+    // ============================================================
+
+    var seasonFoliageColors = [
+        { tree: 0x44aa44, grass: 0x55bb55 },  // spring
+        { tree: 0x338833, grass: 0x44aa44 },  // summer
+        { tree: 0xcc6633, grass: 0xaa7733 },  // autumn
+        { tree: 0x666688, grass: 0x888899 },  // winter
+    ];
+
+    window.threeBridgeSetSeason = function (season) {
+        document.body.dataset.season = season;
+        console.log('[season]', season);
+    };
+
+    window.threeBridgeSetTreeGrowth = function (key, growth) {
+        var veg = vegetation.get(key);
+        if (!veg) return;
+        for (var i = 0; i < veg.meshes.length; i++) {
+            var mesh = veg.meshes[i];
+            if (mesh && mesh.isInstancedMesh) {
+                mesh.scale.setScalar(0.5 + growth * 0.5);
+            }
+        }
+    };
+
+    // ============================================================
+    // F9: CREATURES
+    // ============================================================
+
+    var creatureMeshes = new Map(); // id -> { mesh, target, current, type }
+
+    function createCreatureMesh(type, biome) {
+        var group = new THREE.Group();
+        var bodyColor = 0x88aa44;
+        switch (type) {
+            case 0: bodyColor = 0xcc8844; break; // deer
+            case 1: bodyColor = 0x44aa88; break; // snake
+            case 2: bodyColor = 0x88ccff; break; // firefly
+            case 3: bodyColor = 0xaa66dd; break; // crystal
+            case 4: bodyColor = 0x444444; break; // bat
+            case 5: bodyColor = 0xcc4422; break; // fire
+            case 6: bodyColor = 0xddbb66; break; // lizard
+            case 7: bodyColor = 0xeeeeff; break; // snow
+            case 8: bodyColor = 0x66aa44; break; // rabbit
+            case 9: bodyColor = 0x886644; break; // fox
+        }
+        var bodyGeo = new THREE.SphereGeometry(0.2, 6, 6);
+        bodyGeo.scale(1, 0.6, 1.4);
+        var bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
+        var body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.y = 0.2;
+        group.add(body);
+
+        var headGeo = new THREE.SphereGeometry(0.1, 5, 5);
+        var headMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
+        var head = new THREE.Mesh(headGeo, headMat);
+        head.position.set(0.2, 0.35, 0);
+        group.add(head);
+
+        // Glow for special types
+        if (type === 2 || type === 3 || type === 5) {
+            var glowGeo = new THREE.SphereGeometry(0.05, 4, 4);
+            var glowMat = new THREE.MeshBasicMaterial({ color: 0xffff88, transparent: true, opacity: 0.6 });
+            var glow = new THREE.Mesh(glowGeo, glowMat);
+            glow.position.y = 0.4;
+            group.add(glow);
+        }
+
+        scene.add(group);
+        return group;
+    }
+
+    window.threeBridgeSpawnCreature = function (id, x, y, z, type, biome) {
+        if (creatureMeshes.has(id)) return;
+        var mesh = createCreatureMesh(type, biome);
+        mesh.position.set(x, y, z);
+        creatureMeshes.set(id, { mesh: mesh, target: { x: x, y: y, z: z }, current: { x: x, y: y, z: z }, type: type });
+    };
+
+    window.threeBridgeUpdateCreature = function (id, x, y, z, rot) {
+        var c = creatureMeshes.get(id);
+        if (!c) return;
+        c.target.x = x; c.target.y = y; c.target.z = z;
+        c.mesh.rotation.y = rot;
+    };
+
+    window.threeBridgeRemoveCreature = function (id) {
+        var c = creatureMeshes.get(id);
+        if (!c) return;
+        scene.remove(c.mesh);
+        c.mesh.traverse(function (n) { if (n.isMesh) { n.geometry.dispose(); n.material.dispose(); } });
+        creatureMeshes.delete(id);
+    };
+
+    // ============================================================
+    // F11: PORTALS
+    // ============================================================
+
+    var portalMeshes = new Map(); // id -> group
+
+    window.threeBridgeSpawnPortal = function (id, x, y, z, targetSeed) {
+        if (portalMeshes.has(id)) return;
+        var group = new THREE.Group();
+
+        // Outer ring
+        var ringGeo = new THREE.TorusGeometry(1.5, 0.15, 12, 24);
+        var ringMat = new THREE.MeshBasicMaterial({
+            color: 0x8844ff,
+            transparent: true,
+            opacity: 0.8,
+        });
+        var ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        group.add(ring);
+
+        // Inner glow disc
+        var discGeo = new THREE.RingGeometry(0.2, 1.4, 24);
+        var discMat = new THREE.MeshBasicMaterial({
+            color: 0x6633cc,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide,
+        });
+        var disc = new THREE.Mesh(discGeo, discMat);
+        disc.rotation.x = Math.PI / 2;
+        group.add(disc);
+
+        // Particles around portal
+        var pCount = 30;
+        var pGeo = new THREE.BufferGeometry();
+        var pPos = new Float32Array(pCount * 3);
+        for (var i = 0; i < pCount; i++) {
+            var a = (i / pCount) * Math.PI * 2;
+            var r = 1.6 + Math.random() * 0.3;
+            pPos[i*3] = Math.cos(a) * r;
+            pPos[i*3+1] = Math.sin(a) * r * 0.5;
+            pPos[i*3+2] = 0;
+        }
+        pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+        var pMat = new THREE.PointsMaterial({ color: 0x9966ff, size: 0.08, transparent: true, blending: THREE.AdditiveBlending });
+        var points = new THREE.Points(pGeo, pMat);
+        group.add(points);
+        group.userData.particles = points;
+
+        group.position.set(x, y, z);
+        scene.add(group);
+        portalMeshes.set(id, group);
+    };
+
+    window.threeBridgeRemovePortal = function (id) {
+        var g = portalMeshes.get(id);
+        if (!g) return;
+        scene.remove(g);
+        g.traverse(function (n) { if (n.isMesh || n.isPoints) { n.geometry && n.geometry.dispose(); n.material && n.material.dispose(); } });
+        portalMeshes.delete(id);
+    };
+
+    // Animate portals each frame
+    function animatePortals() {
+        var t = frameCount * 0.016;
+        for (var entry of portalMeshes.entries()) {
+            var g = entry[1];
+            g.rotation.y += 0.01;
+            if (g.userData.particles) {
+                var pos = g.userData.particles.geometry.attributes.position.array;
+                for (var i = 0; i < pos.length / 3; i++) {
+                    var a = (i / (pos.length / 3)) * Math.PI * 2 + t;
+                    pos[i*3+2] = Math.sin(a * 2 + t) * 0.3;
+                }
+                g.userData.particles.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+    }
+
+    // ============================================================
+    // F13: WATERFALLS
+    // ============================================================
+
+    var waterfallMeshes = new Map();
+
+    window.threeBridgeSpawnWaterfall = function (key, x, y, z, height) {
+        if (waterfallMeshes.has(key)) return;
+        var group = new THREE.Group();
+
+        // Falling water column
+        var pCount = 100;
+        var geo = new THREE.BufferGeometry();
+        var pos = new Float32Array(pCount * 3);
+        var sizes = new Float32Array(pCount);
+        for (var i = 0; i < pCount; i++) {
+            pos[i*3] = (Math.random() - 0.5) * 0.8;
+            pos[i*3+1] = -Math.random() * height;
+            pos[i*3+2] = (Math.random() - 0.5) * 0.8;
+            sizes[i] = 0.1 + Math.random() * 0.15;
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        var mat = new THREE.PointsMaterial({
+            color: 0x88ccff,
+            size: 0.2,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+        });
+        var points = new THREE.Points(geo, mat);
+        group.add(points);
+        group.userData.offset = Math.random() * 100;
+
+        group.position.set(x, y, z);
+        scene.add(group);
+        waterfallMeshes.set(key, group);
+    };
+
+    window.threeBridgeRemoveWaterfall = function (key) {
+        var g = waterfallMeshes.get(key);
+        if (!g) return;
+        scene.remove(g);
+        g.traverse(function (n) { if (n.isPoints) { n.geometry.dispose(); n.material.dispose(); } });
+        waterfallMeshes.delete(key);
+    };
+
+    function animateWaterfalls() {
+        var t = frameCount * 0.016;
+        for (var entry of waterfallMeshes.entries()) {
+            var g = entry[1];
+            var pos = g.children[0].geometry.attributes.position.array;
+            for (var i = 0; i < pos.length / 3; i++) {
+                pos[i*3+1] = ((pos[i*3+1] - t * 2 + g.userData.offset) % 6) - 6;
+            }
+            g.children[0].geometry.attributes.position.needsUpdate = true;
+        }
+    }
+
+    // ============================================================
+    // F14: WEATHER POWERS
+    // ============================================================
+
+    window.threeBridgeInvokeWeather = function (power) {
+        switch (power) {
+            case 'rain': window.threeBridgeSetWeather('rain', 1.0); break;
+            case 'clear': window.threeBridgeClearWeather(); break;
+            case 'storm': window.threeBridgeSetWeather('storm', 1.0); break;
+            case 'snow': window.threeBridgeSetWeather('snow', 1.0); break;
+        }
+        setTimeout(function () { window.threeBridgeClearWeather(); }, 10000);
+    };
+
+    // ============================================================
+    // F16: CODEX (encyclopedia data)
+    // ============================================================
+
+    window.threeBridgeGetCodexData = function () {
+        return JSON.stringify({
+            biomes: ['forest','plains','desert','tundra','jungle','volcanic','ocean','crystal','cave','lava','fungus','abyss','storm','aurora','magma'],
+            formulas: ['FBM','Perlin','Simplex','Voronoi','Mandelbrot','Sierpinski','Julia','Tetrahedron','Cube','Sphere','Menger','Vortex','Ice','Wave','Spiral','Hexagonal','RidgedMF','DomainWarp','Hybrid','Plasma','Cellular','Strange','Worley','Marble','Terrazas','Erosion','Thermal'],
+            minerals: ['emerald','sapphire','copper','quartz','amethyst','ruby','topaz','pearl'],
+            structures: ['Hut','Tower','Ruins','Arch','Pillar','Dome','Pyramid','CrystalSpire','MushroomHut','Obelisk'],
+            creatures: ['Deer','Snake','Firefly','Crystal','Bat','Fire','Lizard','Snow','Rabbit','Fox'],
+        });
+    };
+
+    // ============================================================
+    // F18: WEBXR VR SUPPORT
+    // ============================================================
+
+    window.threeBridgeIsVRSupported = function () {
+        return navigator.xr && navigator.xr.isSessionSupported ? true : false;
+    };
+
+    window.threeBridgeEnterVR = function () {
+        if (!renderer) return;
+        renderer.xr.enabled = true;
+        if (navigator.xr) {
+            navigator.xr.requestSession('immersive-vr').then(function (session) {
+                renderer.xr.setSession(session);
+                console.log('[vr] Session started');
+            }).catch(function (e) {
+                console.warn('[vr] Session failed:', e);
+            });
+        }
+    };
+
+    window.threeBridgeExitVR = function () {
+        if (renderer && renderer.xr.getSession()) {
+            renderer.xr.getSession().end();
+            renderer.xr.enabled = false;
+        }
+    };
+
+    // ============================================================
+    // F19: MODDING API
+    // ============================================================
+
+    var activeMods = [];
+
+    window.threeBridgeLoadMod = function (url) {
+        fetch(url).then(function (r) { return r.json(); }).then(function (mod) {
+            activeMods.push(mod);
+            console.log('[mod] Loaded:', mod.name);
+        }).catch(function (e) { console.warn('[mod] Failed:', e); });
+    };
+
+    window.threeBridgeGetActiveMods = function () {
+        return JSON.stringify(activeMods);
+    };
+
+    // ============================================================
+    // ANIMATION LOOPS (integrate into render hook)
+    // ============================================================
+
+    // Re-hook render with all animations
     window.threeBridgeRender = (function (origRender) {
         return function () {
             if (wsConnected) {
                 updateRemotePlayerPositions();
+            }
+            animatePortals();
+            animateWaterfalls();
+            // Lerp creature positions
+            for (var entry of creatureMeshes.entries()) {
+                var c = entry[1];
+                c.current.x += (c.target.x - c.current.x) * 0.05;
+                c.current.y += (c.target.y - c.current.y) * 0.05;
+                c.current.z += (c.target.z - c.current.z) * 0.05;
+                c.mesh.position.set(c.current.x, c.current.y, c.current.z);
             }
             return origRender.apply(this, arguments);
         };

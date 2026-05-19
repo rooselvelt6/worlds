@@ -3,11 +3,14 @@ pub mod bridge;
 pub mod camera;
 pub mod chunk;
 pub mod controls;
+pub mod creatures;
 pub mod gamepad;
+pub mod inventory;
 pub mod joystick;
 pub mod minerals;
 pub mod minimap;
 pub mod particles;
+pub mod portals;
 pub mod structures;
 pub mod terrain;
 pub mod vegetation;
@@ -20,8 +23,11 @@ use std::rc::Rc;
 
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
-use controls::{Controls, MASK_A, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_G, MASK_H, MASK_M, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+use controls::{Controls, MASK_A, MASK_B, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_G, MASK_H, MASK_LCLICK, MASK_M, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+use creatures::CreatureData;
+use inventory::Inventory;
 use minerals::MineralData;
+use portals::PortalData;
 use structures::StructData;
 use vegetation::VegData;
 use wasm_bindgen::closure::Closure;
@@ -49,6 +55,13 @@ pub struct HudData {
     pub waypoints: Vec<(f64, f64, f64, String)>,
     pub discovered_biomes: Vec<String>,
     pub discovery_message: Option<String>,
+    pub build_mode: bool,
+    pub inventory: Vec<(u8, u32)>,
+    pub selected_slot: u8,
+    pub season: u8,
+    pub creature_count: u32,
+    pub achievement_points: u32,
+    pub vr_mode: bool,
 }
 
 struct GameState {
@@ -59,6 +72,8 @@ struct GameState {
     veg_chunks: Vec<VegData>,
     struct_chunks: Vec<StructData>,
     mineral_chunks: Vec<MineralData>,
+    creature_chunks: Vec<CreatureData>,
+    portal_data: PortalData,
     params: WorldParams,
     prev_cx: i32,
     prev_cz: i32,
@@ -78,6 +93,21 @@ struct GameState {
     discovered_biomes: Vec<String>,
     discovery_message: Option<(String, f64)>,
     gamepad_connected: bool,
+    inventory: Inventory,
+    build_mode: bool,
+    mine_cooldown: f64,
+    place_cooldown: f64,
+    season: u8,
+    season_timer: f64,
+    tree_growth: Vec<(i32, i32, f32)>,
+    creature_spawn_timer: f64,
+    creature_count: u32,
+    portal_cooldown: f64,
+    last_seed: u32,
+    vr_enabled: bool,
+    achievements: Vec<String>,
+    achievement_points: u32,
+    weather_power_cooldown: f64,
 }
 
 pub struct Engine {
@@ -102,6 +132,11 @@ impl Engine {
         controls.attach(&canvas);
         let camera = Camera::new(yaw, pitch);
 
+        let portal_data = portals::compute_portals(&params);
+        for p in &portal_data.portals {
+            bridge::spawn_portal(&p.id, p.x, p.y, p.z, p.target_seed);
+        }
+
         let state = Rc::new(RefCell::new(GameState {
             canvas,
             camera,
@@ -110,6 +145,8 @@ impl Engine {
             veg_chunks: Vec::new(),
             struct_chunks: Vec::new(),
             mineral_chunks: Vec::new(),
+            creature_chunks: Vec::new(),
+            portal_data,
             params,
             prev_cx: i32::MAX,
             prev_cz: i32::MAX,
@@ -129,6 +166,21 @@ impl Engine {
             discovered_biomes: Vec::new(),
             discovery_message: None,
             gamepad_connected: false,
+            inventory: Inventory::new(),
+            build_mode: false,
+            mine_cooldown: 0.0,
+            place_cooldown: 0.0,
+            season: 0,
+            season_timer: 0.0,
+            tree_growth: Vec::new(),
+            creature_spawn_timer: 0.0,
+            creature_count: 0,
+            portal_cooldown: 0.0,
+            last_seed: params.seed,
+            vr_enabled: false,
+            achievements: Vec::new(),
+            achievement_points: 0,
+            weather_power_cooldown: 0.0,
         }));
 
         audio::init();
@@ -183,6 +235,15 @@ impl Engine {
         s.veg_chunks.clear();
         s.struct_chunks.clear();
         s.mineral_chunks.clear();
+        s.creature_chunks.clear();
+        // Remove portals from JS
+        for p in &s.portal_data.portals {
+            bridge::remove_portal(&p.id);
+        }
+        s.portal_data = portals::compute_portals(&s.params);
+        for p in &s.portal_data.portals {
+            bridge::spawn_portal(&p.id, p.x, p.y, p.z, p.target_seed);
+        }
         s.prev_cx = i32::MAX;
         s.prev_cz = i32::MAX;
         drop(s);
@@ -345,6 +406,50 @@ impl Engine {
                     s.controls.keys.set(s.controls.keys.get() & !MASK_M);
                 }
 
+                // F6: Build mode toggle (B key)
+                if keys_mask & MASK_B != 0 {
+                    s.build_mode = !s.build_mode;
+                    if !s.build_mode {
+                        let _ = s.canvas.request_pointer_lock();
+                    }
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_B);
+                }
+
+                // F6: Mining (left click in normal mode) and building (left click in build mode)
+                if keys_mask & MASK_LCLICK != 0 && s.mine_cooldown <= 0.0 {
+                    if s.build_mode {
+                        // Place block
+                        let sel = s.inventory.selected_item().cloned();
+                        if let Some(item) = sel {
+                            if item.count > 0 {
+                                if bridge::place_block(s.camera.pos[0], s.camera.pos[1], s.camera.pos[2], s.camera.yaw.get(), s.camera.pitch.get(), item.mineral_type) {
+                                    if let Some(inv) = s.inventory.items.iter_mut().find(|i| i.mineral_type == item.mineral_type) {
+                                        inv.count = inv.count.saturating_sub(1);
+                                    }
+                                    s.mine_cooldown = 0.3;
+                                }
+                            }
+                        }
+                    } else {
+                        // Mine
+                        let hit = bridge::mine_at(s.camera.pos[0], s.camera.pos[1], s.camera.pos[2], s.camera.yaw.get(), s.camera.pitch.get());
+                        if hit >= 0.0 {
+                            let mt = (hit as u32) & 0xFF;
+                            s.inventory.add_mineral(1, mt);
+                            s.mine_cooldown = 0.3;
+                            audio::play_effect("mine");
+                            // Achievement: first mined block
+                            if !s.achievements.contains(&"first_mine".to_string()) {
+                                s.achievements.push("first_mine".to_string());
+                                s.achievement_points += 10;
+                                s.discovery_message = Some(("⛏️ Achievement: First Mine! (+10 pts)".to_string(), now + 3.0));
+                            }
+                        }
+                    }
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_LCLICK);
+                }
+                if s.mine_cooldown > 0.0 { s.mine_cooldown -= delta; }
+
                 let cx = (s.camera.pos[0] / CHUNK_SIZE) as i32;
                 let cz = (s.camera.pos[2] / CHUNK_SIZE) as i32;
                 if cx != s.prev_cx || cz != s.prev_cz {
@@ -377,6 +482,26 @@ impl Engine {
                 bridge::set_time(s.time_of_day);
                 bridge::set_water_level(s.params.water_level);
 
+                // F8: Seasons (every 120 seconds = ~1 hour in-game)
+                s.season_timer += delta;
+                if s.season_timer > 120.0 {
+                    s.season_timer = 0.0;
+                    s.season = (s.season + 1) % 4;
+                    let season_names = ["spring", "summer", "autumn", "winter"];
+                    bridge::set_season(season_names[s.season as usize]);
+                    bridge::audio_play_effect("season");
+                    s.discovery_message = Some((format!("🍂 Season: {}!", season_names[s.season as usize]), now + 3.0));
+                }
+
+                // F8: Tree growth tick
+                for (gcx, gcz, growth) in &mut s.tree_growth {
+                    if *growth < 1.0 {
+                        *growth += delta as f32 * 0.01;
+                        if *growth > 1.0 { *growth = 1.0; }
+                        bridge::set_tree_growth(&format!("{},{}", gcx, gcz), *growth);
+                    }
+                }
+
                 // Ambient particles + discovery per zone
                 let zone = terrain::get_zone(&s.params, s.camera.pos[0], s.camera.pos[2]);
                 if s.prev_zone.map(|z| z != zone).unwrap_or(true) {
@@ -388,6 +513,17 @@ impl Engine {
                     if !s.discovered_biomes.contains(&zone_name) {
                         s.discovered_biomes.push(zone_name.clone());
                         s.discovery_message = Some((format!("✨ Discovered: {}!", zone_name), now + 3.0));
+                        s.achievement_points += 5;
+                        if s.discovered_biomes.len() >= 5 && !s.achievements.contains(&"explorer".to_string()) {
+                            s.achievements.push("explorer".to_string());
+                            s.achievement_points += 25;
+                            s.discovery_message = Some(("🌍 Achievement: Explorer! (5 biomes, +25 pts)".to_string(), now + 3.0));
+                        }
+                        if s.discovered_biomes.len() >= 10 && !s.achievements.contains(&"adventurer".to_string()) {
+                            s.achievements.push("adventurer".to_string());
+                            s.achievement_points += 50;
+                            s.discovery_message = Some(("🏆 Achievement: Adventurer! (10 biomes, +50 pts)".to_string(), now + 4.0));
+                        }
                     }
                 }
 
@@ -399,8 +535,67 @@ impl Engine {
 
                 // Hidden structure proximity check
                 let found_name = bridge::check_discovery(s.camera.pos[0] as f32, s.camera.pos[1] as f32, s.camera.pos[2] as f32);
-                if !found_name.is_empty() {
+                if !found_name.is_empty() && s.discovery_message.is_none() {
                     s.discovery_message = Some((format!("🏛️ Found: {}!", found_name), now + 4.0));
+                    if !s.achievements.contains(&"structure".to_string()) {
+                        s.achievements.push("structure".to_string());
+                        s.achievement_points += 20;
+                    }
+                }
+
+                // F6: Crafting (press C while in build mode with something selected)
+                if s.build_mode && keys_mask & MASK_C != 0 {
+                    let result = s.inventory.craft();
+                    if !result.is_empty() {
+                        s.discovery_message = Some((format!("🔧 Crafted {}!", result), now + 3.0));
+                        if !s.achievements.contains(&"craft".to_string()) {
+                            s.achievements.push("craft".to_string());
+                            s.achievement_points += 15;
+                        }
+                    }
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_C);
+                }
+
+                // F9: Creature spawning
+                    s.creature_spawn_timer += delta;
+                if s.creature_spawn_timer > 5.0 {
+                    s.creature_spawn_timer = 0.0;
+                    let mut max_type = s.creature_count;
+                    for chunk in &s.creature_chunks {
+                        for creature in &chunk.creatures {
+                            bridge::spawn_creature(&creature.id, creature.x, creature.y, creature.z, creature.creature_type, zone.as_str());
+                            max_type = max_type.max(creature.creature_type as u32 + 1);
+                        }
+                    }
+                    s.creature_count = max_type;
+                }
+
+                // F11: Portal proximity check
+                s.portal_cooldown -= delta;
+                if s.portal_cooldown <= 0.0 {
+                    for p in &s.portal_data.portals {
+                        let dx = s.camera.pos[0] - p.x;
+                        let dz = s.camera.pos[2] - p.z;
+                        let dist = (dx * dx + dz * dz).sqrt();
+                        if dist < p.radius {
+                            let new_seed = p.target_seed;
+                            if new_seed != s.params.seed {
+                                s.discovery_message = Some((format!("🌀 Traveling to seed {}!", new_seed), now + 2.0));
+                                s.params.seed = new_seed;
+                                s.portal_cooldown = 3.0;
+                                s.last_seed = new_seed;
+                                // Trigger world regeneration
+                                s.prev_cx = i32::MAX;
+                                s.prev_cz = i32::MAX;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // F14: Weather powers (press X when holding breath / special interaction)
+                if keys_mask & MASK_F12 == 0 {
+                    s.weather_power_cooldown -= delta;
                 }
 
                 // Audio + weather
@@ -418,13 +613,36 @@ impl Engine {
                     s.camera.yaw.get(), s.camera.pitch.get(),
                 );
 
+                // F13: Water features (spawn waterfalls near player)
+                if s.frame_count % 300 == 0 {
+                    let wf_zone = zone;
+                    let is_water_nearby = wf_zone == Zone::Ocean || wf_zone == Zone::Jungle;
+                    if is_water_nearby {
+                        let wfx = s.camera.pos[0];
+                        let wfz = s.camera.pos[2];
+                        bridge::spawn_waterfall("near", wfx, s.params.water_level + 8.0, wfz, 6.0);
+                    }
+                }
+
                 bridge::render();
+
+                // F18: VR check
+                if s.frame_count % 60 == 0 && !s.vr_enabled {
+                    if bridge::is_vr_supported() && !s.vr_enabled {
+                        s.vr_enabled = true;
+                        if !s.achievements.contains(&"vr_ready".to_string()) {
+                            s.achievements.push("vr_ready".to_string());
+                            s.achievement_points += 30;
+                        }
+                    }
+                }
 
                 let ground_y = terrain::get_height(&s.params, s.camera.pos[0], s.camera.pos[2]);
                 let zone = terrain::get_zone(&s.params, s.camera.pos[0], s.camera.pos[2]);
                 let angle = (s.camera.yaw.get() * 180.0 / std::f64::consts::PI) as i32;
                 let angle = if angle < 0 { angle + 360 } else { angle % 360 };
                 let disc_msg = s.discovery_message.as_ref().map(|m| m.0.clone());
+                let inv_vec: Vec<(u8, u32)> = s.inventory.items.iter().map(|i| (i.mineral_type, i.count)).collect();
                 *hud.borrow_mut() = HudData {
                     pos: s.camera.pos,
                     biome: zone.as_str().to_string(),
@@ -440,6 +658,13 @@ impl Engine {
                     waypoints: s.waypoints.clone(),
                     discovered_biomes: s.discovered_biomes.clone(),
                     discovery_message: disc_msg,
+                    build_mode: s.build_mode,
+                    inventory: inv_vec,
+                    selected_slot: s.inventory.selected_slot,
+                    season: s.season,
+                    creature_count: s.creature_count,
+                    achievement_points: s.achievement_points,
+                    vr_mode: s.vr_enabled,
                 };
             }));
 
@@ -515,6 +740,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     let mut new_veg: Vec<VegData> = Vec::new();
     let mut new_structs: Vec<StructData> = Vec::new();
     let mut new_minerals: Vec<MineralData> = Vec::new();
+    let mut new_creatures: Vec<CreatureData> = Vec::new();
     let mut to_compute: Vec<(i32, i32)> = Vec::new();
 
     for x in (cx - d)..=(cx + d) {
@@ -559,6 +785,16 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         }
     }
 
+    // Retain creatures for existing chunks
+    for x in (cx - d)..=(cx + d) {
+        for z in (cz - d)..=(cz + d) {
+            if let Some(idx) = s.creature_chunks.iter().position(|v| v.cx == x && v.cz == z) {
+                let cr = s.creature_chunks.swap_remove(idx);
+                new_creatures.push(cr);
+            }
+        }
+    }
+
     // Remove chunks + sub-systems that are no longer in range
     for old in s.chunks.drain(..) {
         let key = format!("{},{}", old.cx, old.cz);
@@ -570,6 +806,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     s.veg_chunks.clear();
     s.struct_chunks.clear();
     s.mineral_chunks.clear();
+    s.creature_chunks.clear();
 
     // Compute new chunk data (parallel via Rayon with `--features parallel`)
     let params = s.params;
@@ -606,6 +843,11 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     // Compute minerals for new chunks
     let new_mineral_data: Vec<MineralData> = to_compute.iter()
         .map(|&(cx, cz)| minerals::compute_chunk_minerals(&params, cx, cz))
+        .collect();
+
+    // Compute creatures for new chunks
+    let new_creature_data: Vec<CreatureData> = to_compute.iter()
+        .map(|&(cx, cz)| creatures::compute_chunk_creatures(&params, cx, cz))
         .collect();
 
     // Upload chunks + sub-systems to Three.js
@@ -683,6 +925,8 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     s.struct_chunks = new_structs;
     new_minerals.extend(new_mineral_data);
     s.mineral_chunks = new_minerals;
+    new_creatures.extend(new_creature_data);
+    s.creature_chunks = new_creatures;
 }
 
 impl Drop for Engine {

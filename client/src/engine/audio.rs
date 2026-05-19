@@ -57,6 +57,10 @@ pub fn update(zone: Zone, formula_seed: u32, walking: bool, speed: f64) {
     }
 }
 
+pub fn play_effect(effect: &str) {
+    bridge::audio_play_effect(effect);
+}
+
 pub fn stop() {
     bridge::audio_stop_ambient();
     bridge::clear_weather();

@@ -132,4 +132,58 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeRemoveMinerals)]
     pub fn remove_minerals(key: &str);
+
+    // F6: Mining & Building
+    #[wasm_bindgen(js_name = threeBridgeMineAt)]
+    pub fn mine_at(ox: f64, oy: f64, oz: f64, yaw: f64, pitch: f64) -> f64;
+
+    #[wasm_bindgen(js_name = threeBridgePlaceBlock)]
+    pub fn place_block(ox: f64, oy: f64, oz: f64, yaw: f64, pitch: f64, block_type: u8) -> bool;
+
+    #[wasm_bindgen(js_name = threeBridgeGetBlocks)]
+    pub fn get_blocks() -> String;
+
+    #[wasm_bindgen(js_name = threeBridgeSetBlocks)]
+    pub fn set_blocks(json: &str);
+
+    // F8: Weather & Seasons
+    #[wasm_bindgen(js_name = threeBridgeSetSeason)]
+    pub fn set_season(season: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeSetTreeGrowth)]
+    pub fn set_tree_growth(key: &str, growth: f32);
+
+    // F9: Creatures
+    #[wasm_bindgen(js_name = threeBridgeSpawnCreature)]
+    pub fn spawn_creature(id: &str, x: f64, y: f64, z: f64, creature_type: u8, biome: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeUpdateCreature)]
+    pub fn update_creature(id: &str, x: f64, y: f64, z: f64, rot: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveCreature)]
+    pub fn remove_creature(id: &str);
+
+    // F11: Portals
+    #[wasm_bindgen(js_name = threeBridgeSpawnPortal)]
+    pub fn spawn_portal(id: &str, x: f64, y: f64, z: f64, target_seed: u32);
+
+    #[wasm_bindgen(js_name = threeBridgeRemovePortal)]
+    pub fn remove_portal(id: &str);
+
+    // F13: Water features
+    #[wasm_bindgen(js_name = threeBridgeSpawnWaterfall)]
+    pub fn spawn_waterfall(key: &str, x: f64, y: f64, z: f64, height: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveWaterfall)]
+    pub fn remove_waterfall(key: &str);
+
+    // F18: WebXR
+    #[wasm_bindgen(js_name = threeBridgeIsVRSupported)]
+    pub fn is_vr_supported() -> bool;
+
+    #[wasm_bindgen(js_name = threeBridgeEnterVR)]
+    pub fn enter_vr();
+
+    #[wasm_bindgen(js_name = threeBridgeExitVR)]
+    pub fn exit_vr();
 }
