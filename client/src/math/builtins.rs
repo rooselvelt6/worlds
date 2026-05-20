@@ -1,4 +1,4 @@
-const PERM: [u8; 256] = [
+static mut PERM: [u8; 256] = [
     151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
     140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
     247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,
@@ -17,8 +17,24 @@ const PERM: [u8; 256] = [
     222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180,
 ];
 
+pub fn set_noise_seed(seed: u32) {
+    unsafe {
+        let mut rng = seed as u64;
+        for i in (1..256).rev() {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let j = (rng >> 32) as usize % (i + 1);
+            PERM.swap(i, j);
+        }
+    }
+}
+
 fn perm_index(i: i64) -> usize {
     (i & 255) as usize
+}
+
+#[inline]
+fn perm(idx: usize) -> u8 {
+    unsafe { PERM[idx] }
 }
 
 fn grad2(hash: u8, x: f64, z: f64) -> f64 {
@@ -42,10 +58,10 @@ pub fn perlin_noise(x: f64, z: f64) -> f64 {
     let xi = perm_index(ix);
 
     let xi1 = (xi + 1) & 255;
-    let v00 = grad2(PERM[perm_index(PERM[xi] as i64 + iz)], fx, fz);
-    let v10 = grad2(PERM[perm_index(PERM[xi1] as i64 + iz)], fx - 1.0, fz);
-    let v01 = grad2(PERM[perm_index(PERM[xi] as i64 + iz + 1)], fx, fz - 1.0);
-    let v11 = grad2(PERM[perm_index(PERM[xi1] as i64 + iz + 1)], fx - 1.0, fz - 1.0);
+    let v00 = grad2(perm(perm_index(perm(xi) as i64 + iz)), fx, fz);
+    let v10 = grad2(perm(perm_index(perm(xi1) as i64 + iz)), fx - 1.0, fz);
+    let v01 = grad2(perm(perm_index(perm(xi) as i64 + iz + 1)), fx, fz - 1.0);
+    let v11 = grad2(perm(perm_index(perm(xi1) as i64 + iz + 1)), fx - 1.0, fz - 1.0);
 
     let v0 = v00 + (v10 - v00) * ux;
     let v1 = v01 + (v11 - v01) * ux;
@@ -71,9 +87,9 @@ pub fn simplex_noise(x: f64, z: f64) -> f64 {
     let x2 = x0 - 1.0 + 2.0 * g2;
     let z2 = z0 - 1.0 + 2.0 * g2;
 
-    let gi0 = PERM[perm_index(PERM[perm_index(i)] as i64 + j)] as u8;
-    let gi1 = PERM[perm_index(PERM[perm_index(i + i1)] as i64 + j + j1)] as u8;
-    let gi2 = PERM[perm_index(PERM[perm_index(i + 1)] as i64 + j + 1)] as u8;
+    let gi0 = perm(perm_index(perm(perm_index(i)) as i64 + j)) as u8;
+    let gi1 = perm(perm_index(perm(perm_index(i + i1)) as i64 + j + j1)) as u8;
+    let gi2 = perm(perm_index(perm(perm_index(i + 1)) as i64 + j + 1)) as u8;
 
     let n0 = {
         let t = 0.5 - x0 * x0 - z0 * z0;

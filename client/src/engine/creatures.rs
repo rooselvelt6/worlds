@@ -24,11 +24,12 @@ pub fn compute_chunk_creatures(params: &crate::state::WorldParams, cx: i32, cz: 
     let mut rng: u64 = (params.seed as u64).wrapping_mul(6364136223846793005)
         .wrapping_add(cx as u64 * 924839).wrapping_add(cz as u64 * 729384);
     let zone = crate::engine::terrain::get_zone(params, cx as f64 * 24.0 + 12.0, cz as f64 * 24.0 + 12.0);
+    let is_underwater = matches!(zone, Zone::CoralReef | Zone::KelpForest | Zone::RockyReef | Zone::SandyPlain | Zone::DeepOcean);
     let creature_types = creature_types_for_zone(zone);
     if creature_types.is_empty() { return CreatureData { cx, cz, creatures: vec![] }; }
 
     let mut creatures = Vec::new();
-    let count = ((rng >> 16) & 0x3) + 1;
+    let count = if is_underwater { ((rng >> 16) & 0x7) + 3 } else { ((rng >> 16) & 0x3) + 1 };
     for i in 0..count {
         rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         let lx = ((rng >> 16) & 0xFFFF) as f64 / 65536.0 * 24.0;
@@ -37,13 +38,19 @@ pub fn compute_chunk_creatures(params: &crate::state::WorldParams, cx: i32, cz: 
         let wx = cx as f64 * 24.0 + lx;
         let wz = cz as f64 * 24.0 + lz;
         let h = crate::engine::terrain::get_height(params, wx, wz);
-        if h < params.water_level { continue; }
+        if is_underwater {
+            let depth = params.water_level - h;
+            if h > params.water_level - 0.1 || depth > 3.0 { continue; }
+        } else {
+            if h < params.water_level { continue; }
+        }
 
         let ct = creature_types[i as usize % creature_types.len()];
         creatures.push(CreatureInstance {
             id: format!("c{}_{}_{}", cx, cz, i),
-            x: wx, y: h, z: wz, rot: 0.0,
-            creature_type: ct, speed: 2.0 + (rng & 3) as f64,
+            x: wx, y: if is_underwater { params.water_level - 0.5 - (rng >> 8) as f64 * 0.1 } else { h },
+            z: wz, rot: 0.0,
+            creature_type: ct, speed: 1.0 + (rng & 3) as f64,
             wander_target: None, wander_timer: 0.0,
         });
     }
@@ -65,6 +72,11 @@ fn creature_types_for_zone(zone: Zone) -> Vec<u8> {
         Zone::Storm => vec![5],
         Zone::Aurora => vec![3],
         Zone::Magma => vec![5],
+        Zone::CoralReef => vec![10, 10, 10, 11],
+        Zone::KelpForest => vec![10, 10, 12],
+        Zone::RockyReef => vec![10, 11],
+        Zone::SandyPlain => vec![11],
+        Zone::DeepOcean => vec![12, 12, 11],
         _ => vec![8],
     }
 }

@@ -5,7 +5,7 @@ use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlCanvasElement, KeyboardEvent, MouseEvent};
 
 pub struct Controls {
-    pub keys: Rc<Cell<u16>>,
+    pub keys: Rc<Cell<u32>>,
     pub mouse_enabled: Rc<Cell<bool>>,
     pub yaw: Rc<Cell<f64>>,
     pub pitch: Rc<Cell<f64>>,
@@ -21,22 +21,24 @@ pub struct Controls {
     _ctxmenu: Option<Closure<dyn Fn(web_sys::Event)>>,
 }
 
-pub const MASK_W: u16 = 1 << 0;
-pub const MASK_A: u16 = 1 << 1;
-pub const MASK_S: u16 = 1 << 2;
-pub const MASK_D: u16 = 1 << 3;
-pub const MASK_SPACE: u16 = 1 << 4;
-pub const MASK_SHIFT: u16 = 1 << 5;
-pub const MASK_Q: u16 = 1 << 6;
-pub const MASK_E: u16 = 1 << 7;
-pub const MASK_C: u16 = 1 << 8;
-pub const MASK_F12: u16 = 1 << 9;
-pub const MASK_G: u16 = 1 << 10;
-pub const MASK_H: u16 = 1 << 11;
-pub const MASK_T: u16 = 1 << 12;
-pub const MASK_M: u16 = 1 << 13;
-pub const MASK_B: u16 = 1 << 14;
-pub const MASK_LCLICK: u16 = 1 << 15;
+pub const MASK_W: u32 = 1 << 0;
+pub const MASK_A: u32 = 1 << 1;
+pub const MASK_S: u32 = 1 << 2;
+pub const MASK_D: u32 = 1 << 3;
+pub const MASK_SPACE: u32 = 1 << 4;
+pub const MASK_SHIFT: u32 = 1 << 5;
+pub const MASK_Q: u32 = 1 << 6;
+pub const MASK_E: u32 = 1 << 7;
+pub const MASK_C: u32 = 1 << 8;
+pub const MASK_F12: u32 = 1 << 9;
+pub const MASK_G: u32 = 1 << 10;
+pub const MASK_H: u32 = 1 << 11;
+pub const MASK_T: u32 = 1 << 12;
+pub const MASK_M: u32 = 1 << 13;
+pub const MASK_B: u32 = 1 << 14;
+pub const MASK_LCLICK: u32 = 1 << 15;
+pub const MASK_N: u32 = 1 << 16;
+pub const MASK_R: u32 = 1 << 17;
 
 impl Controls {
     pub fn new(yaw: Rc<Cell<f64>>, pitch: Rc<Cell<f64>>) -> Self {
@@ -80,6 +82,8 @@ impl Controls {
                 "t" | "T" => k |= MASK_T,
                 "m" | "M" => k |= MASK_M,
                 "b" | "B" => k |= MASK_B,
+                "n" | "N" => k |= MASK_N,
+                "r" | "R" => k |= MASK_R,
                 _ => {}
             }
             keys.set(k);
@@ -106,6 +110,8 @@ impl Controls {
                 "t" | "T" => k &= !MASK_T,
                 "m" | "M" => k &= !MASK_M,
                 "b" | "B" => k &= !MASK_B,
+                "n" | "N" => k &= !MASK_N,
+                "r" | "R" => k &= !MASK_R,
                 _ => {}
             }
             keys2.set(k);

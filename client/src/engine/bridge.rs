@@ -29,6 +29,9 @@ extern "C" {
     #[wasm_bindgen(js_name = threeBridgeSetWaterLevel)]
     pub fn set_water_level(level: f64);
 
+    #[wasm_bindgen(js_name = threeBridgeSetUnderwater)]
+    pub fn set_underwater(active: bool, depth: f32);
+
     #[wasm_bindgen(js_name = threeBridgeSetFog)]
     pub fn set_fog(r: f32, g: f32, b: f32, density: f32);
 

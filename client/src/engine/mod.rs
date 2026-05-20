@@ -13,6 +13,7 @@ pub mod particles;
 pub mod portals;
 pub mod structures;
 pub mod terrain;
+pub mod tour;
 pub mod vegetation;
 
 use std::cell::{Cell, RefCell};
@@ -23,7 +24,7 @@ use std::rc::Rc;
 
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
-use controls::{Controls, MASK_A, MASK_B, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_G, MASK_H, MASK_LCLICK, MASK_M, MASK_Q, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+use controls::{Controls, MASK_A, MASK_B, MASK_C, MASK_D, MASK_E, MASK_F12, MASK_G, MASK_H, MASK_LCLICK, MASK_M, MASK_N, MASK_Q, MASK_R, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
 use creatures::CreatureData;
 use inventory::Inventory;
 use minerals::MineralData;
@@ -34,6 +35,8 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
 use crate::engine::terrain::Zone;
+use crate::engine::tour::TourState;
+use crate::math::set_noise_seed;
 use crate::state::{SaveData, WorldParams};
 
 const GRAVITY: f64 = 20.0;
@@ -62,6 +65,7 @@ pub struct HudData {
     pub creature_count: u32,
     pub achievement_points: u32,
     pub vr_mode: bool,
+    pub tour_mode: bool,
 }
 
 struct GameState {
@@ -108,6 +112,7 @@ struct GameState {
     achievements: Vec<String>,
     achievement_points: u32,
     weather_power_cooldown: f64,
+    tour: TourState,
 }
 
 pub struct Engine {
@@ -181,6 +186,7 @@ impl Engine {
             achievements: Vec::new(),
             achievement_points: 0,
             weather_power_cooldown: 0.0,
+            tour: TourState::new(),
         }));
 
         audio::init();
@@ -202,6 +208,7 @@ impl Engine {
 
         {
             let mut s = state.borrow_mut();
+            set_noise_seed(s.params.seed);
             bridge::ws_connect(s.params.seed);
             let cx = (s.camera.pos[0] / CHUNK_SIZE) as i32;
             let cz = (s.camera.pos[2] / CHUNK_SIZE) as i32;
@@ -215,16 +222,21 @@ impl Engine {
 
     pub fn update_params(&mut self, params: &WorldParams) {
         let mut s = self.state.borrow_mut();
+        let seed_changed = s.params.seed != params.seed;
         s.params = *params;
         s.controls.set_sensitivity(params.mouse_sensitivity);
         s.prev_cx = i32::MAX;
         s.prev_cz = i32::MAX;
         drop(s);
+        if seed_changed {
+            set_noise_seed(params.seed);
+        }
         self.regenerate_all();
     }
 
     pub fn regenerate_all(&self) {
         let mut s = self.state.borrow_mut();
+        set_noise_seed(s.params.seed);
         for chunk in s.chunks.drain(..) {
             let key = format!("{},{}", chunk.cx, chunk.cz);
             bridge::remove_chunk(&key);
@@ -365,9 +377,63 @@ impl Engine {
                     s.controls.keys.set(s.controls.keys.get() & !MASK_C);
                 }
 
+                // Tour mode toggle (N key)
+                if keys_mask & MASK_N != 0 {
+                    let tour_active = s.tour.active;
+                    if tour_active == tour::TourMode::None {
+                        let yaw = s.controls.yaw.get();
+                        let pitch = s.controls.pitch.get();
+                        let radius = s.params.tour_radius;
+                        let speed = s.params.tour_speed;
+                        if s.observer_mode {
+                            s.tour.start_orbit(yaw, pitch, radius);
+                        } else {
+                            s.tour.start_scenic(yaw, speed);
+                        }
+                    } else {
+                        s.tour.stop();
+                    }
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_N);
+                }
+
+                // Auto-stop tour on user input
+                let tour_active = s.tour.active;
+                if tour_active != tour::TourMode::None {
+                    let gp_axes = if s.gamepad_connected {
+                        let gp = gamepad::poll_gamepad();
+                        gp.axes
+                    } else {
+                        [0.0; 4]
+                    };
+                    if s.tour.any_input(keys_mask, joy_dx, joy_dy, &gp_axes) {
+                        s.tour.stop();
+                    }
+                }
+
+                // Tour update
+                let tour_active = s.tour.active;
+                if tour_active != tour::TourMode::None {
+                    let yaw_val = s.controls.yaw.get();
+                    let pitch_val = s.controls.pitch.get();
+                    let params = s.params;
+                    let cam_pos = s.camera.pos;
+                    if let Some(upd) = s.tour.update(delta, &params, &cam_pos, yaw_val, pitch_val) {
+                        s.camera.pos = upd.pos;
+                        s.controls.yaw.set(upd.yaw);
+                        s.controls.pitch.set(upd.pitch);
+                    }
+                }
+
+                // Reset position to safe height (R key)
+                if keys_mask & MASK_R != 0 {
+                    let ground_y = terrain::get_height(&s.params, s.camera.pos[0], s.camera.pos[2]);
+                    s.camera.pos[1] = ground_y + 2.5;
+                    s.vel_y = 0.0;
+                    s.controls.keys.set(s.controls.keys.get() & !MASK_R);
+                }
+
                 // Screenshot (F12)
                 if keys_mask & MASK_F12 != 0 {
-                    let angle = (s.camera.yaw.get() * 180.0 / std::f64::consts::PI) as i32;
                     let formula_name = s.params.formula.name();
                     let zone_name = terrain::get_zone(&s.params, s.camera.pos[0], s.camera.pos[2]).as_str();
                     bridge::capture_screenshot(s.params.seed, formula_name, zone_name,
@@ -456,7 +522,12 @@ impl Engine {
                     generate_chunks(&mut s, cx, cz);
                 }
 
-                if s.observer_mode {
+                if s.tour.active != tour::TourMode::None {
+                    bridge::update_camera(
+                        s.camera.pos[0], s.camera.pos[1], s.camera.pos[2],
+                        yaw_val, pitch_val,
+                    );
+                } else if s.observer_mode {
                     let ox = s.camera.pos[0];
                     let oy = s.camera.pos[1];
                     let oz = s.camera.pos[2];
@@ -481,6 +552,11 @@ impl Engine {
                 }
                 bridge::set_time(s.time_of_day);
                 bridge::set_water_level(s.params.water_level);
+
+                // Underwater detection
+                let underwater = s.camera.pos[1] < s.params.water_level;
+                let underwater_depth = (s.params.water_level - s.camera.pos[1]).max(0.0) as f32;
+                bridge::set_underwater(underwater, underwater_depth);
 
                 // F8: Seasons (every 120 seconds = ~1 hour in-game)
                 s.season_timer += delta;
@@ -665,6 +741,7 @@ impl Engine {
                     creature_count: s.creature_count,
                     achievement_points: s.achievement_points,
                     vr_mode: s.vr_enabled,
+                    tour_mode: s.tour.active != tour::TourMode::None,
                 };
             }));
 

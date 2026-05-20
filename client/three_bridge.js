@@ -9,6 +9,8 @@
     var timeOfDay = 0.5;
     var particles = [];
     var currentBiome = 'plains';
+    var isUnderwater = false;
+    var underwaterDepth = 0;
 
     // Post-processing disabled for color accuracy; using direct render
 
@@ -184,9 +186,30 @@
         "uniform vec3 uRimDir;",
         "uniform vec3 uRimColor;",
         "uniform float uRimIntensity;",
+        "uniform float uUnderwater;",
+        "uniform float uUnderwaterDepth;",
+        "uniform float uWaterLevel;",
+        "uniform float uTime;",
         "varying vec3 vWorldPos;",
         "varying vec3 vNormal;",
         "varying vec3 vColor;",
+        "",
+        "float hash(vec2 p) {",
+        "  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);",
+        "}",
+        "float noise2d(vec2 p) {",
+        "  vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);",
+        "  float a = hash(i);",
+        "  float b = hash(i + vec2(1.0, 0.0));",
+        "  float c = hash(i + vec2(0.0, 1.0));",
+        "  float d = hash(i + vec2(1.0, 1.0));",
+        "  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);",
+        "}",
+        "float fbm2d(vec2 p) {",
+        "  float v = 0.0, a = 1.0, t = 0.0;",
+        "  for (int i = 0; i < 3; i++) { v += a * noise2d(p); t += a; a *= 0.5; p *= 2.0; }",
+        "  return v / t;",
+        "}",
         "",
         "vec3 getNormal(sampler2D normTex, vec3 pos, vec3 normal, float scale) {",
         "  vec3 blend = abs(normal);",
@@ -252,7 +275,21 @@
         "  float spec = pow(max(dot(normal, halfVec), 0.0), 16.0);",
         "  totalLight += uSunColor * uSunIntensity * spec * 0.3;",
         // Final
-        "  gl_FragColor = vec4(col.rgb * totalLight, 1.0);",
+        "  vec3 finalColor = col.rgb * totalLight;",
+        // Underwater: Beer-Lambert absorption + caustics
+        "  if (uUnderwater > 0.5) {",
+        "    float terrainDepth = max(0.0, uWaterLevel - vWorldPos.y);",
+        "    float totalDepth = uUnderwaterDepth + terrainDepth;",
+        "    vec3 absorption = exp(-totalDepth * vec3(2.5, 0.7, 0.1));",
+        "    finalColor *= absorption;",
+        "    float caustic = fbm2d(vWorldPos.xz * 0.25 + uTime * 0.15);",
+        "    caustic = caustic * caustic * 0.5;",
+        "    finalColor += caustic * vec3(0.2, 0.6, 1.0) * 0.4;",
+        "    float depthFog = 1.0 - exp(-totalDepth * 0.5);",
+        "    vec3 waterColor = vec3(0.0, 0.2, 0.35);",
+        "    finalColor = mix(finalColor, waterColor, depthFog * 0.6);",
+        "  }",
+        "  gl_FragColor = vec4(finalColor, 1.0);",
         "}"
     ].join("\n");
 
@@ -274,6 +311,10 @@
                 uNormDirt: { value: pbrTextures.dirt.normalMap },
                 uTexScale: { value: 6.0 },
                 uHeightBlend: { value: 3.0 },
+                uUnderwater: { value: 0.0 },
+                uUnderwaterDepth: { value: 0.0 },
+                uWaterLevel: { value: 0.3 },
+                uTime: { value: 0.0 },
             },
             terrainLightUniforms,
         ]);
@@ -373,6 +414,8 @@
                     uSunDir: terrainLightUniforms.uSunDir,
                     uSunColor: terrainLightUniforms.uSunColor,
                     uSunIntensity: terrainLightUniforms.uSunIntensity,
+                    uUnderwater: { value: 0.0 },
+                    uUnderwaterDepth: { value: 0.0 },
                 },
                 vertexShader: [
                     "uniform float uTime;",
@@ -426,6 +469,8 @@
                     "uniform vec3 uSunDir;",
                     "uniform vec3 uSunColor;",
                     "uniform float uSunIntensity;",
+                    "uniform float uUnderwater;",
+                    "uniform float uUnderwaterDepth;",
                     "varying vec2 vUv;",
                     "varying float vHeight;",
                     "varying vec3 vWorldPos;",
@@ -433,26 +478,29 @@
                     "void main() {",
                     "  vec3 normal = normalize(vWorldNormal);",
                     "  vec3 viewDir = normalize(cameraPosition - vWorldPos);",
-                    // Fresnel
+                    "  if (uUnderwater > 0.5) {",
+                    // Underwater mode: surface seen from below
+                    "    float crest = max(0.0, vHeight * 0.6 + 0.5);",
+                    "    float fresnelBelow = max(dot(normal, viewDir), 0.0);",
+                    "    fresnelBelow = pow(fresnelBelow, 3.0);",
+                    "    vec3 underwaterCol = mix(vec3(0.0, 0.08, 0.15), vec3(0.3, 0.7, 0.9), crest);",
+                    "    float alpha = 0.05 + crest * 0.5;",
+                    "    gl_FragColor = vec4(underwaterCol, alpha);",
+                    "    return;",
+                    "  }",
                     "  float fresnel = 1.0 - max(dot(normal, viewDir), 0.0);",
                     "  fresnel = pow(fresnel, 3.0);",
-                    // Pseudo-reflection using sky color
                     "  vec3 reflectDir = reflect(-viewDir, normal);",
                     "  float skyMix = 0.5 + 0.5 * reflectDir.y;",
                     "  vec3 reflectColor = mix(uSkyColor, vec3(1.0), skyMix * 0.3);",
-                    // Depth-based water color
                     "  float depth = clamp((vHeight + 2.0) / 4.0, 0.0, 1.0);",
                     "  vec3 waterCol = mix(uColorDeep, uColorShallow, depth);",
-                    // Foam on wave crests
                     "  float foam = smoothstep(0.0, 0.3, vHeight) * 0.5;",
                     "  waterCol = mix(waterCol, uColorFoam, foam);",
-                    // Sun specular (shimmer)
                     "  vec3 halfVec = normalize(normalize(uSunDir) + viewDir);",
                     "  float spec = pow(max(dot(normal, halfVec), 0.0), 64.0);",
                     "  waterCol += uSunColor * uSunIntensity * spec * 0.8;",
-                    // Blend reflection and water color by Fresnel
                     "  vec3 finalCol = mix(waterCol, reflectColor, fresnel * 0.5);",
-                    // Alpha
                     "  float alpha = 0.3 + depth * 0.5;",
                     "  gl_FragColor = vec4(finalCol, alpha);",
                     "}"
@@ -593,12 +641,38 @@
                 waterMesh.material.uniforms.uWaterLevel.value = level;
             }
         }
+        if (terrainMat && terrainMat.uniforms) {
+            terrainMat.uniforms.uWaterLevel.value = level;
+        }
     };
 
     window.threeBridgeSetFog = function (r, g, b, density) {
         if (scene && scene.fog) {
             scene.fog.color.setRGB(r, g, b);
             scene.fog.density = density;
+        }
+    };
+
+    window.threeBridgeSetUnderwater = function (active, depth) {
+        isUnderwater = active;
+        underwaterDepth = depth;
+        if (!scene || !renderer) return;
+        if (waterMesh && waterMesh.material.uniforms) {
+            waterMesh.material.uniforms.uUnderwater.value = active ? 1.0 : 0.0;
+            waterMesh.material.uniforms.uUnderwaterDepth.value = depth;
+        }
+        if (terrainMat && terrainMat.uniforms) {
+            terrainMat.uniforms.uUnderwater.value = active ? 1.0 : 0.0;
+            terrainMat.uniforms.uUnderwaterDepth.value = depth;
+        }
+        if (active) {
+            var fogColor = new THREE.Color(0x003355);
+            var fogDensity = 0.008 + depth * 0.006;
+            scene.background.copy(fogColor);
+            scene.fog.color.copy(fogColor);
+            scene.fog.density = fogDensity;
+        } else {
+            removeAllBubbles();
         }
     };
 
@@ -645,13 +719,93 @@
         }
     };
 
+    // Bubble particles
+    var bubbleMeshes = [];
+    var bubbleTimer = 0;
+
+    function spawnBubbles(px, py, pz, count) {
+        for (var i = 0; i < count; i++) {
+            var size = 0.03 + Math.random() * 0.06;
+            var geo = new THREE.SphereGeometry(size, 6, 6);
+            var mat = new THREE.MeshBasicMaterial({
+                color: 0xaaddff,
+                transparent: true,
+                opacity: 0.15 + Math.random() * 0.2,
+            });
+            var mesh = new THREE.Mesh(geo, mat);
+            var spread = 1.2;
+            mesh.position.set(
+                px + (Math.random() - 0.5) * spread,
+                py - Math.random() * 0.8,
+                pz + (Math.random() - 0.5) * spread
+            );
+            var s = 0.5 + Math.random() * 0.8;
+            mesh.scale.set(s, s, s);
+            scene.add(mesh);
+            bubbleMeshes.push({
+                mesh: mesh,
+                vy: 0.2 + Math.random() * 0.6,
+                vx: (Math.random() - 0.5) * 0.08,
+                vz: (Math.random() - 0.5) * 0.08,
+                life: 2.0 + Math.random() * 3.0,
+                maxLife: 2.0 + Math.random() * 3.0,
+                phase: Math.random() * Math.PI * 2,
+            });
+        }
+    }
+
+    function updateBubbles(dt) {
+        for (var i = bubbleMeshes.length - 1; i >= 0; i--) {
+            var b = bubbleMeshes[i];
+            b.life -= dt;
+            if (b.life <= 0) {
+                scene.remove(b.mesh);
+                b.mesh.geometry.dispose();
+                b.mesh.material.dispose();
+                bubbleMeshes.splice(i, 1);
+                continue;
+            }
+            b.mesh.position.x += b.vx * dt + Math.sin(b.life * 2 + b.phase) * 0.01;
+            b.mesh.position.y += b.vy * dt;
+            b.mesh.position.z += b.vz * dt + Math.cos(b.life * 2 + b.phase) * 0.01;
+            b.vx += (Math.random() - 0.5) * 0.3 * dt;
+            b.vz += (Math.random() - 0.5) * 0.3 * dt;
+            var lifeRatio = b.life / b.maxLife;
+            b.mesh.material.opacity = lifeRatio * 0.35;
+            b.mesh.scale.setScalar(s = 0.4 + Math.sin(b.life * 4 + b.phase) * 0.08 + lifeRatio * 0.4);
+        }
+    }
+
+    function removeAllBubbles() {
+        for (var i = 0; i < bubbleMeshes.length; i++) {
+            scene.remove(bubbleMeshes[i].mesh);
+            bubbleMeshes[i].mesh.geometry.dispose();
+            bubbleMeshes[i].mesh.material.dispose();
+        }
+        bubbleMeshes = [];
+    }
+
     var frameCount = 0;
     window.threeBridgeRender = function () {
         if (!renderer || !scene || !camera) return;
         frameCount++;
+        var time = frameCount * 0.016;
 
         if (waterMesh && waterMesh.material.uniforms) {
-            waterMesh.material.uniforms.uTime.value = frameCount * 0.016;
+            waterMesh.material.uniforms.uTime.value = time;
+        }
+        if (terrainMat && terrainMat.uniforms) {
+            terrainMat.uniforms.uTime.value = time;
+        }
+
+        // Update bubbles when underwater
+        if (isUnderwater) {
+            bubbleTimer += 0.016;
+            if (bubbleTimer > 0.15 && bubbleMeshes.length < 60) {
+                bubbleTimer = 0;
+                spawnBubbles(camera.position.x, camera.position.y, camera.position.z, 2);
+            }
+            updateBubbles(0.016);
         }
 
         renderer.render(scene, camera);
@@ -930,6 +1084,141 @@
                     lfoG2.connect(amp.gain);
                     connectChain(src, filt, amp, masterGain);
                     nodes.push(src, filt, amp, lfo2, lfoG2);
+                    break;
+                }
+                case "coral_reef": {
+                    // Gentle underwater ambience with fish clicks
+                    var buf = createNoiseBuffer(ctx, 4);
+                    var src = ctx.createBufferSource();
+                    src.buffer = buf;
+                    src.loop = true;
+                    var filt = ctx.createBiquadFilter();
+                    filt.type = "lowpass";
+                    filt.frequency.value = 400;
+                    var amp = ctx.createGain();
+                    amp.gain.value = 0.08;
+                    connectChain(src, filt, amp, masterGain);
+                    nodes.push(src, filt, amp);
+
+                    // Clicking shrimp sounds
+                    for (var i = 0; i < 4; i++) {
+                        var click = ctx.createOscillator();
+                        click.type = "sine";
+                        click.frequency.value = 2000 + i * 500;
+                        var cAmp = ctx.createGain();
+                        cAmp.gain.value = 0.015;
+                        var cLfo = ctx.createOscillator();
+                        cLfo.frequency.value = 0.5 + i * 0.3;
+                        var cLfoG = ctx.createGain();
+                        cLfoG.gain.value = 0.015;
+                        cLfo.connect(cLfoG);
+                        cLfoG.connect(cAmp.gain);
+                        connectChain(click, cAmp, masterGain);
+                        nodes.push(click, cAmp, cLfo, cLfoG);
+                    }
+                    break;
+                }
+                case "kelp_forest": {
+                    // Low rustling water current
+                    var buf = createNoiseBuffer(ctx, 4);
+                    var src = ctx.createBufferSource();
+                    src.buffer = buf;
+                    src.loop = true;
+                    var filt = ctx.createBiquadFilter();
+                    filt.type = "lowpass";
+                    filt.frequency.value = 150;
+                    var amp = ctx.createGain();
+                    amp.gain.value = 0.12;
+                    var lfo = ctx.createOscillator();
+                    lfo.frequency.value = 0.08;
+                    var lfoG = ctx.createGain();
+                    lfoG.gain.value = 60;
+                    lfo.connect(lfoG);
+                    lfoG.connect(filt.frequency);
+                    connectChain(src, filt, amp, masterGain);
+                    nodes.push(src, filt, amp, lfo, lfoG);
+
+                    // Kelp creak (low frequency)
+                    var creak = ctx.createOscillator();
+                    creak.type = "sine";
+                    creak.frequency.value = 80;
+                    var cAmp = ctx.createGain();
+                    cAmp.gain.value = 0.04;
+                    var cLfo = ctx.createOscillator();
+                    cLfo.frequency.value = 0.15;
+                    var cLfoG = ctx.createGain();
+                    cLfoG.gain.value = 0.03;
+                    cLfo.connect(cLfoG);
+                    cLfoG.connect(cAmp.gain);
+                    connectChain(creak, cAmp, masterGain);
+                    nodes.push(creak, cAmp, cLfo, cLfoG);
+                    break;
+                }
+                case "rocky_reef": {
+                    var buf = createNoiseBuffer(ctx, 4);
+                    var src = ctx.createBufferSource();
+                    src.buffer = buf;
+                    src.loop = true;
+                    var filt = ctx.createBiquadFilter();
+                    filt.type = "bandpass";
+                    filt.frequency.value = 300;
+                    filt.Q.value = 2;
+                    var amp = ctx.createGain();
+                    amp.gain.value = 0.1;
+                    connectChain(src, filt, amp, masterGain);
+                    nodes.push(src, filt, amp);
+
+                    var surge = ctx.createOscillator();
+                    surge.type = "sine";
+                    surge.frequency.value = 0.1;
+                    var sAmp = ctx.createGain();
+                    sAmp.gain.value = 0.05;
+                    connectChain(surge, sAmp, masterGain);
+                    nodes.push(surge, sAmp);
+                    break;
+                }
+                case "sandy_plain": {
+                    var buf = createNoiseBuffer(ctx, 4);
+                    var src = ctx.createBufferSource();
+                    src.buffer = buf;
+                    src.loop = true;
+                    var filt = ctx.createBiquadFilter();
+                    filt.type = "highpass";
+                    filt.frequency.value = 500;
+                    var amp = ctx.createGain();
+                    amp.gain.value = 0.05;
+                    connectChain(src, filt, amp, masterGain);
+                    nodes.push(src, filt, amp);
+
+                    var distant = ctx.createOscillator();
+                    distant.type = "sine";
+                    distant.frequency.value = 120;
+                    var dAmp = ctx.createGain();
+                    dAmp.gain.value = 0.03;
+                    connectChain(distant, dAmp, masterGain);
+                    nodes.push(distant, dAmp);
+                    break;
+                }
+                case "deep_ocean": {
+                    var buf = createNoiseBuffer(ctx, 4);
+                    var src = ctx.createBufferSource();
+                    src.buffer = buf;
+                    src.loop = true;
+                    var filt = ctx.createBiquadFilter();
+                    filt.type = "lowpass";
+                    filt.frequency.value = 60;
+                    var amp = ctx.createGain();
+                    amp.gain.value = 0.1;
+                    connectChain(src, filt, amp, masterGain);
+                    nodes.push(src, filt, amp);
+
+                    var drone = ctx.createOscillator();
+                    drone.type = "sine";
+                    drone.frequency.value = 30;
+                    var dAmp = ctx.createGain();
+                    dAmp.gain.value = 0.08;
+                    connectChain(drone, dAmp, masterGain);
+                    nodes.push(drone, dAmp);
                     break;
                 }
                 case "crystal": {
@@ -1322,6 +1611,11 @@
         storm:    [0.0, 0.0, 0.02],
         aurora:   [0.0, 0.02, 0.04],
         magma:    [0.04, 0.01, 0.0],
+        coral_reef:  [0.02, 0.0, 0.02],
+        kelp_forest: [0.0, 0.02, 0.01],
+        sandy_plain: [0.0, 0.0, 0.01],
+        rocky_reef:  [0.01, 0.0, 0.01],
+        deep_ocean:  [0.0, 0.0, 0.05],
     };
 
     window.threeBridgeSetBiomeTint = function (biome) {
@@ -1335,7 +1629,7 @@
         // Vignette subtle per biome
         var vg = document.getElementById('vignette-overlay');
         if (vg) {
-            var darkBiomes = ['abyss', 'cave', 'storm'];
+            var darkBiomes = ['abyss', 'cave', 'storm', 'deep_ocean'];
             var brightBiomes = ['desert', 'tundra', 'crystal'];
             if (darkBiomes.indexOf(biome) >= 0) {
                 vg.style.opacity = '0.2';
@@ -1359,58 +1653,145 @@
     function buildVegGeometries() {
         if (vegGeos.tree) return;
 
-        // Tree: merged trunk + canopy
-        var trunk = new THREE.CylinderGeometry(0.08, 0.12, 0.8, 5);
-        trunk.translate(0, 0.6, 0);
-        var canopy = new THREE.ConeGeometry(0.5, 0.9, 5);
-        canopy.translate(0, 1.6, 0);
-        vegGeos.tree = mergeBufferGeos([trunk, canopy]);
+        var brown = new THREE.Color(0x6b4c3b);
+        var darkBrown = new THREE.Color(0x4a3328);
+        var leaf0 = new THREE.Color(0x3a7a2a);
+        var leaf1 = new THREE.Color(0x4a8a3a);
+        var leaf2 = new THREE.Color(0x5a9a4a);
+        var leaf3 = new THREE.Color(0x6aaa4a);
 
-        // Bush
-        vegGeos.bush = new THREE.SphereGeometry(0.4, 5, 5);
-        vegGeos.bush.scale(1, 0.6, 1);
+        function colorGeo(geo, color) {
+            var c = geo.getAttribute('position').count;
+            var arr = new Float32Array(c * 3);
+            var col = new THREE.Color(color);
+            for (var i = 0; i < c; i++) {
+                arr[i*3] = col.r; arr[i*3+1] = col.g; arr[i*3+2] = col.b;
+            }
+            geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+        }
 
-        // Rock
-        vegGeos.rock = new THREE.IcosahedronGeometry(0.3, 0);
+        // Tree: trunk + 3-layer canopy with vertex colors
+        var trunk = new THREE.CylinderGeometry(0.1, 0.16, 0.7, 8);
+        trunk.translate(0, 0.55, 0);
+        colorGeo(trunk, brown);
+        var canLow = new THREE.ConeGeometry(0.65, 0.5, 8);
+        canLow.translate(0, 1.1, 0);
+        colorGeo(canLow, leaf0);
+        var canMid = new THREE.ConeGeometry(0.48, 0.4, 8);
+        canMid.translate(0, 1.5, 0);
+        colorGeo(canMid, leaf1);
+        var canTop = new THREE.ConeGeometry(0.3, 0.35, 8);
+        canTop.translate(0, 1.85, 0);
+        colorGeo(canTop, leaf2);
+        vegGeos.tree = mergeBufferGeos([trunk, canLow, canMid, canTop]);
+
+        // Bush: smoother sphere with random offset
+        var bushGeo = new THREE.SphereGeometry(0.35, 8, 7);
+        bushGeo.scale(1, 0.55, 1);
+        colorGeo(bushGeo, leaf1);
+        vegGeos.bush = bushGeo;
+
+        // Rock: more detailed icosahedron
         vegGeos.rock = new THREE.IcosahedronGeometry(0.3, 1);
+        var rockCols = new Float32Array(vegGeos.rock.getAttribute('position').count * 3);
+        for (var i = 0; i < rockCols.length; i += 3) {
+            var shade = 0.4 + Math.random() * 0.3;
+            rockCols[i] = shade; rockCols[i+1] = shade; rockCols[i+2] = shade;
+        }
+        vegGeos.rock.setAttribute('color', new THREE.BufferAttribute(rockCols, 3));
 
         // Cactus
         vegGeos.cactus = new THREE.CylinderGeometry(0.1, 0.15, 1.2, 6);
         vegGeos.cactus.translate(0, 0.6, 0);
+        colorGeo(vegGeos.cactus, new THREE.Color(0x4a8a3a));
 
         // Mushroom
-        var stem = new THREE.CylinderGeometry(0.05, 0.08, 0.5, 5);
+        var stem = new THREE.CylinderGeometry(0.05, 0.08, 0.5, 6);
         stem.translate(0, 0.35, 0);
-        var cap = new THREE.SphereGeometry(0.3, 5, 4);
+        colorGeo(stem, new THREE.Color(0xcccccc));
+        var cap = new THREE.SphereGeometry(0.3, 6, 5);
         cap.scale(1, 0.3, 1);
         cap.translate(0, 0.7, 0);
+        colorGeo(cap, new THREE.Color(0xaa66aa));
         vegGeos.mushroom = mergeBufferGeos([stem, cap]);
 
         // Crystal spire
-        vegGeos.crystal = new THREE.ConeGeometry(0.15, 0.8, 4);
+        vegGeos.crystal = new THREE.ConeGeometry(0.15, 0.8, 6);
         vegGeos.crystal.translate(0, 0.4, 0);
+        colorGeo(vegGeos.crystal, new THREE.Color(0x88aaff));
 
         // Dead tree
-        vegGeos.deadTree = new THREE.CylinderGeometry(0.06, 0.1, 0.8, 4);
+        vegGeos.deadTree = new THREE.CylinderGeometry(0.06, 0.1, 0.8, 6);
         vegGeos.deadTree.translate(0, 0.4, 0);
+        colorGeo(vegGeos.deadTree, darkBrown);
 
         // Flower
-        vegGeos.flower = new THREE.SphereGeometry(0.08, 4, 4);
+        vegGeos.flower = new THREE.SphereGeometry(0.08, 6, 6);
+
+        // Coral: branching structure
+        var coralParts = [];
+        var coralBranchCount = 7;
+        for (var ci = 0; ci < coralBranchCount; ci++) {
+            var a = (ci / coralBranchCount) * Math.PI * 2 + ci * 0.3;
+            var len = 0.12 + (ci % 3) * 0.04;
+            var br = new THREE.CylinderGeometry(0.015, 0.03, len, 4);
+            var tx = Math.cos(a) * 0.06;
+            var tz = Math.sin(a) * 0.06;
+            br.translate(tx, len * 0.4, tz);
+            br.rotateX(Math.cos(a) * 0.5);
+            br.rotateZ(Math.sin(a) * 0.5);
+            colorGeo(br, new THREE.Color(0xff6688));
+            coralParts.push(br);
+            var subLen = len * 0.6;
+            var sub = new THREE.CylinderGeometry(0.01, 0.02, subLen, 4);
+            var subA = a + 0.6;
+            sub.translate(tx + Math.cos(subA) * 0.04, len * 0.7 + subLen * 0.3, tz + Math.sin(subA) * 0.04);
+            sub.rotateX(Math.cos(subA) * 0.6);
+            sub.rotateZ(Math.cos(subA) * 0.6);
+            colorGeo(sub, new THREE.Color(0xff8844));
+            coralParts.push(sub);
+        }
+        var coralStalk = new THREE.CylinderGeometry(0.025, 0.04, 0.2, 5);
+        coralStalk.translate(0, 0.1, 0);
+        colorGeo(coralStalk, new THREE.Color(0xcc4488));
+        coralParts.push(coralStalk);
+        vegGeos.coral = mergeBufferGeos(coralParts);
+
+        // Kelp: tall stalk with bulb
+        var kelpStalk = new THREE.CylinderGeometry(0.03, 0.06, 2.0, 5);
+        kelpStalk.translate(0, 1.0, 0);
+        colorGeo(kelpStalk, new THREE.Color(0x3a8a4a));
+        var kelpBulb = new THREE.SphereGeometry(0.12, 5, 5);
+        kelpBulb.translate(0, 2.1, 0);
+        colorGeo(kelpBulb, new THREE.Color(0x4aaa5a));
+        vegGeos.kelp = mergeBufferGeos([kelpStalk, kelpBulb]);
     }
 
     function mergeBufferGeos(geos) {
+        var hasColors = geos[0] && geos[0].getAttribute('color');
         var totalVerts = 0, totalIdx = 0;
         for (var i = 0; i < geos.length; i++) {
             totalVerts += geos[i].getAttribute('position').count;
             totalIdx += geos[i].index.count;
         }
         var pos = new Float32Array(totalVerts * 3);
+        var col = hasColors ? new Float32Array(totalVerts * 3) : null;
         var idx = new (totalVerts > 65535 ? Uint32Array : Uint16Array)(totalIdx);
         var vertOffset = 0, idxOffset = 0;
         for (var i = 0; i < geos.length; i++) {
             var g = geos[i];
             var p = g.getAttribute('position').array;
             pos.set(p, vertOffset * 3);
+            if (hasColors && g.getAttribute('color')) {
+                col.set(g.getAttribute('color').array, vertOffset * 3);
+            } else if (hasColors) {
+                var cnt = g.getAttribute('position').count;
+                for (var k = 0; k < cnt; k++) {
+                    col[(vertOffset + k) * 3] = 0.5;
+                    col[(vertOffset + k) * 3 + 1] = 0.5;
+                    col[(vertOffset + k) * 3 + 2] = 0.5;
+                }
+            }
             var ind = g.index.array;
             for (var j = 0; j < ind.length; j++) {
                 idx[idxOffset + j] = ind[j] + vertOffset;
@@ -1420,6 +1801,9 @@
         }
         var geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        if (hasColors) {
+            geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        }
         geo.setIndex(new THREE.BufferAttribute(idx, 1));
         geo.computeVertexNormals();
         return geo;
@@ -1434,10 +1818,12 @@
         crystal:  [new THREE.Color(0x88aaff), new THREE.Color(0xaa88ff), new THREE.Color(0x66ccff)],
         deadTree: [new THREE.Color(0x554433), new THREE.Color(0x443322)],
         flower:   [new THREE.Color(0xff6688), new THREE.Color(0xffaa44), new THREE.Color(0xff4488)],
+        coral:    [new THREE.Color(0xff6688), new THREE.Color(0xff8844), new THREE.Color(0xcc4488), new THREE.Color(0xffaa66)],
+        kelp:     [new THREE.Color(0x2a6a3a), new THREE.Color(0x3a8a4a), new THREE.Color(0x4aaa5a)],
     };
 
     function getVegTypeName(type) {
-        var names = ['tree', 'bush', 'rock', 'cactus', 'mushroom', 'crystal', 'deadTree', 'flower'];
+        var names = ['tree', 'bush', 'rock', 'cactus', 'mushroom', 'crystal', 'deadTree', 'flower', 'coral', 'kelp'];
         return names[type] || 'rock';
     }
 
@@ -1468,10 +1854,19 @@
 
             var cols = vegColors[typeName] || [new THREE.Color(0x888888)];
             var inst = byType[typeId];
-            var im = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({
+            var hasVtxColors = geo.getAttribute('color');
+            var mat = hasVtxColors ? new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                roughness: 0.7,
+                metalness: 0.05,
+                flatShading: false,
+            }) : new THREE.MeshStandardMaterial({
                 color: cols[0],
-                flatShading: true,
-            }), inst.length);
+                roughness: 0.6,
+                metalness: 0.1,
+                flatShading: false,
+            });
+            var im = new THREE.InstancedMesh(geo, mat, inst.length);
             im.receiveShadow = true;
             im.castShadow = true;
 
@@ -1492,6 +1887,7 @@
                     windAmp: 0.02 + Math.random() * 0.04,
                     basePos: [p.pos[0], p.pos[1], p.pos[2]],
                     baseRot: dummy.rotation.y,
+                    typeName: typeName,
                 });
             }
             im.instanceMatrix.needsUpdate = true;
@@ -1526,11 +1922,22 @@
             for (var wd of entry.windData) {
                 var im = meshes[wd.meshIdx];
                 if (!im) continue;
-                // Reconstruct matrix from stored data
-                var sway = Math.sin(time * 1.5 + wd.windPhase) * wd.windAmp;
+                var swayX, swayZ;
+                if (wd.typeName === 'kelp') {
+                    // Water current motion: slower, wider, noise-based
+                    var n = Math.sin(time * 0.4 + wd.windPhase) * 0.5
+                          + Math.sin(time * 0.7 + wd.windPhase * 1.3) * 0.3
+                          + Math.sin(time * 0.2 + wd.windPhase * 0.7) * 0.2;
+                    swayX = n * 0.3;
+                    swayZ = n * 0.2;
+                } else {
+                    var s = Math.sin(time * 1.5 + wd.windPhase) * wd.windAmp;
+                    swayX = s;
+                    swayZ = s * 0.3;
+                }
                 dummy.position.set(wd.basePos[0], wd.basePos[1], wd.basePos[2]);
                 dummy.scale.set(1, 1, 1);
-                dummy.rotation.set(sway, wd.baseRot + sway * 0.2, sway * 0.3);
+                dummy.rotation.set(swayX, wd.baseRot + swayX * 0.2, swayZ);
                 dummy.updateMatrix();
                 im.setMatrixAt(wd.idx, dummy.matrix);
                 im.instanceMatrix.needsUpdate = true;
@@ -2294,27 +2701,90 @@
             case 7: bodyColor = 0xeeeeff; break; // snow
             case 8: bodyColor = 0x66aa44; break; // rabbit
             case 9: bodyColor = 0x886644; break; // fox
+            case 10: bodyColor = 0x44aaff; break; // tropical fish
+            case 11: bodyColor = 0x8866cc; break; // ray
+            case 12: bodyColor = 0x66ffaa; break; // jellyfish
         }
-        var bodyGeo = new THREE.SphereGeometry(0.2, 6, 6);
-        bodyGeo.scale(1, 0.6, 1.4);
-        var bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
-        var body = new THREE.Mesh(bodyGeo, bodyMat);
-        body.position.y = 0.2;
-        group.add(body);
 
-        var headGeo = new THREE.SphereGeometry(0.1, 5, 5);
-        var headMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
-        var head = new THREE.Mesh(headGeo, headMat);
-        head.position.set(0.2, 0.35, 0);
-        group.add(head);
+        if (type === 10) {
+            // Tropical fish: small elongated body
+            var fishBody = new THREE.SphereGeometry(0.15, 6, 6);
+            fishBody.scale(1.2, 0.5, 0.6);
+            var fishMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
+            var body = new THREE.Mesh(fishBody, fishMat);
+            group.add(body);
+            // Tail
+            var tail = new THREE.ConeGeometry(0.06, 0.15, 4);
+            var tailMat = new THREE.MeshLambertMaterial({ color: 0xff8844, flatShading: true });
+            var t = new THREE.Mesh(tail, tailMat);
+            t.position.set(-0.25, 0, 0);
+            t.rotation.z = Math.PI / 2;
+            group.add(t);
+        } else if (type === 11) {
+            // Ray: flat wide body
+            var rayBody = new THREE.SphereGeometry(0.2, 6, 6);
+            rayBody.scale(1.8, 0.2, 1.2);
+            var rayMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
+            var body = new THREE.Mesh(rayBody, rayMat);
+            group.add(body);
+            // Tail
+            var rayTail = new THREE.ConeGeometry(0.02, 0.3, 4);
+            var rayTailMat = new THREE.MeshLambertMaterial({ color: 0x664488, flatShading: true });
+            var rt = new THREE.Mesh(rayTail, rayTailMat);
+            rt.position.set(-0.4, 0, 0);
+            rt.rotation.z = Math.PI / 2;
+            group.add(rt);
+        } else if (type === 12) {
+            // Jellyfish: translucent bell + trailing tentacles
+            var bell = new THREE.SphereGeometry(0.15, 6, 6);
+            bell.scale(1, 0.5, 1);
+            var bellMat = new THREE.MeshLambertMaterial({
+                color: bodyColor,
+                transparent: true,
+                opacity: 0.6,
+                flatShading: true,
+            });
+            var bellMesh = new THREE.Mesh(bell, bellMat);
+            bellMesh.position.y = 0.1;
+            group.add(bellMesh);
+            // Tentacles
+            for (var ti = 0; ti < 5; ti++) {
+                var tent = new THREE.CylinderGeometry(0.005, 0.01, 0.3, 3);
+                var tentMat = new THREE.MeshLambertMaterial({
+                    color: 0x88ffcc,
+                    transparent: true,
+                    opacity: 0.3,
+                    flatShading: true,
+                });
+                var tentMesh = new THREE.Mesh(tent, tentMat);
+                var ta = (ti / 5) * Math.PI * 2;
+                tentMesh.position.set(Math.cos(ta) * 0.08, -0.05, Math.sin(ta) * 0.08);
+                tentMesh.rotation.x = Math.cos(ta) * 0.3;
+                tentMesh.rotation.z = Math.sin(ta) * 0.3;
+                group.add(tentMesh);
+            }
+        } else {
+            var bodyGeo = new THREE.SphereGeometry(0.2, 6, 6);
+            bodyGeo.scale(1, 0.6, 1.4);
+            var bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
+            var body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.2;
+            group.add(body);
 
-        // Glow for special types
-        if (type === 2 || type === 3 || type === 5) {
-            var glowGeo = new THREE.SphereGeometry(0.05, 4, 4);
-            var glowMat = new THREE.MeshBasicMaterial({ color: 0xffff88, transparent: true, opacity: 0.6 });
-            var glow = new THREE.Mesh(glowGeo, glowMat);
-            glow.position.y = 0.4;
-            group.add(glow);
+            var headGeo = new THREE.SphereGeometry(0.1, 5, 5);
+            var headMat = new THREE.MeshLambertMaterial({ color: bodyColor, flatShading: true });
+            var head = new THREE.Mesh(headGeo, headMat);
+            head.position.set(0.2, 0.35, 0);
+            group.add(head);
+
+            // Glow for special types
+            if (type === 2 || type === 3 || type === 5) {
+                var glowGeo = new THREE.SphereGeometry(0.05, 4, 4);
+                var glowMat = new THREE.MeshBasicMaterial({ color: 0xffff88, transparent: true, opacity: 0.6 });
+                var glow = new THREE.Mesh(glowGeo, glowMat);
+                glow.position.y = 0.4;
+                group.add(glow);
+            }
         }
 
         scene.add(group);
@@ -2503,11 +2973,11 @@
 
     window.threeBridgeGetCodexData = function () {
         return JSON.stringify({
-            biomes: ['forest','plains','desert','tundra','jungle','volcanic','ocean','crystal','cave','lava','fungus','abyss','storm','aurora','magma'],
+            biomes: ['forest','plains','desert','tundra','jungle','volcanic','ocean','crystal','cave','lava','fungus','abyss','storm','aurora','magma','coral_reef','kelp_forest','rocky_reef','sandy_plain','deep_ocean'],
             formulas: ['FBM','Perlin','Simplex','Voronoi','Mandelbrot','Sierpinski','Julia','Tetrahedron','Cube','Sphere','Menger','Vortex','Ice','Wave','Spiral','Hexagonal','RidgedMF','DomainWarp','Hybrid','Plasma','Cellular','Strange','Worley','Marble','Terrazas','Erosion','Thermal'],
             minerals: ['emerald','sapphire','copper','quartz','amethyst','ruby','topaz','pearl'],
             structures: ['Hut','Tower','Ruins','Arch','Pillar','Dome','Pyramid','CrystalSpire','MushroomHut','Obelisk'],
-            creatures: ['Deer','Snake','Firefly','Crystal','Bat','Fire','Lizard','Snow','Rabbit','Fox'],
+            creatures: ['Deer','Snake','Firefly','Crystal','Bat','Fire','Lizard','Snow','Rabbit','Fox','Fish','Ray','Jellyfish'],
         });
     };
 
@@ -2568,13 +3038,19 @@
             }
             animatePortals();
             animateWaterfalls();
-            // Lerp creature positions
+            // Lerp creature positions + animate sea creatures
             for (var entry of creatureMeshes.entries()) {
                 var c = entry[1];
                 c.current.x += (c.target.x - c.current.x) * 0.05;
                 c.current.y += (c.target.y - c.current.y) * 0.05;
                 c.current.z += (c.target.z - c.current.z) * 0.05;
                 c.mesh.position.set(c.current.x, c.current.y, c.current.z);
+                // Swimming animation for underwater creatures
+                if (c.type === 10 || c.type === 11 || c.type === 12) {
+                    var bob = Math.sin(time * 2 + c.current.x + c.current.z) * 0.05;
+                    c.mesh.position.y += bob;
+                    c.mesh.rotation.z = Math.sin(time * 3 + c.current.x) * 0.1;
+                }
             }
             return origRender.apply(this, arguments);
         };

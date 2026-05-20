@@ -20,6 +20,11 @@ pub fn spawn_zone_particles(zone: Zone, px: f64, pz: f64, water_level: f64) {
         Zone::Storm => (vec![0.5, 0.5, 0.6], 20.0, 0.9, 10.0),
         Zone::Aurora => (vec![0.2, 0.9, 0.7], 18.0, 0.3, 8.0),
         Zone::Magma => (vec![0.9, 0.3, 0.05], 14.0, 0.6, 7.0),
+        Zone::CoralReef => (vec![0.4, 0.7, 0.9], 8.0, 0.15, 0.3),
+        Zone::KelpForest => (vec![0.2, 0.6, 0.3], 10.0, 0.15, 0.3),
+        Zone::SandyPlain => (vec![0.6, 0.5, 0.3], 6.0, 0.1, 0.2),
+        Zone::RockyReef => (vec![0.3, 0.4, 0.5], 8.0, 0.12, 0.3),
+        Zone::DeepOcean => (vec![0.02, 0.05, 0.15], 4.0, 0.05, 0.2),
     };
 
     let mut positions = Vec::with_capacity((PARTICLE_COUNT * 3) as usize);

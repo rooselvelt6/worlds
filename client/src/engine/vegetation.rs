@@ -11,6 +11,8 @@ pub enum VegType {
     Crystal,
     DeadTree,
     Flower,
+    Coral,
+    Kelp,
 }
 
 #[derive(Clone)]
@@ -38,6 +40,7 @@ pub fn compute_chunk_vegetation(params: &WorldParams, cx: i32, cz: i32) -> VegDa
     let seed = params.seed.wrapping_mul(2654435761).wrapping_add((cx as u32).wrapping_mul(374761393)).wrapping_add((cz as u32).wrapping_mul(668265263));
 
     let zone = terrain::get_zone(params, ox + 12.0, oz + 12.0);
+    let is_underwater_zone = matches!(zone, Zone::CoralReef | Zone::KelpForest | Zone::RockyReef | Zone::SandyPlain | Zone::DeepOcean);
     let density = veg_density(zone);
     let count = ((MAX_VEG as f64 * density) as usize).min(MAX_VEG);
 
@@ -55,14 +58,19 @@ pub fn compute_chunk_vegetation(params: &WorldParams, cx: i32, cz: i32) -> VegDa
         let h = terrain::get_height(params, wx, wz);
         let water = params.water_level;
 
-        // Skip if underwater or too steep
-        if h <= water + 0.3 { continue; }
-
-        // Check slope (simple 2-point sampling)
-        let hx = terrain::get_height(params, wx + 1.0, wz);
-        let hz = terrain::get_height(params, wx, wz + 1.0);
-        let slope = ((hx - h).abs() + (hz - h).abs()) * 0.5;
-        if slope > 1.5 { continue; }
+        if !is_underwater_zone {
+            // Above-water vegetation: skip underwater spots
+            if h <= water + 0.3 { continue; }
+            let hx = terrain::get_height(params, wx + 1.0, wz);
+            let hz = terrain::get_height(params, wx, wz + 1.0);
+            let slope = ((hx - h).abs() + (hz - h).abs()) * 0.5;
+            if slope > 1.5 { continue; }
+        } else {
+            // Underwater vegetation: skip above-water or too deep
+            if h > water - 0.1 { continue; }
+            let depth = water - h;
+            if depth > 3.0 { continue; }
+        }
 
         rng = rng.wrapping_mul(1103515245).wrapping_add(12345);
         let r = rng as f64 / u32::MAX as f64;
@@ -98,6 +106,11 @@ fn veg_density(zone: Zone) -> f64 {
         Zone::Storm => 0.1,
         Zone::Aurora => 0.2,
         Zone::Ocean => 0.0,
+        Zone::CoralReef => 0.7,
+        Zone::KelpForest => 0.5,
+        Zone::SandyPlain => 0.0,
+        Zone::RockyReef => 0.3,
+        Zone::DeepOcean => 0.0,
     }
 }
 
@@ -143,6 +156,19 @@ fn veg_for_zone(zone: Zone, r: f64) -> VegType {
             if r < 0.5 { VegType::Crystal }
             else { VegType::Rock }
         }
+        Zone::CoralReef => {
+            if r < 0.6 { VegType::Coral }
+            else { VegType::Rock }
+        }
+        Zone::KelpForest => {
+            if r < 0.5 { VegType::Kelp }
+            else if r < 0.7 { VegType::Coral }
+            else { VegType::Rock }
+        }
+        Zone::RockyReef => {
+            if r < 0.4 { VegType::Coral }
+            else { VegType::Rock }
+        }
         _ => VegType::Rock,
     }
 }
@@ -157,13 +183,16 @@ fn veg_size(veg_type: VegType, zone: Zone, r: f64) -> f32 {
         VegType::Crystal => 0.5 + r * 2.0,
         VegType::DeadTree => 1.0 + r * 1.5,
         VegType::Flower => 0.1 + r * 0.2,
+        VegType::Coral => 0.3 + r * 0.8,
+        VegType::Kelp => 2.0 + r * 3.0,
     };
-    // Zone-specific scaling
     let scale = match zone {
         Zone::Jungle => 1.5,
         Zone::Tundra => 0.6,
         Zone::Desert => 0.7,
         Zone::Volcanic | Zone::Lava | Zone::Magma => 0.8,
+        Zone::CoralReef => 0.8,
+        Zone::KelpForest => 1.2,
         _ => 1.0,
     };
     (base * scale) as f32

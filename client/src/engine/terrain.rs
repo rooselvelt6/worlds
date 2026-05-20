@@ -106,6 +106,7 @@ pub enum Zone {
     Forest, Plains, Desert, Tundra, Jungle,
     Volcanic, Ocean, Crystal, Cave, Lava,
     Fungus, Abyss, Storm, Aurora, Magma,
+    CoralReef, KelpForest, SandyPlain, RockyReef, DeepOcean,
 }
 
 impl Zone {
@@ -118,6 +119,9 @@ impl Zone {
             "lava" => Zone::Lava, "fungus" => Zone::Fungus,
             "abyss" => Zone::Abyss, "storm" => Zone::Storm,
             "aurora" => Zone::Aurora, "magma" => Zone::Magma,
+            "coral_reef" => Zone::CoralReef, "kelp_forest" => Zone::KelpForest,
+            "sandy_plain" => Zone::SandyPlain, "rocky_reef" => Zone::RockyReef,
+            "deep_ocean" => Zone::DeepOcean,
             _ => Zone::Forest,
         }
     }
@@ -132,6 +136,9 @@ impl Zone {
             Zone::Fungus => "fungus", Zone::Abyss => "abyss",
             Zone::Storm => "storm", Zone::Aurora => "aurora",
             Zone::Magma => "magma",
+            Zone::CoralReef => "coral_reef", Zone::KelpForest => "kelp_forest",
+            Zone::SandyPlain => "sandy_plain", Zone::RockyReef => "rocky_reef",
+            Zone::DeepOcean => "deep_ocean",
         }
     }
 }
@@ -140,16 +147,35 @@ pub fn get_zone(params: &WorldParams, wx: f64, wz: f64) -> Zone {
     if params.zone != Zone::Forest {
         return params.zone;
     }
-    let t = fbm(wx * 0.008, wz * 0.008, 2);
-    let h = fbm(wx * 0.008 + 50.0, wz * 0.008, 2);
-    if t < -0.35 { Zone::Tundra }
-    else if t > 0.45 {
-        if h < -0.25 { Zone::Desert } else { Zone::Volcanic }
-    } else if h > 0.45 {
-        if h > 0.6 { Zone::Lava } else { Zone::Jungle }
-    } else if h < -0.35 { Zone::Plains }
-    else if h < 0.0 { Zone::Ocean }
-    else { Zone::Forest }
+    let h = get_height(params, wx, wz);
+    let water = params.water_level;
+    if h <= water {
+        let depth = water - h;
+        let n = fbm(wx * 0.008, wz * 0.008, 3);
+        let n2 = fbm(wx * 0.012 + 100.0, wz * 0.012, 2);
+        if depth < 0.8 && n > 0.2 && n2 > -0.1 {
+            Zone::CoralReef
+        } else if depth < 2.0 && n.abs() < 0.25 && n2 < 0.2 {
+            Zone::KelpForest
+        } else if depth > 4.0 || n < -0.3 {
+            Zone::DeepOcean
+        } else if n > 0.0 {
+            Zone::RockyReef
+        } else {
+            Zone::SandyPlain
+        }
+    } else {
+        let t = fbm(wx * 0.008, wz * 0.008, 2);
+        let h2 = fbm(wx * 0.008 + 50.0, wz * 0.008, 2);
+        if t < -0.35 { Zone::Tundra }
+        else if t > 0.45 {
+            if h2 < -0.25 { Zone::Desert } else { Zone::Volcanic }
+        } else if h2 > 0.45 {
+            if h2 > 0.6 { Zone::Lava } else { Zone::Jungle }
+        } else if h2 < -0.35 { Zone::Plains }
+        else if h2 < 0.0 { Zone::Ocean }
+        else { Zone::Forest }
+    }
 }
 
 pub fn get_zone_color(zone: Zone) -> [f32; 3] {
@@ -169,6 +195,11 @@ pub fn get_zone_color(zone: Zone) -> [f32; 3] {
         Zone::Storm => [0.300, 0.350, 0.450],
         Zone::Aurora => [0.200, 0.800, 0.600],
         Zone::Magma => [0.800, 0.300, 0.050],
+        Zone::CoralReef => [0.800, 0.400, 0.400],
+        Zone::KelpForest => [0.200, 0.500, 0.300],
+        Zone::SandyPlain => [0.700, 0.600, 0.400],
+        Zone::RockyReef => [0.400, 0.350, 0.300],
+        Zone::DeepOcean => [0.020, 0.050, 0.150],
     }
 }
 
