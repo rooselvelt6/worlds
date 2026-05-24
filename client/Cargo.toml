@@ -18,12 +18,12 @@ worlds-shared = { path = "../shared" }
 web-sys = { version = "0.3", features = [
     "Window", "Document", "HtmlCanvasElement", "CanvasRenderingContext2d",
     "HtmlElement", "Element", "MouseEvent", "KeyboardEvent",
-    "TouchEvent", "TouchList", "Touch", "PointerEvent",
     "KeyboardEventInit", "Navigator", "Performance",
-    "TouchEvent", "TouchList", "Touch",
+    "TouchEvent", "TouchList", "Touch", "PointerEvent",
     "console", "DomRect", "HtmlDivElement", "HtmlInputElement",
-    "PointerEvent", "Event", "Storage",
-    "Gamepad", "GamepadButton", "Navigator",
+    "Event", "Storage",
+    "Gamepad", "GamepadButton",
+        "AudioContext", "OscillatorNode", "GainNode", "AudioNode", "AudioDestinationNode", "AudioParam", "OscillatorType",
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

@@ -11,6 +11,7 @@ pub struct ChunkData {
     pub cx: i32,
     pub cz: i32,
     pub positions: Vec<f32>,
+    pub normals: Vec<f32>,
     pub colors: Vec<f32>,
     pub indices: Vec<u16>,
 }
@@ -122,5 +123,5 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
         }
     }
 
-    ChunkData { cx, cz, positions, colors, indices }
+    ChunkData { cx, cz, positions, normals, colors, indices }
 }

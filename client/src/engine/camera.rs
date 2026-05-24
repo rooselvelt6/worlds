@@ -10,7 +10,7 @@ pub struct Camera {
 impl Camera {
     pub fn new(yaw: Rc<Cell<f64>>, pitch: Rc<Cell<f64>>) -> Self {
         Self {
-            pos: [50.0, 25.0, 50.0],
+            pos: [0.0, 2.0, 0.0],
             yaw,
             pitch,
         }

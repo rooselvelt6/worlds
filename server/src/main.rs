@@ -99,7 +99,7 @@ async fn serve_asset(State(state): State<AppState>, Path(path): Path<String>) ->
     );
     res.headers_mut().insert(
         axum::http::HeaderName::from_static("cross-origin-embedder-policy"),
-        "require-corp".parse().unwrap(),
+        "credentialless".parse().unwrap(),
     );
     res
 }

@@ -1,109 +1,166 @@
-use crate::engine::bridge;
 use crate::engine::terrain::Zone;
+use std::cell::RefCell;
+use web_sys::{AudioContext, GainNode, OscillatorNode, OscillatorType};
 
-static mut PREV_ZONE: Option<Zone> = None;
-static mut PREV_WEATHER: Option<Weather> = None;
-static mut PREV_FORMULA: Option<u32> = None;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Weather {
-    Clear,
-    Rain,
-    Snow,
-    Storm,
-    Dust,
-    Ash,
+thread_local! {
+    static CTX: RefCell<Option<AudioContext>> = const { RefCell::new(None) };
+    static MASTER: RefCell<Option<GainNode>> = const { RefCell::new(None) };
+    static AMBIENT: RefCell<Option<(OscillatorNode, GainNode)>> = const { RefCell::new(None) };
+    static TICK_TIMER: RefCell<f64> = const { RefCell::new(0.0) };
 }
 
 pub fn init() {
-    bridge::audio_init();
-}
-
-pub fn update(zone: Zone, formula_seed: u32, walking: bool, speed: f64) {
-    let prev = unsafe { PREV_ZONE };
-
-    // Zone changed -> play effect + switch ambient + biome tint
-    if prev.map(|z| z != zone).unwrap_or(true) {
-        unsafe { PREV_ZONE = Some(zone) };
-        bridge::audio_play_ambient(zone.as_str());
-        bridge::audio_play_effect("zone");
-        bridge::set_biome_tint(zone.as_str());
-        bridge::set_lut(zone.as_str());
-        // Heat haze for hot biomes
-        let is_hot = matches!(zone, Zone::Volcanic | Zone::Lava | Zone::Magma);
-        bridge::set_heat_haze(is_hot);
-
-        // Update weather based on zone
-        let weather = weather_for_zone(zone);
-        if unsafe { PREV_WEATHER.map(|w| w != weather).unwrap_or(true) } {
-            unsafe { PREV_WEATHER = Some(weather) };
-            match weather {
-                Weather::Clear => bridge::clear_weather(),
-                _ => bridge::set_weather(weather.name(), weather_intensity(zone)),
-            }
+    if let Ok(ctx) = AudioContext::new() {
+        if let Ok(gain) = ctx.create_gain() {
+            gain.gain().set_value(0.12);
+            let _ = gain.connect_with_audio_node(&ctx.destination());
+            CTX.with(|c| *c.borrow_mut() = Some(ctx));
+            MASTER.with(|m| *m.borrow_mut() = Some(gain));
         }
     }
+    start_ambient();
+}
 
-    // Formula changed
-    let f_seed = formula_seed;
-    if unsafe { PREV_FORMULA.map(|p| p != f_seed).unwrap_or(true) } {
-        unsafe { PREV_FORMULA = Some(f_seed) };
-        bridge::audio_play_effect("formula");
-    }
+fn start_ambient() {
+    CTX.with(|ctx_cell| {
+        let ctx_binding = ctx_cell.borrow();
+        let ctx = match *ctx_binding { Some(ref c) => c, None => return };
+        MASTER.with(|master_cell| {
+            let master_binding = master_cell.borrow();
+            let master = match *master_binding { Some(ref m) => m, None => return };
+            if let Ok(osc) = ctx.create_oscillator() {
+                osc.frequency().set_value(200.0);
+                osc.set_type(OscillatorType::Sine);
+                if let Ok(gain) = ctx.create_gain() {
+                    gain.gain().set_value(0.04);
+                    let _ = gain.connect_with_audio_node(master);
+                    let _ = osc.connect_with_audio_node(&gain);
+                    let _ = osc.start();
+                    AMBIENT.with(|a| *a.borrow_mut() = Some((osc, gain)));
+                }
+            }
+        });
+    });
+}
 
-    // Footsteps
-    if walking && speed > 0.5 {
-        bridge::audio_play_footstep((speed / 30.0).min(1.0) as f32);
+fn set_ambient_freq(freq: f32, volume: f32) {
+    AMBIENT.with(|a| {
+        if let Some((ref osc, ref gain)) = *a.borrow() {
+            osc.frequency().set_value(freq);
+            gain.gain().linear_ramp_to_value_at_time(volume, CTX.with(|c| {
+                c.borrow().as_ref().map(|ctx| ctx.current_time() + 0.5).unwrap_or(0.0)
+            })).ok();
+        }
+    });
+}
+
+fn zone_ambient(zone: Zone) -> (f32, f32) {
+    match zone {
+        Zone::Forest | Zone::Jungle => (260.0, 0.06),
+        Zone::Plains => (220.0, 0.04),
+        Zone::Desert => (180.0, 0.03),
+        Zone::Tundra => (140.0, 0.05),
+        Zone::Ocean | Zone::CoralReef | Zone::KelpForest | Zone::RockyReef | Zone::SandyPlain | Zone::DeepOcean => (160.0, 0.05),
+        Zone::Volcanic | Zone::Lava | Zone::Magma => (90.0, 0.07),
+        Zone::Crystal | Zone::Aurora => (500.0, 0.04),
+        Zone::Cave | Zone::Abyss => (70.0, 0.04),
+        Zone::Fungus => (280.0, 0.05),
+        Zone::Storm => (100.0, 0.08),
     }
 }
 
-pub fn play_effect(effect: &str) {
-    bridge::audio_play_effect(effect);
+fn play_nature_sound(zone: Zone) {
+    CTX.with(|ctx_cell| {
+        let ctx_binding = ctx_cell.borrow();
+        let ctx = match *ctx_binding { Some(ref c) => c, None => return };
+        MASTER.with(|master_cell| {
+            let master_binding = master_cell.borrow();
+            let master = match *master_binding { Some(ref m) => m, None => return };
+            let (freq, vol) = match zone {
+                Zone::Forest | Zone::Jungle => (800.0 + (rand_hash() % 400) as f32, 0.03),
+                Zone::Plains => (500.0 + (rand_hash() % 300) as f32, 0.02),
+                Zone::Tundra => (1000.0 + (rand_hash() % 200) as f32, 0.02),
+                Zone::Desert => (300.0 + (rand_hash() % 100) as f32, 0.015),
+                Zone::Crystal | Zone::Aurora => (1200.0 + (rand_hash() % 600) as f32, 0.025),
+                Zone::Fungus => (400.0 + (rand_hash() % 200) as f32, 0.02),
+                Zone::Cave | Zone::Abyss => (100.0 + (rand_hash() % 50) as f32, 0.015),
+                Zone::Volcanic | Zone::Lava | Zone::Magma => (200.0 + (rand_hash() % 150) as f32, 0.03),
+                _ => return,
+            };
+            if let Ok(osc) = ctx.create_oscillator() {
+                osc.frequency().set_value(freq);
+                osc.set_type(OscillatorType::Triangle);
+                if let Ok(gain) = ctx.create_gain() {
+                    gain.gain().set_value(vol);
+                    let _ = gain.connect_with_audio_node(master);
+                    let _ = osc.connect_with_audio_node(&gain);
+                    let _ = osc.start();
+                    let _ = osc.stop_with_when(ctx.current_time() + 0.3 + (rand_hash() % 100) as f64 * 0.01);
+                }
+            }
+        });
+    });
 }
+
+fn rand_hash() -> u32 {
+    let t = web_sys::window().and_then(|w| w.performance()).map(|p| p.now() as u32).unwrap_or(0);
+    t.wrapping_mul(1103515245).wrapping_add(12345) & 0x7FFF
+}
+
+pub fn play_tone(freq: f32, duration: f32) {
+    CTX.with(|ctx_cell| {
+        let ctx_binding = ctx_cell.borrow();
+        let ctx = match *ctx_binding { Some(ref c) => c, None => return };
+        MASTER.with(|master_cell| {
+            let master_binding = master_cell.borrow();
+            let master = match *master_binding { Some(ref m) => m, None => return };
+            if let Ok(osc) = ctx.create_oscillator() {
+                osc.frequency().set_value(freq);
+                if let Ok(gain) = ctx.create_gain() {
+                    gain.gain().set_value(0.08);
+                    let _ = gain.connect_with_audio_node(master);
+                    let _ = osc.connect_with_audio_node(&gain);
+                    let _ = osc.start();
+                    let _ = osc.stop_with_when(ctx.current_time() + duration as f64);
+                }
+            }
+        });
+    });
+}
+
+pub fn update(zone: Zone, _formula_seed: u32, walking: bool, _speed: f64) {
+    set_ambient_freq(zone_ambient(zone).0, zone_ambient(zone).1);
+
+    TICK_TIMER.with(|t| {
+        let mut timer = *t.borrow();
+        timer += 1.0 / 60.0;
+        if timer > 2.0 {
+            timer = 0.0;
+            play_nature_sound(zone);
+        }
+        *t.borrow_mut() = timer;
+    });
+
+    if walking {
+        CTX.with(|ctx_cell| {
+            let ctx_binding = ctx_cell.borrow();
+            let ctx = match *ctx_binding { Some(ref c) => c, None => return };
+            let now = ctx.current_time();
+            let beat = (now * 5.0).fract();
+            if beat < 0.05 {
+                play_tone(600.0, 0.03);
+            }
+        });
+    }
+}
+
+pub fn play_effect(_effect: &str) {}
 
 pub fn stop() {
-    bridge::audio_stop_ambient();
-    bridge::clear_weather();
-    unsafe {
-        PREV_ZONE = None;
-        PREV_WEATHER = None;
-        PREV_FORMULA = None;
-    }
-}
-
-fn weather_for_zone(zone: Zone) -> Weather {
-    match zone {
-        Zone::Forest | Zone::Jungle => Weather::Rain,
-        Zone::Tundra => Weather::Snow,
-        Zone::Storm => Weather::Storm,
-        Zone::Desert => Weather::Dust,
-        Zone::Volcanic | Zone::Lava | Zone::Magma => Weather::Ash,
-        Zone::Ocean => Weather::Rain,
-        _ => Weather::Clear,
-    }
-}
-
-fn weather_intensity(zone: Zone) -> f32 {
-    match zone {
-        Zone::Storm => 1.0,
-        Zone::Tundra => 0.7,
-        Zone::Ocean => 0.6,
-        Zone::Forest | Zone::Jungle => 0.4,
-        Zone::Desert => 0.5,
-        Zone::Volcanic | Zone::Lava | Zone::Magma => 0.6,
-        _ => 0.3,
-    }
-}
-
-impl Weather {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Weather::Clear => "none",
-            Weather::Rain => "rain",
-            Weather::Snow => "snow",
-            Weather::Storm => "storm",
-            Weather::Dust => "dust",
-            Weather::Ash => "ash",
+    AMBIENT.with(|a| {
+        if let Some((osc, gain)) = a.borrow_mut().take() {
+            gain.gain().set_value(0.0);
+            let _ = osc.stop();
         }
-    }
+    });
 }

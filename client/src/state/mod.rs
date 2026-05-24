@@ -240,6 +240,7 @@ pub struct WorldParams {
     pub speed: f64,
     pub mouse_sensitivity: f64,
     pub fly_mode: bool,
+    pub build_mode: bool,
     pub tour_speed: f64,
     pub tour_radius: f64,
     pub control_mode: ControlMode,
@@ -249,6 +250,7 @@ pub struct WorldParams {
     pub param_a: f64,
     pub param_b: f64,
     pub volume: f64,
+    pub day_speed: f64,
 }
 
 impl Default for WorldParams {
@@ -268,6 +270,7 @@ impl Default for WorldParams {
             speed: 18.0,
             mouse_sensitivity: 1.0,
             fly_mode: false,
+            build_mode: false,
             tour_speed: 8.0,
             tour_radius: 20.0,
             control_mode: ControlMode::DPad,
@@ -277,6 +280,7 @@ impl Default for WorldParams {
             param_a: 0.5,
             param_b: 0.5,
             volume: 0.3,
+            day_speed: 0.05,
         }
     }
 }

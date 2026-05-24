@@ -39,6 +39,16 @@ pub const MASK_B: u32 = 1 << 14;
 pub const MASK_LCLICK: u32 = 1 << 15;
 pub const MASK_N: u32 = 1 << 16;
 pub const MASK_R: u32 = 1 << 17;
+pub const MASK_RCLICK: u32 = 1 << 18;
+pub const MASK_1: u32 = 1 << 19;
+pub const MASK_2: u32 = 1 << 20;
+pub const MASK_3: u32 = 1 << 21;
+pub const MASK_4: u32 = 1 << 22;
+pub const MASK_5: u32 = 1 << 23;
+pub const MASK_6: u32 = 1 << 24;
+pub const MASK_7: u32 = 1 << 25;
+pub const MASK_8: u32 = 1 << 26;
+pub const MASK_9: u32 = 1 << 27;
 
 impl Controls {
     pub fn new(yaw: Rc<Cell<f64>>, pitch: Rc<Cell<f64>>) -> Self {
@@ -84,6 +94,9 @@ impl Controls {
                 "b" | "B" => k |= MASK_B,
                 "n" | "N" => k |= MASK_N,
                 "r" | "R" => k |= MASK_R,
+                "1" => k |= MASK_1, "2" => k |= MASK_2, "3" => k |= MASK_3,
+                "4" => k |= MASK_4, "5" => k |= MASK_5, "6" => k |= MASK_6,
+                "7" => k |= MASK_7, "8" => k |= MASK_8, "9" => k |= MASK_9,
                 _ => {}
             }
             keys.set(k);
@@ -112,6 +125,9 @@ impl Controls {
                 "b" | "B" => k &= !MASK_B,
                 "n" | "N" => k &= !MASK_N,
                 "r" | "R" => k &= !MASK_R,
+                "1" => k &= !MASK_1, "2" => k &= !MASK_2, "3" => k &= !MASK_3,
+                "4" => k &= !MASK_4, "5" => k &= !MASK_5, "6" => k &= !MASK_6,
+                "7" => k &= !MASK_7, "8" => k &= !MASK_8, "9" => k &= !MASK_9,
                 _ => {}
             }
             keys2.set(k);
@@ -125,7 +141,7 @@ impl Controls {
         let mouse_move = Closure::<dyn Fn(MouseEvent)>::new(move |e: MouseEvent| {
             if me.get() {
                 let s = sens.get();
-                yaw_c.set(yaw_c.get() - e.movement_x() as f64 * 0.002 * s);
+                yaw_c.set(yaw_c.get() + e.movement_x() as f64 * 0.002 * s);
                 let p = (pitch_c.get() - e.movement_y() as f64 * 0.002 * s).max(-1.5).min(1.5);
                 pitch_c.set(p);
             }
@@ -152,6 +168,8 @@ impl Controls {
         let mousedown = Closure::<dyn Fn(MouseEvent)>::new(move |e: MouseEvent| {
             if e.button() == 0 {
                 keys_md.set(keys_md.get() | MASK_LCLICK);
+            } else if e.button() == 2 {
+                keys_md.set(keys_md.get() | MASK_RCLICK);
             }
         });
         el.add_event_listener_with_callback("mousedown", mousedown.as_ref().unchecked_ref()).ok();
@@ -160,6 +178,8 @@ impl Controls {
         let mouseup = Closure::<dyn Fn(MouseEvent)>::new(move |e: MouseEvent| {
             if e.button() == 0 {
                 keys_mu.set(keys_mu.get() & !MASK_LCLICK);
+            } else if e.button() == 2 {
+                keys_mu.set(keys_mu.get() & !MASK_RCLICK);
             }
         });
         el.add_event_listener_with_callback("mouseup", mouseup.as_ref().unchecked_ref()).ok();

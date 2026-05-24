@@ -1,5 +1,4 @@
 use crate::engine::audio;
-use crate::engine::bridge;
 use crate::engine::joystick::Joystick;
 use crate::engine::minimap::Minimap;
 use crate::engine::terrain::Zone;
@@ -165,13 +164,6 @@ pub fn App() -> impl IntoView {
         Effect::new(move || {
             let params = state.params.get();
             if let Some(ref mut eng) = *engine.borrow_mut() { eng.update_params(&params); }
-        })
-    };
-
-    let _volume_effect = {
-        Effect::new(move || {
-            let vol = state.params.get().volume;
-            bridge::audio_set_master_volume(vol as f32);
         })
     };
 
@@ -507,13 +499,7 @@ pub fn App() -> impl IntoView {
                     class="w-14 h-14 rounded-2xl bg-white/[0.03] backdrop-blur-2xl border border-white/[0.06] text-white/60 hover:text-white hover:bg-white/[0.06] flex items-center justify-center active:scale-85 transition-all duration-150 shadow-lg"
                     title="Capturar pantalla [F12]"
                     on:click=move |_| {
-                        let h = hud.get();
-                        bridge::capture_screenshot(
-                            state.params.get().seed,
-                            h.formula.as_str(),
-                            h.biome.as_str(),
-                            h.pos[0], h.pos[1], h.pos[2],
-                        );
+                        web_sys::console::log_1(&"[app] screenshot stub (Phase 1)".into());
                     }
                 >
                     <i class="fa-solid fa-camera text-lg"></i>
@@ -559,6 +545,17 @@ pub fn App() -> impl IntoView {
                 <div class="absolute top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
                     <div class="px-5 py-2 rounded-xl bg-white/[0.06] backdrop-blur-2xl border border-white/10 text-sm font-bold text-white/90 shadow-xl">
                         {move || hud.get().discovery_message.clone().unwrap_or_default()}
+                    </div>
+                </div>
+            </Show>
+
+            // ===== CROSSHAIR =====
+            <Show when={move || hud.get().build_mode}>
+                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none">
+                    <div class="relative w-6 h-6 flex items-center justify-center">
+                        <div class="absolute w-0.5 h-5 bg-white/40 rounded-full"></div>
+                        <div class="absolute w-5 h-0.5 bg-white/40 rounded-full"></div>
+                        <div class="absolute w-1.5 h-1.5 border border-white/50 rounded-full"></div>
                     </div>
                 </div>
             </Show>
@@ -632,6 +629,29 @@ pub fn App() -> impl IntoView {
                                 <div class={if sel { "w-10 h-10 rounded-lg bg-white/[0.12] border border-white/20 flex flex-col items-center justify-center" } else { "w-10 h-10 rounded-lg bg-white/[0.03] border border-white/[0.04] flex flex-col items-center justify-center" }}>
                                     <div class="w-4 h-4 rounded-sm" style={format!("background-color: {}", color)}></div>
                                     <span class="text-[7px] font-mono text-white/50">{*c}</span>
+                                </div>
+                            }
+                        }).collect::<Vec<_>>()}
+                    </div>
+                </div>
+            </Show>
+
+            // ===== MINERAL COLLECTION DISPLAY =====
+            <Show when={move || !hud.get().minerals.is_empty()}>
+                <div class="absolute bottom-20 right-4 z-10">
+                    <div class="flex flex-col gap-1.5 px-3 py-2.5 rounded-xl bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08] shadow-xl">
+                        <div class="text-[9px] font-mono font-bold tracking-wider text-white/30 uppercase mb-0.5">Minerales</div>
+                        {move || hud.get().minerals.iter().map(|(t, c)| {
+                            let mineral_colors = ["#8c6040","#bf7330","#262626","#2640d9","#26bf40","#d92626","#d9bf26","#a626a6"];
+                            let mineral_names = ["Hierro","Cobre","Carbón","Zafiro","Esmeralda","Rubí","Oro","Amatista"];
+                            let idx = *t as usize;
+                            let color = mineral_colors.get(idx).unwrap_or(&"#888888").to_string();
+                            let name = mineral_names.get(idx).unwrap_or(&"?").to_string();
+                            view! {
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full" style={format!("background-color: {}", color)}></div>
+                                    <span class="text-[10px] font-mono text-white/60 w-14">{name}</span>
+                                    <span class="text-[10px] font-mono text-white/80 font-bold w-5 text-right">{*c}</span>
                                 </div>
                             }
                         }).collect::<Vec<_>>()}
@@ -761,6 +781,11 @@ pub fn App() -> impl IntoView {
                                         move || state.params.get().water_level,
                                         move || format!("{:.1}", state.params.get().water_level),
                                         move |v| state.params.update(|p| p.water_level = v)
+                                    )}
+                                    {slider!("Dia/Noche", "<i class='fa-solid fa-clock'></i>", 0.0, 0.3, 0.01,
+                                        move || state.params.get().day_speed,
+                                        move || format!("{:.2}", state.params.get().day_speed),
+                                        move |v| state.params.update(|p| p.day_speed = v)
                                     )}
                                 </div>
                             </div>

@@ -3,18 +3,17 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>WORLDS — Generador de Terreno Procesal</title>
+    <title>WORLDS — Phase 1 Foundation</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" crossorigin="anonymous" />
-    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
     <script type="importmap">
     {
         "imports": {
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            "three": "https://unpkg.com/three@0.175.0/build/three.module.js"
         }
     }
     </script>
-    <script src="three_bridge.js"></script>
+    <script type="module" src="three_bridge.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet" />
@@ -105,7 +104,7 @@
 </head>
 <body class="bg-[#0a0a12]">
     <script type="module">
-        import init from './worlds_app.js';
+        import init from './pkg/worlds_app.js';
         init().catch(console.error);
     </script>
 </body>
