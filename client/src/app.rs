@@ -1,4 +1,6 @@
 use crate::engine::audio;
+use crate::engine::minimap::{canvas_to_world, render_full_map};
+use crate::engine::terrain;
 use crate::engine::terrain::Zone;
 use crate::engine::{Engine, HudData};
 use crate::state::{AppState, CameraMode, CharacterPreset, ParticleMode};
@@ -41,11 +43,11 @@ fn zone_name(zone: &Zone) -> &'static str {
     zone.as_str()
 }
 
-const BTN: &str = "w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/[0.06] text-white/40 hover:text-white/80 hover:bg-white/[0.04]";
-const SLIDER: &str = "w-full h-1.5 appearance-none bg-white/[0.08] rounded-full outline-none cursor-pointer accent-cyan-400";
-const PBTN: &str = "px-2 py-1 rounded-lg text-[10px] font-mono bg-white/[0.06] border border-white/[0.06] text-white/50 hover:text-white/80 hover:bg-white/[0.1] transition-all active:scale-85";
-const TBTN_ON: &str = "flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 transition-all active:scale-85";
-const TBTN_OFF: &str = "flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono bg-white/[0.06] border border-white/[0.06] text-white/50 hover:text-white/80 hover:bg-white/[0.1] transition-all active:scale-85";
+const BTN: &str = "w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]";
+const SLIDER: &str = "w-full h-2 appearance-none bg-white/30 rounded-full outline-none cursor-pointer accent-cyan-400 slider-thumb";
+const PBTN: &str = "px-2 py-1 rounded-lg text-[10px] font-mono bg-white/15 border border-white/20 text-white/80 hover:text-white hover:bg-white/25 transition-all active:scale-85";
+const TBTN_ON: &str = "flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono bg-cyan-500/40 border border-cyan-400/50 text-cyan-200 transition-all active:scale-85";
+const TBTN_OFF: &str = "flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono bg-white/15 border border-white/20 text-white/80 hover:text-white hover:bg-white/25 transition-all active:scale-85";
 
 const COLORS: &[([f32; 3], [f32; 3])] = &[
     ([0.2, 0.4, 0.8], [1.0, 0.85, 0.75]),
@@ -65,6 +67,11 @@ pub fn App() -> impl IntoView {
     let hud = RwSignal::new(HudData::default());
     let glow_rgb = RwSignal::new((34u8, 211u8, 238u8));
     let open_menu = RwSignal::new(None::<&'static str>);
+
+    let map_open = RwSignal::new(false);
+    let waypoints = RwSignal::new(Vec::<(f64, f64, f64, String)>::new());
+    let waypoint_counter = RwSignal::new(0u32);
+    let map_canvas_ref: NodeRef<html::Canvas> = NodeRef::new();
 
     let toggle_menu = move |key: &'static str| {
         open_menu.update(|m| {
@@ -105,6 +112,82 @@ pub fn App() -> impl IntoView {
         cb.forget();
     }
 
+    // Map rendering interval (only active when map_open)
+    {
+        let engine = engine.clone();
+        let state = state.clone();
+        let hud = hud;
+        let waypoints = waypoints;
+        let map_open = map_open;
+        let map_canvas_ref = map_canvas_ref.clone();
+        let cb = Closure::<dyn FnMut()>::new(move || {
+            if !map_open.get_untracked() { return; }
+            if let Some(canvas) = map_canvas_ref.get() {
+                if let Some(ref eng) = *engine.borrow() {
+                    let hud_data = hud.get_untracked();
+                    let params = state.params.get_untracked();
+                    let wps = waypoints.get_untracked();
+                    if let Some(ctx) = canvas.get_context("2d").ok().flatten()
+                        .and_then(|c| c.dyn_into::<web_sys::CanvasRenderingContext2d>().ok())
+                    {
+                        render_full_map(&ctx, canvas.width() as f64, canvas.height() as f64,
+                            &params, hud_data.pos[0], hud_data.pos[2], hud_data.yaw_deg, &wps);
+                    }
+                }
+            }
+        });
+        let raw: &js_sys::Function = cb.as_ref().unchecked_ref();
+        web_sys::window().unwrap().set_interval_with_callback_and_timeout_and_arguments_0(raw, 200).ok();
+        cb.forget();
+    }
+
+    // Save/Load action signals (avoid capturing !Send Rc in view closures)
+    let save_action = RwSignal::new(None::<u32>);
+    let load_action = RwSignal::new(None::<u32>);
+    let del_action = RwSignal::new(None::<u32>);
+    let save_trigger = {
+        let engine = engine.clone();
+        let waypoints = waypoints.clone();
+        let open_menu = open_menu;
+        move |slot: u32| {
+            if let Some(ref eng) = *engine.borrow() {
+                let wps = waypoints.get_untracked();
+                let _ = eng.save_to_slot(slot, &format!("Slot {}", slot + 1), &wps, &[]);
+                open_menu.set(None);
+            }
+        }
+    };
+    Effect::new({
+        let save_trigger = save_trigger.clone();
+        move || {
+            if let Some(slot) = save_action.get() { save_trigger(slot); save_action.set(None); }
+        }
+    });
+    Effect::new({
+        let engine = engine.clone();
+        let waypoints = waypoints.clone();
+        let open_menu = open_menu;
+        move || {
+            if let Some(slot) = load_action.get() {
+                load_action.set(None);
+                if let Some(data) = Engine::load_from_slot(slot) {
+                    if let Some(ref mut eng) = *engine.borrow_mut() {
+                        eng.apply_save(&data);
+                        waypoints.set(data.waypoints);
+                        open_menu.set(None);
+                    }
+                }
+            }
+        }
+    });
+    Effect::new(move || {
+        if let Some(slot) = del_action.get() {
+            del_action.set(None);
+            Engine::delete_slot(slot);
+            open_menu.set(None);
+        }
+    });
+
     let _params_effect = {
         let engine = engine.clone();
         let state = state.clone();
@@ -138,25 +221,25 @@ pub fn App() -> impl IntoView {
                     <span class="text-xs font-mono text-white/40">{move || hud.get().biome}</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-mono text-white/15 bg-white/[0.04] px-2 py-0.5 rounded-full"
+                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
                         title="Escala / Amplitud / Octavas">
                         {move || {
                             let p = state.params.get();
                             format!("⚙️{:.3} 📏{:.0} 🔢{}", p.scale, p.amplitude, p.octaves)
                         }}
                     </span>
-                    <span class="text-[10px] font-mono text-white/15 bg-white/[0.04] px-2 py-0.5 rounded-full"
+                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
                         title="Nivel de agua">
                         {move || format!("💧{:.1}", state.params.get().water_level)}
                     </span>
-                    <span class="text-[10px] font-mono text-white/15 bg-white/[0.04] px-2 py-0.5 rounded-full"
+                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
                         title="Zona actual">
                         {move || {
                             let z = state.params.get().zone;
                             format!("{}{}", zone_emoji(&z), zone_name(&z))
                         }}
                     </span>
-                    <span class="text-[10px] font-mono text-white/15 bg-white/[0.04] px-2 py-0.5 rounded-full"
+                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
                         title="Personaje / Partículas">
                         {move || {
                             let p = state.params.get();
@@ -168,11 +251,19 @@ pub fn App() -> impl IntoView {
                             format!("🧑{:.1}{}", p.char_scale, part)
                         }}
                     </span>
-                    <span class="text-[10px] font-mono text-white/15 bg-white/[0.04] px-2 py-0.5 rounded-full"
+                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
                         title="Semilla">
                         {move || format!("🌱{}", state.params.get().seed)}
                     </span>
-                    <span class="text-[10px] font-mono text-white/25">{move || format!("{}fps", hud.get().fps)}</span>
+                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
+                        title="Clima">
+                        {move || {
+                            let h = hud.get();
+                            let icon = if h.lightning { "⚡" } else { "" };
+                            format!("{}{}", icon, h.weather_label)
+                        }}
+                    </span>
+                    <span class="text-[10px] font-mono text-white/80">{move || format!("{}fps", hud.get().fps)}</span>
                 </div>
             </div>
 
@@ -187,6 +278,9 @@ pub fn App() -> impl IntoView {
                 <button on:click=move |_| toggle_menu("movement") class=BTN title="Movimiento y física">{ "🏃" }</button>
                 <button on:click=move |_| toggle_menu("camera") class=BTN title="Modo de cámara">{ "🎥" }</button>
                 <button on:click=move |_| toggle_menu("daynight") class=BTN title="Ciclo día/noche">{ "☀️" }</button>
+                <button on:click=move |_| map_open.set(!map_open.get()) class=BTN title="Mapa del mundo">{ "🧭" }</button>
+                <button on:click=move |_| toggle_menu("saves") class=BTN title="Guardar / cargar">{ "💾" }</button>
+                <button on:click=move |_| toggle_menu("crafting") class=BTN title="Crafteo">{ "⚒️" }</button>
             </div>
 
             <div class="absolute left-[78px] top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
@@ -208,8 +302,8 @@ pub fn App() -> impl IntoView {
             {move || open_menu.get().map(|_| {
                 view! {
                     <div class="absolute left-[236px] top-1/2 -translate-y-1/2 z-25">
-                        <div class="bg-black/80 backdrop-blur-xl border border-white/[0.08] rounded-2xl p-4 min-w-[200px] shadow-2xl">
-                            <div class="text-white/40 text-[10px] font-mono mb-3 uppercase tracking-widest">
+                        <div class="bg-black/60 backdrop-blur-xl border border-white/20 rounded-2xl p-4 min-w-[200px] shadow-2xl">
+                            <div class="text-white/80 text-[10px] font-mono mb-3 uppercase tracking-widest">
                                 {move || match open_menu.get() {
                                     Some("seed") => "Semilla",
                                     Some("movement") => "Movimiento y Física",
@@ -225,6 +319,7 @@ pub fn App() -> impl IntoView {
                                     Some("character") => "Personaje",
                                     Some("color") => "Esquema de Color",
                                     Some("charscale") => "Tamaño del Personaje",
+                                    Some("saves") => "Guardar / Cargar",
                                     _ => "",
                                 }}
                             </div>
@@ -250,18 +345,18 @@ pub fn App() -> impl IntoView {
                                         <button on:click=move |_| state.params.update(|p| p.fly_mode = true)
                                             class={move || if state.params.get().fly_mode { TBTN_ON } else { TBTN_OFF }}>"Vuelo"</button>
                                     </div>
-                                    <div><div class="text-white/35 text-[10px] font-mono mb-1">Velocidad <span class="text-white/60 ml-1">{move || format!("{:.0}", state.params.get().speed)}</span></div>
-                                        <input type="range" min="5" max="60" step="1" prop:value={move || format!("{}", state.params.get().speed as u32)} on:input=move |ev| { state.params.update(|p| p.speed = event_target_value(&ev).parse::<f64>().unwrap_or(18.0).max(5.0).min(60.0)); } class=SLIDER/></div>
-                                    <div><div class="text-white/35 text-[10px] font-mono mb-1">Gravedad <span class="text-white/60 ml-1">{move || format!("{:.1}", state.params.get().gravity)}</span></div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Velocidad <span class="text-white/60 ml-1">{move || format!("{:.0}", state.params.get().speed)}</span></div>
+                                        <input type="range" min="10" max="1000" step="10" prop:value={move || format!("{}", state.params.get().speed as u32)} on:input=move |ev| { state.params.update(|p| p.speed = event_target_value(&ev).parse::<f64>().unwrap_or(300.0).max(10.0).min(1000.0)); } class=SLIDER/></div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Gravedad <span class="text-white/60 ml-1">{move || format!("{:.1}", state.params.get().gravity)}</span></div>
                                         <input type="range" min="5" max="40" step="0.5" prop:value={move || format!("{:.1}", state.params.get().gravity)} on:input=move |ev| { state.params.update(|p| p.gravity = event_target_value(&ev).parse::<f64>().unwrap_or(20.0).max(5.0).min(40.0)); } class=SLIDER/></div>
-                                    <div><div class="text-white/35 text-[10px] font-mono mb-1">Salto <span class="text-white/60 ml-1">{move || format!("{:.1}", state.params.get().jump_speed)}</span></div>
-                                        <input type="range" min="2" max="25" step="0.5" prop:value={move || format!("{:.1}", state.params.get().jump_speed)} on:input=move |ev| { state.params.update(|p| p.jump_speed = event_target_value(&ev).parse::<f64>().unwrap_or(10.0).max(2.0).min(25.0)); } class=SLIDER/></div>
-                                    <div><div class="text-white/35 text-[10px] font-mono mb-1">Paso máx. <span class="text-white/60 ml-1">{move || format!("{:.2}", state.params.get().step_height)}</span></div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Salto <span class="text-white/60 ml-1">{move || format!("{:.1}", state.params.get().jump_speed)}</span></div>
+                                        <input type="range" min="2" max="50" step="1" prop:value={move || format!("{:.1}", state.params.get().jump_speed)} on:input=move |ev| { state.params.update(|p| p.jump_speed = event_target_value(&ev).parse::<f64>().unwrap_or(10.0).max(2.0).min(50.0)); } class=SLIDER/></div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Paso máx. <span class="text-white/60 ml-1">{move || format!("{:.2}", state.params.get().step_height)}</span></div>
                                         <input type="range" min="0.1" max="2.0" step="0.05" prop:value={move || format!("{:.2}", state.params.get().step_height)} on:input=move |ev| { state.params.update(|p| p.step_height = event_target_value(&ev).parse::<f64>().unwrap_or(0.7).max(0.1).min(2.0)); } class=SLIDER/></div>
-                                    <div><div class="text-white/35 text-[10px] font-mono mb-1">Aceleración <span class="text-white/60 ml-1">{move || format!("{:.0}", state.params.get().movement_accel)}</span></div>
-                                        <input type="range" min="10" max="150" step="5" prop:value={move || format!("{}", state.params.get().movement_accel as u32)} on:input=move |ev| { state.params.update(|p| p.movement_accel = event_target_value(&ev).parse::<f64>().unwrap_or(50.0).max(10.0).min(150.0)); } class=SLIDER/></div>
-                                    <div><div class="text-white/35 text-[10px] font-mono mb-1">Fricción <span class="text-white/60 ml-1">{move || format!("{:.0}", state.params.get().movement_friction)}</span></div>
-                                        <input type="range" min="2" max="50" step="1" prop:value={move || format!("{}", state.params.get().movement_friction as u32)} on:input=move |ev| { state.params.update(|p| p.movement_friction = event_target_value(&ev).parse::<f64>().unwrap_or(15.0).max(2.0).min(50.0)); } class=SLIDER/></div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Aceleración <span class="text-white/60 ml-1">{move || format!("{:.0}", state.params.get().movement_accel)}</span></div>
+                                        <input type="range" min="10" max="500" step="5" prop:value={move || format!("{}", state.params.get().movement_accel as u32)} on:input=move |ev| { state.params.update(|p| p.movement_accel = event_target_value(&ev).parse::<f64>().unwrap_or(200.0).max(10.0).min(500.0)); } class=SLIDER/></div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Fricción <span class="text-white/60 ml-1">{move || format!("{:.0}", state.params.get().movement_friction)}</span></div>
+                                        <input type="range" min="1" max="100" step="1" prop:value={move || format!("{}", state.params.get().movement_friction as u32)} on:input=move |ev| { state.params.update(|p| p.movement_friction = event_target_value(&ev).parse::<f64>().unwrap_or(30.0).max(1.0).min(100.0)); } class=SLIDER/></div>
                                 </div>
                             }) } else { None }}
 
@@ -284,7 +379,7 @@ pub fn App() -> impl IntoView {
                                         <button on:click=move |_| state.params.update(|p| p.day_speed = 0.15)
                                             class={move || if (state.params.get().day_speed - 0.15).abs() < 0.01 { TBTN_ON } else { TBTN_OFF }}>"Rápido"</button>
                                     </div>
-                                    <div><div class="text-white/35 text-[10px] font-mono mb-1">Velocidad <span class="text-white/60 ml-1">{move || format!("{:.2}", state.params.get().day_speed)}</span></div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Velocidad <span class="text-white/60 ml-1">{move || format!("{:.2}", state.params.get().day_speed)}</span></div>
                                         <input type="range" min="0" max="0.5" step="0.01" prop:value={move || format!("{:.2}", state.params.get().day_speed)} on:input=move |ev| { state.params.update(|p| p.day_speed = event_target_value(&ev).parse::<f64>().unwrap_or(0.0).max(0.0).min(0.5)); } class=SLIDER/></div>
                                 </div>
                             }) } else { None }}
@@ -414,6 +509,103 @@ pub fn App() -> impl IntoView {
                                     </div>
                                 </div>
                             }) } else { None }}
+
+                            {move || if open_menu.get() == Some("saves") { Some(view! {
+                                <div class="flex flex-col gap-2 min-w-[240px]">
+                                    {(0u32..5).map(|slot| {
+                                        let saved = Engine::list_slots().iter().any(|(s, _)| *s == slot);
+                                        let s_save = save_action;
+                                        let s_load = load_action;
+                                        let s_del = del_action;
+                                        view! {
+                                            <div class="flex items-center gap-2 py-1.5 px-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                                                <span class="text-white/40 text-[10px] font-mono min-w-[3ch]">{slot + 1}.</span>
+                                                <span class="flex-1 text-white/50 text-[11px] font-mono">
+                                                    {if saved { "💾 Partida guardada" } else { "⬜ Vacío" }}
+                                                </span>
+                                                <button on:click=move |_| s_save.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "text-cyan-400/70" } else { "" })}>"Guardar"</button>
+                                                <button on:click=move |_| s_load.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "" } else { "opacity-30 pointer-events-none" })}>"Cargar"</button>
+                                                <button on:click=move |_| s_del.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "text-red-400/60" } else { "opacity-30 pointer-events-none" })}>"Eliminar"</button>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                    <div class="text-[9px] font-mono text-white/20 text-center mt-1">
+                                        Los bloques colocados se guardan automáticamente
+                                    </div>
+                                </div>
+                            }) } else { None }}
+                        </div>
+                    </div>
+                }
+            })}
+
+            {move || hud.get().near_portal.map(|_name| {
+                view! {
+                    <div class="absolute left-1/2 top-1/3 -translate-x-1/2 z-20 pointer-events-none">
+                        <div class="bg-black/70 backdrop-blur-md border border-cyan-400/30 rounded-2xl px-6 py-3 shadow-2xl shadow-cyan-500/10">
+                            <div class="text-cyan-300 text-sm font-mono text-center">
+                                <span class="text-lg">{"🔮"}</span>
+                                <br/>{"Portal — presiona R para viajar"}
+                            </div>
+                        </div>
+                    </div>
+                }
+            })}
+
+            {move || map_open.get().then(|| {
+                view! {
+                    <div class="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                        on:click=move |_| map_open.set(false)>
+                        <div class="relative rounded-2xl overflow-hidden shadow-2xl border border-white/[0.08]"
+                            style="width: min(90vw, 800px); height: min(90vh, 800px);"
+                            on:click=move |ev| ev.stop_propagation()>
+                            <canvas node_ref=map_canvas_ref
+                                class="w-full h-full block"
+                                width="800"
+                                height="800"
+                                style="image-rendering: pixelated;"
+                                on:click=move |ev| {
+                                    if let Some(canvas) = map_canvas_ref.get() {
+                                        let rect = canvas.get_bounding_client_rect();
+                                        let cw = canvas.width() as f64;
+                                        let ch = canvas.height() as f64;
+                                        let sx = (ev.client_x() as f64 - rect.left()) * (cw / rect.width());
+                                        let sy = (ev.client_y() as f64 - rect.top()) * (ch / rect.height());
+                                        let hud_data = hud.get_untracked();
+                                        let params = state.params.get_untracked();
+                                        let (wx, wz) = canvas_to_world(sx, sy,
+                                            hud_data.pos[0], hud_data.pos[2], cw, ch);
+                                        if ev.shift_key() {
+                                            let mut wps = waypoints.get_untracked();
+                                            if let Some(idx) = wps.iter().position(|(px, _, pz, _)| {
+                                                ((px - wx).powi(2) + (pz - wz).powi(2)).sqrt() < 10.0
+                                            }) {
+                                                wps.remove(idx);
+                                                waypoints.set(wps);
+                                            }
+                                        } else {
+                                            let mut wps = waypoints.get_untracked();
+                                            let id = waypoint_counter.get();
+                                            waypoint_counter.set(id + 1);
+                                            let h = terrain::get_height(&params, wx, wz);
+                                            wps.push((wx, h, wz, format!("WP {}", id)));
+                                            waypoints.set(wps);
+                                        }
+                                    }
+                                }
+                            />
+                            <div class="absolute top-3 right-3 flex gap-2">
+                                <span class="text-[10px] font-mono text-white/30 bg-black/60 px-2 py-1 rounded-lg backdrop-blur-sm">
+                                    {move || format!("📍 {} waypoints", waypoints.get().len())}
+                                </span>
+                                <button on:click=move |_| map_open.set(false)
+                                    class="w-8 h-8 rounded-xl bg-black/60 border border-white/[0.12] text-white/60 hover:text-white/90 flex items-center justify-center text-sm transition-all active:scale-85 backdrop-blur-sm"
+                                >"✕"</button>
+                            </div>
+                            <div class="absolute bottom-3 left-3 right-3 flex justify-center gap-4">
+                                <span class="text-[10px] font-mono text-white/20 bg-black/40 px-3 py-1 rounded-lg backdrop-blur-sm">Click para añadir waypoint</span>
+                                <span class="text-[10px] font-mono text-white/20 bg-black/40 px-3 py-1 rounded-lg backdrop-blur-sm">Shift+Click para eliminar</span>
+                            </div>
                         </div>
                     </div>
                 }

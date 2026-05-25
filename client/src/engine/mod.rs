@@ -27,7 +27,7 @@ use terrain::{Zone, get_height};
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
 use controls::{Controls, MASK_1, MASK_2, MASK_3, MASK_4, MASK_5, MASK_6, MASK_7, MASK_8, MASK_9,
-    MASK_A, MASK_B, MASK_D, MASK_E, MASK_LCLICK, MASK_Q, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+    MASK_A, MASK_B, MASK_D, MASK_E, MASK_LCLICK, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
 use creatures::{generate_creature_mesh, creature_animated_positions};
 use gamepad::poll_gamepad;
 use inventory::Inventory;
@@ -62,6 +62,7 @@ pub struct HudData {
     pub waypoints: Vec<(f64, f64, f64, String)>,
     pub discovered_biomes: Vec<String>,
     pub discovery_message: Option<String>,
+    pub near_portal: Option<String>,
     pub build_mode: bool,
     pub inventory: Vec<(u8, u32)>,
     pub minerals: Vec<(u8, u32)>,
@@ -71,6 +72,9 @@ pub struct HudData {
     pub achievement_points: u32,
     pub vr_mode: bool,
     pub tour_mode: bool,
+    pub weather_label: String,
+    pub lightning: bool,
+    pub craft_message: Option<String>,
 }
 
 fn save_blocks(blocks: &std::collections::HashMap<(i32,i32,i32), u8>) {
@@ -177,6 +181,7 @@ struct GameState {
     weather_power: f64,
     weather_target: f64,
     weather_timer: f64,
+    lightning_flash: f64,
     placed_blocks: std::collections::HashMap<(i32, i32, i32), u8>,
     block_inventory: Vec<(u8, u32)>,
     build_prev: bool,
@@ -184,6 +189,7 @@ struct GameState {
     save_timer: f64,
     params_dirty: bool,
     char_dirty: bool,
+    portal_prev: bool,
 }
 
 pub struct Engine {
@@ -759,7 +765,7 @@ impl Engine {
             fps: 0,
             joy_dx: joy_dx.clone(),
             joy_dy: joy_dy.clone(),
-            speed: 18.0,
+            speed: 300.0,
             char_pos,
             vel_x: 0.0,
             vel_z: 0.0,
@@ -775,9 +781,10 @@ impl Engine {
             inventory: Inventory::new(),
             tour_prev: false,
             spawned: false,
-            weather_power: 0.5,
-            weather_target: 0.5,
+            weather_power: 0.0,
+            weather_target: 0.0,
             weather_timer: 0.0,
+            lightning_flash: 0.0,
             placed_blocks: load_blocks(),
             block_inventory: vec![(0, 64), (1, 32), (2, 16), (3, 16), (4, 8), (5, 8), (6, 8), (7, 8), (8, 8)],
             build_prev: false,
@@ -785,6 +792,7 @@ impl Engine {
             save_timer: 0.0,
             params_dirty: false,
             char_dirty: false,
+            portal_prev: false,
         }));
 
         {
@@ -1218,38 +1226,63 @@ impl Engine {
                 let night_factor = (-sun_elev).max(0.0).min(1.0);
                 let sunset_factor = (1.0 - (sun_elev - 0.05).abs() * 5.0).clamp(0.0, 1.0) * day_factor;
 
+                // Weather effects on sun/sky/fog
+                let weather_dim = 1.0 - s.weather_power * 0.4;
+                let weather_gray = s.weather_power * 0.3;
+
                 // Sun position and color
                 let sun_x = 80.0 * sun_cos;
                 let sun_y = (80.0 * sun_sin).max(-15.0);
-                let sun_r = 1.0 - sunset_factor * 0.4 + night_factor * 0.2 * 0.0;
-                let sun_g = 0.95 - sunset_factor * 0.5 + night_factor * 0.2 * 0.0;
-                let sun_b = 0.85 - sunset_factor * 0.7 + night_factor * 0.8 * 0.0;
-                let sun_intensity = 0.3 + day_factor * 1.7;
-                bridge::set_sun_light(sun_x, sun_y, 50.0, sun_r, sun_g, sun_b, sun_intensity);
+                let sun_r = (1.0 - sunset_factor * 0.4) * weather_dim + weather_gray;
+                let sun_g = (0.95 - sunset_factor * 0.5) * weather_dim + weather_gray;
+                let sun_b = (0.85 - sunset_factor * 0.7) * weather_dim + weather_gray;
+                let sun_intensity = (0.3 + day_factor * 1.7) * (1.0 - s.weather_power * 0.6);
+                bridge::set_sun_light(sun_x, sun_y, 50.0, sun_r.max(0.0), sun_g.max(0.0), sun_b.max(0.0), sun_intensity.max(0.1));
 
                 // Sky tint
                 let sky_r = 1.0 - night_factor * 0.95;
                 let sky_g = 1.0 - night_factor * 0.95;
                 let sky_b = 1.0 - night_factor * 0.85;
-                let sr = sky_r - sunset_factor * 0.3;
-                let sg = sky_g - sunset_factor * 0.4;
-                let sb = sky_b - sunset_factor * 0.6;
+                let mut sr = (sky_r - sunset_factor * 0.3) * weather_dim + weather_gray;
+                let mut sg = (sky_g - sunset_factor * 0.4) * weather_dim + weather_gray;
+                let mut sb = (sky_b - sunset_factor * 0.6) * weather_dim + weather_gray;
+
+                // Lightning flash
+                if s.lightning_flash > 0.01 {
+                    let flash = s.lightning_flash * 0.8;
+                    sr = (sr + flash * 2.0).min(1.0);
+                    sg = (sg + flash * 2.0).min(1.0);
+                    sb = (sb + flash * 2.5).min(1.0);
+                }
                 bridge::set_mesh_color("sky_dome", sr.max(0.0), sg.max(0.0), sb.max(0.0));
 
-                // Fog color
+                // Fog color and density
                 let fog_r = 0.6 - night_factor * 0.58 + sunset_factor * 0.25;
                 let fog_g = 0.75 - night_factor * 0.73 - sunset_factor * 0.25;
                 let fog_b = 0.92 - night_factor * 0.90 - sunset_factor * 0.62;
-                bridge::set_fog(fog_r.max(0.0), fog_g.max(0.0), fog_b.max(0.0), 0.006);
+                let fog_density = 0.006 + s.weather_power * 0.025;
+                let fog_r = fog_r * (1.0 - s.weather_power * 0.5) + 0.4 * s.weather_power;
+                let fog_g = fog_g * (1.0 - s.weather_power * 0.5) + 0.4 * s.weather_power;
+                let fog_b = fog_b * (1.0 - s.weather_power * 0.4) + 0.45 * s.weather_power;
+                bridge::set_fog(fog_r.max(0.0), fog_g.max(0.0), fog_b.max(0.0), fog_density);
 
-                // Stars opacity
-                let stars_opac = (sun_elev * -3.0 - 0.5).clamp(0.0, 1.0);
+                // Stars opacity (reduced by weather)
+                let stars_opac = (sun_elev * -3.0 - 0.5).clamp(0.0, 1.0) * (1.0 - s.weather_power * 0.8);
                 bridge::set_particles_opacity("stars", stars_opac);
 
-                // Weather system
+                // Weather system — zone-specific targets
                 let weather_zone = terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]);
-                if weather_zone == Zone::Storm {
-                    s.weather_target = 1.0;
+                let zone_target = match weather_zone {
+                    Zone::Storm => 1.0,
+                    Zone::Tundra => 0.5,
+                    Zone::Jungle => 0.45,
+                    Zone::Volcanic | Zone::Lava | Zone::Magma => 0.35,
+                    Zone::Ocean => 0.2,
+                    Zone::Desert => 0.05,
+                    _ => -1.0, // random
+                };
+                if zone_target >= 0.0 {
+                    s.weather_target = zone_target;
                 } else {
                     s.weather_timer += delta;
                     if s.weather_timer > 8.0 {
@@ -1264,7 +1297,42 @@ impl Engine {
                     }
                 }
                 s.weather_power += (s.weather_target - s.weather_power) * delta * 0.5;
-                bridge::set_particles_opacity("particles", 0.5 + s.weather_power * 0.5);
+                bridge::set_particles_opacity("particles", 0.5 + (s.weather_power * 0.5).min(1.0));
+
+                // Lightning flashes (Storm zone or high weather)
+                s.lightning_flash *= 0.92; // decay
+                if s.weather_power > 0.6 {
+                    let strike_chance = (s.weather_power - 0.6) * 0.5 * delta;
+                    if ((s.time * 1000.0 + 777.0) as u64).wrapping_mul(1103515245) as f64 / (u64::MAX as f64) < strike_chance {
+                        s.lightning_flash = 1.0;
+                    }
+                }
+
+                // Weather label for HUD
+                let weather_label = if s.weather_power < 0.05 {
+                    "Despejado"
+                } else if s.weather_power < 0.2 {
+                    "Nublado"
+                } else if s.weather_power < 0.4 {
+                    match weather_zone {
+                        Zone::Tundra => "Nevando",
+                        Zone::Volcanic | Zone::Lava | Zone::Magma => "Ceniza",
+                        _ => "Lluvia",
+                    }
+                } else if s.weather_power < 0.7 {
+                    match weather_zone {
+                        Zone::Tundra => "Tormenta de nieve",
+                        Zone::Storm => "Tormenta eléctrica",
+                        Zone::Volcanic | Zone::Lava | Zone::Magma => "Lluvia de ceniza",
+                        _ => "Tormenta",
+                    }
+                } else {
+                    match weather_zone {
+                        Zone::Storm => "Tormenta severa",
+                        Zone::Tundra => "Ventisca",
+                        _ => "Tormenta intensa",
+                    }
+                };
 
                 // Update particles
                 let zone = terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]);
@@ -1309,6 +1377,31 @@ impl Engine {
                     save_blocks(&s.placed_blocks);
                 }
 
+                // Portal detection and teleportation
+                let mut near_portal = None;
+                let portal_data = portals::compute_portals(&s.params);
+                for p in &portal_data.portals {
+                    let dx = s.char_pos[0] - p.x;
+                    let dz = s.char_pos[2] - p.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist < p.radius {
+                        near_portal = Some(p.id.clone());
+                        let portal_key = keys & MASK_R != 0;
+                        if portal_key && !s.portal_prev {
+                            audio::play_tone(660.0, 0.15);
+                            audio::play_tone(880.0, 0.2);
+                            s.params.seed = p.target_seed;
+                            s.params_dirty = true;
+                            s.char_pos = [0.0, terrain::get_height(&s.params, 0.0, 0.0).max(0.0), 0.0];
+                            s.vel_x = 0.0;
+                            s.vel_z = 0.0;
+                            s.vel_y = 0.0;
+                        }
+                        break;
+                    }
+                }
+                s.portal_prev = keys & MASK_R != 0;
+
                 bridge::render_frame();
 
                 let angle = (cam_yaw * 180.0 / std::f64::consts::PI) as i32;
@@ -1329,6 +1422,10 @@ impl Engine {
                     selected_slot: hud_selected,
                     inventory: hud_blocks,
                     minerals: s.inventory.items.iter().filter(|i| i.count > 0).map(|i| (i.mineral_type, i.count)).collect(),
+                    near_portal,
+                    weather_label: weather_label.to_string(),
+                    lightning: s.lightning_flash > 0.1,
+                    craft_message: None,
                     ..Default::default()
                 };
             }));
@@ -1360,12 +1457,107 @@ impl Engine {
         (s.joy_dx.clone(), s.joy_dy.clone())
     }
 
-    pub fn save_to_slot(&self, _slot: u32, _name: &str) {}
-    pub fn load_from_slot(_slot: u32) -> Option<crate::state::SaveData> {
+    pub fn save_to_slot(&self, slot: u32, name: &str,
+        waypoints: &[(f64, f64, f64, String)],
+        discovered: &[String]) -> Result<(), String>
+    {
+        let s = self.state.borrow();
+        let data = crate::state::SaveData::new(
+            name,
+            &s.params,
+            s.char_pos,
+            s.controls.yaw.get(),
+            s.controls.pitch.get(),
+            waypoints,
+            discovered,
+            s.day_time,
+            s.params.fly_mode,
+            false,
+        );
+        let json = serde_json::to_string(&data).map_err(|e| e.to_string())?;
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            storage.set_item(&format!("worlds_save_{}", slot), &json)
+                .map_err(|_| "localStorage write failed".to_string())?;
+            Ok(())
+        } else {
+            Err("no localStorage".to_string())
+        }
+    }
+
+    pub fn load_from_slot(slot: u32) -> Option<crate::state::SaveData> {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            if let Ok(Some(json)) = storage.get_item(&format!("worlds_save_{}", slot)) {
+                return serde_json::from_str(&json).ok();
+            }
+        }
         None
     }
-    pub fn apply_save(&mut self, _data: &crate::state::SaveData) {}
-    pub fn delete_slot(_slot: u32) {}
+
+    pub fn apply_save(&mut self, data: &crate::state::SaveData) {
+        let mut s = self.state.borrow_mut();
+        s.params = data.params;
+        s.char_pos = data.pos;
+        s.controls.yaw.set(data.yaw);
+        s.controls.pitch.set(data.pitch);
+        s.day_time = data.time_of_day;
+        s.params.fly_mode = data.fly_mode;
+        s.params_dirty = true;
+        // Reload placed blocks from auto-save
+        s.placed_blocks = load_blocks();
+        // Respawn blocks in 3D scene
+        for (&(bx, by, bz), &bt) in &s.placed_blocks {
+            let bkey = format!("b_{}_{}_{}", bx, by, bz);
+            let block_colors: [[f32; 3]; 9] = [
+                [0.6,0.45,0.3],[0.5,0.5,0.5],[0.55,0.35,0.15],
+                [0.2,0.6,0.2],[0.7,0.4,1.0],[0.8,0.3,0.05],
+                [0.7,0.9,1.0],[0.85,0.75,0.5],[0.3,0.5,0.2],
+            ];
+            let bcol = block_colors[bt as usize % block_colors.len()];
+            let (pos, nrm, idx) = box_mesh(1.0, 1.0, 1.0);
+            let col = fill_color(24, bcol[0], bcol[1], bcol[2]);
+            let bp = js_sys::Float32Array::from(&pos[..]);
+            let bn = js_sys::Float32Array::from(&nrm[..]);
+            let bi = js_sys::Uint32Array::from(&idx[..]);
+            let bc_arr = js_sys::Float32Array::from(&col[..]);
+            bridge::upload_mesh(&bkey, &bp, &bn, &bi, &bc_arr);
+            bridge::set_mesh_position(&bkey, bx as f64 + 0.5, by as f64 + 0.5, bz as f64 + 0.5);
+        }
+    }
+
+    pub fn craft_recipe(&mut self, recipe_index: usize) -> String {
+        let mut s = self.state.borrow_mut();
+        if recipe_index < inventory::RECIPES.len() {
+            inventory::perform_craft(&inventory::RECIPES[recipe_index], &mut s.inventory)
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn inventory_minerals(&self) -> Vec<(u8, u32)> {
+        let s = self.state.borrow();
+        s.inventory.items.iter().filter(|i| i.count > 0).map(|i| (i.mineral_type, i.count)).collect()
+    }
+
+    pub fn delete_slot(slot: u32) {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.remove_item(&format!("worlds_save_{}", slot));
+        }
+    }
+
+    pub fn list_slots() -> Vec<(u32, String)> {
+        let mut slots = Vec::new();
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            for i in 0..8 {
+                if let Ok(Some(json)) = storage.get_item(&format!("worlds_save_{}", i)) {
+                    if let Ok(data) = serde_json::from_str::<crate::state::SaveData>(&json) {
+                        let label = format!("{} — slot {}", data.slot_name, i);
+                        slots.push((i, label));
+                    }
+                }
+            }
+        }
+        slots
+    }
 }
 
 impl Drop for Engine {

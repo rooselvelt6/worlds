@@ -76,7 +76,7 @@ impl Default for WorldParams {
             render_distance: 2,
             zone: crate::engine::terrain::Zone::Forest,
             mutation: 0.0,
-            speed: 18.0,
+            speed: 300.0,
             mouse_sensitivity: 1.0,
             fly_mode: false,
             build_mode: false,
@@ -99,8 +99,8 @@ impl Default for WorldParams {
             gravity: 20.0,
             jump_speed: 10.0,
             step_height: 0.7,
-            movement_accel: 50.0,
-            movement_friction: 15.0,
+            movement_accel: 200.0,
+            movement_friction: 30.0,
         }
     }
 }
