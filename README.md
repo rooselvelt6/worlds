@@ -1,6 +1,6 @@
 # 🌍 WORLDS — Motor 3D de Mundos Infinitos
 
-**Generación procedural · Rust WASM + Three.js · Audio sintetizado · 27 fórmulas · 15 biomas**
+**Generación procedural · Rust WASM + Three.js · Audio sintetizado · Terreno configurable en vivo**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org)
@@ -8,7 +8,7 @@
 [![Leptos](https://img.shields.io/badge/Leptos-0.8-purple.svg)](https://leptos.dev)
 [![Tailwind](https://img.shields.io/badge/Tailwind-4-06B6D4.svg)](https://tailwindcss.com)
 
-WORLDS transforma fórmulas matemáticas en mundos 3D infinitos y navegables, con paisajes sonoros únicos por bioma, vegetación procedural, estructuras arquitectónicas, minerales con emisión, cuevas talladas por ruido 3D, ciclo día/noche, y un sistema de descubrimiento. Todo corre en el navegador sin dependencias externas de assets.
+WORLDS genera mundos 3D infinitos con terreno procedural FBM, zonas temáticas, personaje personalizable, ciclo día/noche, partículas ambientales y audio sintetizado. Todo corre en el navegador sin dependencias externas.
 
 ---
 
@@ -16,11 +16,11 @@ WORLDS transforma fórmulas matemáticas en mundos 3D infinitos y navegables, co
 
 | Capa | Tecnología |
 |------|-----------|
-| Motor 3D | Three.js (WebGL2) + GLSL shaders |
+| Motor 3D | Three.js (WebGL2) |
 | Lógica de terreno | Rust → WASM (wasm-bindgen) |
 | UI | Leptos 0.8 CSR + Tailwind 4 |
 | Servidor | Axum (Rust) |
-| Audio | Web Audio API (síntesis 100%, 0 archivos) |
+| Audio | Web Audio API (síntesis 100%) |
 | Post-procesado | UnrealBloomPass |
 
 ## Arquitectura
@@ -29,103 +29,106 @@ WORLDS transforma fórmulas matemáticas en mundos 3D infinitos y navegables, co
 worlds/
 ├── client/                    # Motor Rust → Wasm
 │   ├── src/
-│   │   ├── engine/            # Núcleo del motor (13 módulos)
-│   │   │   ├── mod.rs         # Game loop + chunk generation
-│   │   │   ├── terrain.rs     # Altura, zonas, efectos, colores
-│   │   │   ├── chunk.rs       # Generación de mallas (vértices, normales, índices)
-│   │   │   ├── bridge.rs      # 32 funciones FFI → JavaScript
-│   │   │   ├── audio.rs       # Orquestador de audio/clima/tinte
-│   │   │   ├── controls.rs    # Teclado + mouse pointer lock
-│   │   │   ├── camera.rs      # Cámara primera persona
-│   │   │   ├── joystick.rs    # Joystick táctil para móvil
-│   │   │   ├── minimap.rs     # Minimapa Canvas 2D
-│   │   │   ├── particles.rs   # Partículas ambientales
-│   │   │   ├── vegetation.rs  # Vegetación procedural
+│   │   ├── engine/            # Núcleo del motor
+│   │   │   ├── mod.rs         # Game loop + física + colisión
+│   │   │   ├── terrain.rs     # Altura FBM, zonas, efectos, colores
+│   │   │   ├── chunk.rs       # Generación de mallas
+│   │   │   ├── bridge.rs      # FFI → JavaScript
+│   │   │   ├── audio.rs       # Síntesis de audio por zona
+│   │   │   ├── controls.rs    # Teclado + mouse
+│   │   │   ├── camera.rs      # Cámara primera/tercera persona
+│   │   │   ├── particles.rs   # Lluvia/Nieve ambientales
+│   │   │   ├── vegetation.rs  # Árboles, arbustos, rocas
 │   │   │   ├── structures.rs  # Estructuras arquitectónicas
-│   │   │   └── minerals.rs    # Depósitos de minerales
-│   │   ├── math/builtins.rs   # 30+ funciones de ruido/fórmulas
-│   │   ├── state/mod.rs       # Estado global, tipos, paletas
-│   │   └── app.rs             # UI Leptos (glassmorphism, 5 tabs)
-│   └── three_bridge.js        # Render Three.js + audio + post (1600+ líneas)
+│   │   │   ├── minerals.rs    # Depósitos de minerales
+│   │   │   ├── creatures.rs   # Criaturas procedurales
+│   │   │   └── portals.rs     # Portales
+│   │   ├── math/              # Ruido FBM y funciones
+│   │   ├── state/mod.rs       # Estado global, tipos
+│   │   └── app.rs             # UI Leptos (menús deslizantes)
+│   └── three_bridge.js        # Render Three.js
 ├── server/                    # Servidor Axum
-│   └── assets/                # Frontend servido estáticamente
-└── shared/                    # Librería compartida Rust
+│   └── assets/                # Frontend estático
+└── shared/                    # Librería compartida
 ```
 
 ## Características
 
-### 🧮 27 Fórmulas Matemáticas
+### 🏔️ Terreno Configurable
 
-Cada una genera un universo único con paleta de color propia (23 gradientes):
+El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido única, con parámetros ajustables en vivo:
 
-`FBM · Perlin · Simplex · Voronoi · Mandelbrot · Sierpinski · Julia · Tetrahedron · Cube · Sphere · Menger · Vortex · Ice · Wave · Spiral · Hexagonal · RidgedMF · DomainWarp · Hybrid · Plasma · Cellular · Strange Attractor · Worley · Marble · Terrazas · Erosion · Thermal`
+- **Escala** (0.001–0.1): frecuencia del ruido
+- **Amplitud** (0.5–20): altura máxima del terreno
+- **Octavas** (1–10): detalle del ruido
+- **Cañones**: tallado profundo con ondas sinusoidales
+- **15 Zonas**: Forest, Plains, Desert, Tundra, Jungle, Volcanic, Ocean, Crystal, Cave, Lava, Fungus, Abyss, Storm, Aurora, Magma — cada una con color, altura y efectos únicos
 
-6 fórmulas incluyen sliders de parámetros ajustables en vivo.
+### 💧 Agua Dinámica
 
-### 🌿 15 Biomas
+- Nivel de agua configurable (−1.0 a 2.0)
+- Ondas Gerstner (4 componentes) en tiempo real
+- Opacidad y color ajustables
 
-Cada bioma define su propia altura, color, vegetación, estructuras, minerales, partículas, clima, sonido ambiente, tinte lumínico y viñeta:
+### 🧑 Personaje Personalizable
 
-`Forest · Plains · Desert · Tundra · Jungle · Volcanic · Ocean · Crystal · Cave · Lava · Fungus · Abyss · Storm · Aurora · Magma`
+- **4 Presets**: Humano, Robot, Bestia, Fantasma
+- **7 Esquemas de color** con paletas propias
+- **Escala** (0.5×–1.5×)
+- Animación de caminar/correr con brazos y piernas
+- Ocultamiento automático en primera persona
+
+### 🎥 Cámara
+
+- **Primera persona**: altura de ojos, pitch/yaw directos
+- **Tercera persona**: orbital, sigue al personaje
+- Alternable en vivo con un clic
+
+### 🌧️ Partículas
+
+- **Lluvia**: 1200 gotas, caída rápida, color azul claro
+- **Nieve**: 600 copos, caída lenta, blancos
+- Encendido/apagado desde la UI
+
+### ☀️ Ciclo Día/Noche
+
+- Desactivado por defecto
+- Velocidad ajustable (0 a 0.5)
+- Sol en arco, cielo transiciona, estrellas aparecen de noche
+- Cambio de color de luz y niebla
+
+### 🏃 Física y Colisiones
+
+- **Gravedad** configurable (5–40)
+- **Salto** ajustable (2–25)
+- **Colisión horizontal**: el personaje no atraviesa montañas
+- **Step-up automático**: sube escalones hasta `step_height`
+- **Aceleración y fricción**: movimiento suave
+- **Bloqueo contra bloques**: no atraviesa estructuras colocadas
+- **Natación**: flotabilidad y gravedad reducida bajo agua
+- **Vuelo**: sin gravedad, Space/Shift sube/baja
 
 ### 🔊 Audio 100% Sintetizado
 
-- **15 paisajes sonoros** por bioma (viento, bosque, océano, cueva, tormenta, lava, cristal, aurora, etc.) vía Web Audio API
-- **Sonidos de pasos** al caminar en tierra
-- **Efectos UI** al cambiar fórmula o zona
-- **Clima dinámico**: lluvia, nieve, tormenta, polvo, ceniza con niebla adaptativa (color + densidad)
-- Slider de volumen maestro
-
-### 🎨 Gráficos
-
-- **Sombras dinámicas** PCFSoft 2048×2048
-- **Agua con shader GLSL**: ondas (3 frecuencias), gradiente profundo→somero, foam, shimmer, ciclo día/noche
-- **Bloom** con UnrealBloomPass, intensidad por zona
-- **Ciclo día/noche** continuo (sol en arco, luz ambiental cambia, cielo transiciona)
-- **Nubes + estrellas + auroras** procedurales
-- **Viñeta adaptativa** por bioma (0.5 desierto → 0.95 abismo)
-- **Tinte de bioma** en luz ambiental
-- **Partículas ambientales**: hojas, arena, nieve, chispas, esporas, cristales
+- Paisajes sonoros por zona
+- Sonidos de pasos
+- Clima dinámico
 
 ### 🌲 Vegetación 3D
 
-8 tipos por bioma, hasta 120 instancias por chunk vía `InstancedMesh`:
+- Árboles, arbustos, rocas, cactus, hongos, cristales
+- Sway animado por viento
+- Hasta 120 instancias por chunk
 
-`Tree · Bush · Rock · Cactus · Mushroom · Crystal · DeadTree · Flower`
+## UI — Menús Deslizantes
 
-- Densidad 0.0–0.7 según zona
-- Validación de pendiente y altura de agua
-- Sway animado por viento (sinusoidal, fase aleatoria)
-- Sombras dinámicas
+Interfaz de 3 columnas con botones de acción directa. Cada botón abre un panel contextual con sliders, presets y opciones:
 
-### 🏛️ Estructuras
-
-10 tipos arquitectónicos con geometrías mergeadas:
-
-`Hut · Tower · Ruins · Arch · Pillar · Dome · Pyramid · CrystalSpire · MushroomHut · Obelisk`
-
-- Colocación contextual: 0–3 por chunk, área plana validada, altura sobre agua
-- Por bioma: pirámides en desierto, domos en tundra, torres en tormenta
-- **Estructuras ocultas** descubribles por proximidad
-
-### ⛏️ Cuevas y Minerales
-
-- **Cañones/cuevas 3D**: tallados con FBM + sinusoidal en zona Cave, con pilares naturales
-- **Roca subterránea**: transición de color progresiva bajo el nivel del agua
-- **8 minerales con emisión**: esmeralda, zafiro, cobre, cuarzo, amatista, rubí, topacio, perla
-
-### 📦 Exportación
-
-- **OBJ**: descarga de escena completa con normales
-- **STL binario**: descarga con triángulos indexados
-- **Screenshots**: F12 captura PNG con metadata
-- **Seed**: guardado en localStorage (tecla H)
-
-### 🎮 Jugabilidad
-
-- **Waypoints**: tecla T marca posición, M remueve, contador en HUD
-- **Descubrimiento de biomas**: notificación al visitar cada zona
-- **Estructuras ocultas**: detección por proximidad (≤5m)
+| Columna | Botones |
+|---------|---------|
+| 1 | 🌱 Semilla · 🏃 Física · 🎥 Cámara · ☀️ Día/Noche |
+| 2 | ⚙️ Escala · 📏 Amplitud · 🔢 Octavas · 💧 Agua · 🌍 Zona · 🏔️ Cañones · 🌧️ Partículas |
+| 3 | 🧑 Personaje · 🎨 Color · 📐 Tamaño |
 
 ## Controles
 
@@ -133,51 +136,39 @@ Cada bioma define su propia altura, color, vegetación, estructuras, minerales, 
 |-------|--------|
 | W/S | Adelante/atrás |
 | A/D | Izquierda/derecha |
-| ESPACIO | Saltar / Subir (vuelo) |
-| SHIFT | Agacharse / Bajar (vuelo) |
+| ESPACIO | Saltar / Subir (vuelo/natación) |
+| SHIFT | Bajar (vuelo/natación) |
 | Q/E | Rotar cámara |
-| C | Alternar modo observador orbital |
-| T | Marcar waypoint |
-| M | Remover último waypoint |
-| G | Exportar OBJ |
-| H | Guardar seed en localStorage |
-| F12 | Capturar screenshot |
 | Click | Activar pointer lock |
 
-## Quick Start
+## Build & Deploy
 
 ```bash
-# Requisitos: Rust + wasm-pack
-curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+# Requisitos: Rust + trunk
+cargo install trunk
 
-# Compilar todo
-cargo build --release
+# Build WASM release
+cd client && trunk build --release
 
-# Build WASM
-wasm-pack build --target web --out-dir pkg client
-
-# Copiar al servidor
-cp client/pkg/worlds_app_bg.wasm server/assets/
-cp client/pkg/worlds_app.js server/assets/
-cp client/three_bridge.js server/assets/
+# Deploy al servidor
+cp dist/*.wasm dist/*.js ../server/assets/
+# Actualizar hash en server/assets/index.html manualmente
+# o con sed (el hash está en el nombre del archivo .wasm)
 
 # Iniciar servidor
-cargo run --release -p worlds-server
-
-# Abrir
-open http://localhost:3000
+cd .. && cargo run --release -p worlds-server
 ```
 
 ## Desarrollo
 
 ```bash
 # Build WASM + deploy rápido
-wasm-pack build --target web --out-dir pkg client && \
-cp client/pkg/worlds_app_bg.wasm server/assets/ && \
-cp client/pkg/worlds_app.js server/assets/ && \
-cp client/three_bridge.js server/assets/
+cd client && trunk build --release && \
+HASH=$(ls dist/worlds-app-*.wasm | sed 's/.*worlds-app-//;s/_bg.wasm//') && \
+cp dist/*.wasm dist/*.js ../server/assets/ && \
+sed -i "s/worlds-app-[a-f0-9]*/worlds-app-$HASH/g" ../server/assets/index.html
 
-# Verificar compilación Rust
+# Verificar compilación
 cargo check -p worlds-app
 ```
 

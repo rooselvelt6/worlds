@@ -22,7 +22,7 @@ use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
-use crate::state::WorldParams;
+use crate::state::{CameraMode, CharacterPreset, ParticleMode, WorldParams};
 use terrain::{Zone, get_height};
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
@@ -38,10 +38,8 @@ use structures::generate_struct_mesh;
 use tour::TourState;
 use vegetation::generate_veg_mesh;
 
-const GRAVITY: f64 = 20.0;
-const JUMP_SPEED: f64 = 10.0;
-const ARM_LENGTH: f64 = 8.0;
-const ARM_HEIGHT: f64 = 4.0;
+const ARM_LENGTH: f64 = 5.0;
+const ARM_HEIGHT: f64 = 2.5;
 const ROT_SPEED: f64 = 2.5;
 const WALK_AMP: f64 = 0.35;
 const RUN_AMP: f64 = 0.6;
@@ -98,6 +96,20 @@ fn load_blocks() -> std::collections::HashMap<(i32,i32,i32), u8> {
     map
 }
 
+fn collides_with_blocks(x: f64, y: f64, z: f64,
+    blocks: &std::collections::HashMap<(i32,i32,i32), u8>) -> bool
+{
+    let bx = x.floor() as i32;
+    let bz = z.floor() as i32;
+    let by = y.floor() as i32;
+    for dy in 0..2 {
+        if blocks.contains_key(&(bx, by + dy, bz)) {
+            return true;
+        }
+    }
+    false
+}
+
 fn raycast_block(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, max_dist: f64,
     placed: &std::collections::HashMap<(i32,i32,i32), u8>,
     params: &WorldParams) -> Option<((i32,i32,i32), bool)>
@@ -148,6 +160,8 @@ struct GameState {
     joy_dy: Rc<Cell<f64>>,
     speed: f64,
     char_pos: [f64; 3],
+    vel_x: f64,
+    vel_z: f64,
     vel_y: f64,
     cam_pos: [f64; 3],
     time: f64,
@@ -168,6 +182,8 @@ struct GameState {
     build_prev: bool,
     slot_prev: u32,
     save_timer: f64,
+    params_dirty: bool,
+    char_dirty: bool,
 }
 
 pub struct Engine {
@@ -406,6 +422,78 @@ fn part_position(part_key: &str, char_pos: [f64; 3], ox: f64, oy: f64, oz: f64) 
     bridge::set_mesh_position(part_key, char_pos[0] + ox, char_pos[1] + oy, char_pos[2] + oz);
 }
 
+fn regenerate_all(s: &mut GameState) {
+    let d = s.params.render_distance as i32;
+    let pcx = (s.char_pos[0] / CHUNK_SIZE) as i32;
+    let pcz = (s.char_pos[2] / CHUNK_SIZE) as i32;
+    for old in s.chunks.drain(..) {
+        bridge::remove_mesh(&format!("chunk_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("veg_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("crea_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("struct_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("mineral_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("portal_{},{}", old.cx, old.cz));
+    }
+    let mut new_chunks: Vec<ChunkData> = Vec::new();
+    for x in (pcx - d)..=(pcx + d) {
+        for z in (pcz - d)..=(pcz + d) {
+            let data = chunk::compute_chunk_data(&s.params, x, z);
+            let key = format!("chunk_{},{}", data.cx, data.cz);
+            let pos_arr = js_sys::Float32Array::from(&data.positions[..]);
+            let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
+            let col_arr = js_sys::Float32Array::from(&data.colors[..]);
+            let idx_arr = js_sys::Uint32Array::from(
+                &data.indices.iter().map(|&i| i as u32).collect::<Vec<_>>()[..],
+            );
+            bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr);
+            if let Some((vpos, vnorm, vidx, vcol)) = generate_veg_mesh(&s.params, x, z) {
+                let vkey = format!("veg_{},{}", x, z);
+                let vp = js_sys::Float32Array::from(&vpos[..]);
+                let vn = js_sys::Float32Array::from(&vnorm[..]);
+                let vi = js_sys::Uint32Array::from(&vidx[..]);
+                let vc = js_sys::Float32Array::from(&vcol[..]);
+                bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
+            }
+            if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh(&s.params, x, z) {
+                let ckey = format!("crea_{},{}", x, z);
+                let cp = js_sys::Float32Array::from(&cpos[..]);
+                let cn = js_sys::Float32Array::from(&cnorm[..]);
+                let ci = js_sys::Uint32Array::from(&cidx[..]);
+                let cc = js_sys::Float32Array::from(&ccol[..]);
+                bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+            }
+            if let Some((spos, snorm, sidx, scol)) = generate_struct_mesh(&s.params, x, z) {
+                let skey = format!("struct_{},{}", x, z);
+                let sp = js_sys::Float32Array::from(&spos[..]);
+                let sn = js_sys::Float32Array::from(&snorm[..]);
+                let si = js_sys::Uint32Array::from(&sidx[..]);
+                let sc = js_sys::Float32Array::from(&scol[..]);
+                bridge::upload_mesh(&skey, &sp, &sn, &si, &sc);
+            }
+            if let Some((mpos, mnorm, midx, mcol)) = generate_mineral_mesh(&s.params, x, z) {
+                let mkey = format!("mineral_{},{}", x, z);
+                let mp = js_sys::Float32Array::from(&mpos[..]);
+                let mn = js_sys::Float32Array::from(&mnorm[..]);
+                let mi = js_sys::Uint32Array::from(&midx[..]);
+                let mc = js_sys::Float32Array::from(&mcol[..]);
+                bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc);
+            }
+            if let Some((ppos, pnorm, pidx, pcol)) = generate_portal_mesh(&s.params, x, z) {
+                let pkey = format!("portal_{},{}", x, z);
+                let pp = js_sys::Float32Array::from(&ppos[..]);
+                let pn = js_sys::Float32Array::from(&pnorm[..]);
+                let pi = js_sys::Uint32Array::from(&pidx[..]);
+                let pc = js_sys::Float32Array::from(&pcol[..]);
+                bridge::upload_mesh(&pkey, &pp, &pn, &pi, &pc);
+            }
+            new_chunks.push(data);
+        }
+    }
+    s.chunks = new_chunks;
+    s.prev_cx = pcx;
+    s.prev_cz = pcz;
+}
+
 fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     s.prev_cx = cx;
     s.prev_cz = cz;
@@ -498,6 +586,76 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     }
 
     s.chunks = new_chunks;
+}
+
+fn regenerate_character(s: &mut GameState) {
+    for key in &["char_body", "char_head", "char_arm_l", "char_arm_r", "char_leg_l", "char_leg_r"] {
+        bridge::remove_mesh(key);
+    }
+    let scale = s.params.char_scale;
+    let (preset_body, preset_head, preset_arm, preset_leg, body_col, head_col) = match s.params.character {
+        CharacterPreset::Human => (
+            (0.7, 1.0, 0.4), (0.5, 10, 10, 0.0),
+            (0.2, 0.7, 0.2), (0.25, 0.7, 0.25),
+            [0.2, 0.4, 0.8], [1.0, 0.85, 0.75],
+        ),
+        CharacterPreset::Robot => (
+            (0.8, 1.0, 0.5), (0.4, 8, 8, 1.0),
+            (0.3, 0.6, 0.3), (0.3, 0.6, 0.3),
+            [0.5, 0.5, 0.55], [0.7, 0.7, 0.75],
+        ),
+        CharacterPreset::Beast => (
+            (0.8, 0.6, 1.2), (0.45, 8, 8, 0.0),
+            (0.2, 0.5, 0.2), (0.3, 0.55, 0.3),
+            [0.45, 0.35, 0.25], [0.55, 0.4, 0.25],
+        ),
+        CharacterPreset::Ghost => (
+            (0.6, 0.9, 0.3), (0.4, 10, 10, 0.0),
+            (0.15, 0.6, 0.15), (0.2, 0.6, 0.2),
+            [0.3, 0.5, 0.7], [0.5, 0.7, 0.9],
+        ),
+    };
+    let schemes: &[([f32; 3], [f32; 3])] = &[
+        ([0.2, 0.4, 0.8], [1.0, 0.85, 0.75]),
+        ([0.1, 0.1, 0.3], [0.8, 0.7, 0.6]),
+        ([0.7, 0.1, 0.1], [0.9, 0.7, 0.6]),
+        ([0.1, 0.6, 0.2], [0.8, 0.9, 0.7]),
+        ([0.8, 0.6, 0.1], [0.9, 0.85, 0.7]),
+        ([0.4, 0.1, 0.6], [0.9, 0.8, 0.9]),
+        ([0.9, 0.9, 0.9], [0.9, 0.9, 0.9]),
+    ];
+    let si = (s.params.color_scheme as usize) % schemes.len();
+    let (body_col, head_col) = if s.params.color_scheme > 0 {
+        schemes[si]
+    } else {
+        (body_col, head_col)
+    };
+    let (bw, bh, bd) = preset_body;
+    let (hs, hr, hseg, hbox) = preset_head;
+    let (aw, ah, ad) = preset_arm;
+    let (lw, lh, ld) = preset_leg;
+
+    let (b_pos, b_norm, b_idx) = box_mesh(bw * scale, bh * scale, bd * scale);
+    let b_col = fill_color(b_pos.len() / 3, body_col[0], body_col[1], body_col[2]);
+    upload_part("char_body", &b_pos, &b_norm, &b_idx, &b_col);
+
+    let (h_pos, h_norm, h_idx) = if hbox > 0.0 {
+        box_mesh(hs * scale * 0.8, hs * scale, hs * scale * 0.7)
+    } else {
+        uv_sphere(hr as f64 * scale, hseg as u32, hseg as u32)
+    };
+    let h_col = fill_color(h_pos.len() / 3, head_col[0], head_col[1], head_col[2]);
+    upload_part("char_head", &h_pos, &h_norm, &h_idx, &h_col);
+
+    let (a_pos, a_norm, a_idx) = box_pivot_top(aw * scale, ah * scale, ad * scale);
+    let a_col = fill_color(a_pos.len() / 3, head_col[0], head_col[1], head_col[2]);
+    upload_part("char_arm_l", &a_pos, &a_norm, &a_idx, &a_col);
+    upload_part("char_arm_r", &a_pos, &a_norm, &a_idx, &a_col);
+
+    let (l_pos, l_norm, l_idx) = box_pivot_top(lw * scale, lh * scale, ld * scale);
+    let l_col = fill_color(l_pos.len() / 3, body_col[0], body_col[1], body_col[2]);
+    upload_part("char_leg_l", &l_pos, &l_norm, &l_idx, &l_col);
+    upload_part("char_leg_r", &l_pos, &l_norm, &l_idx, &l_col);
 }
 
 impl Engine {
@@ -603,6 +761,8 @@ impl Engine {
             joy_dy: joy_dy.clone(),
             speed: 18.0,
             char_pos,
+            vel_x: 0.0,
+            vel_z: 0.0,
             vel_y: 0.0,
             cam_pos,
             time: 0.0,
@@ -623,6 +783,8 @@ impl Engine {
             build_prev: false,
             slot_prev: 0,
             save_timer: 0.0,
+            params_dirty: false,
+            char_dirty: false,
         }));
 
         {
@@ -646,7 +808,29 @@ impl Engine {
         let mut s = self.state.borrow_mut();
         s.controls.set_sensitivity(params.mouse_sensitivity);
         s.speed = params.speed;
+        let dirty = s.params.seed != params.seed || s.params.scale != params.scale
+            || s.params.amplitude != params.amplitude
+            || s.params.octaves != params.octaves || s.params.water_level != params.water_level
+            || s.params.zone != params.zone || s.params.mutation != params.mutation
+            || s.params.render_distance != params.render_distance
+            || s.params.canyons != params.canyons
+            || s.params.hue_shift != params.hue_shift || s.params.saturation != params.saturation
+            || s.params.lightness != params.lightness || s.params.param_a != params.param_a
+            || s.params.param_b != params.param_b;
+        let part_dirty = s.params.particle_mode != params.particle_mode;
+        let char_dirty = s.params.character != params.character
+            || s.params.color_scheme != params.color_scheme
+            || s.params.char_scale != params.char_scale;
         s.params = *params;
+        if dirty {
+            s.params_dirty = true;
+        }
+        if char_dirty {
+            s.char_dirty = true;
+        }
+        if part_dirty {
+            if let Some(p) = s.particles.take() { p.remove(); }
+        }
     }
 
     pub fn start(&mut self) {
@@ -728,9 +912,11 @@ impl Engine {
 
                 let cam_yaw = s.controls.yaw.get();
                 let keys = s.controls.keys.get();
-                let speed = s.speed * delta;
-                let (sy, cy) = cam_yaw.sin_cos();
-                // Compute movement vector from WASD (relative to camera yaw)
+                let water_surface = s.params.water_level;
+                let in_water = !s.params.fly_mode && s.char_pos[1] + 1.0 < water_surface;
+                let speed = s.speed * delta * if in_water { 0.5 } else { 1.0 };
+                let move_yaw = if s.params.camera_mode == CameraMode::FirstPerson { -cam_yaw } else { cam_yaw };
+                let (sy, cy) = move_yaw.sin_cos();
                 let mut mx = 0.0;
                 let mut mz = 0.0;
                 if keys & MASK_W != 0 { mx -= sy; mz -= cy; }
@@ -743,11 +929,57 @@ impl Engine {
 
                 if moving {
                     let len = (mx * mx + mz * mz).sqrt();
-                    let inv = speed / len;
-                    s.char_pos[0] += mx * inv;
-                    s.char_pos[2] += mz * inv;
+                    if len > 0.0 { mx /= len; mz /= len; }
+                    s.vel_x += mx * s.params.movement_accel * delta;
+                    s.vel_z += mz * s.params.movement_accel * delta;
                     let target_yaw = (-mx).atan2(-mz);
                     s.char_yaw += (target_yaw - s.char_yaw) * 0.12;
+                } else {
+                    let spd = (s.vel_x * s.vel_x + s.vel_z * s.vel_z).sqrt();
+                    if spd > 0.0 {
+                        let f = (s.params.movement_friction * delta).min(spd);
+                        s.vel_x -= (s.vel_x / spd) * f;
+                        s.vel_z -= (s.vel_z / spd) * f;
+                    }
+                }
+
+                let spd = (s.vel_x * s.vel_x + s.vel_z * s.vel_z).sqrt();
+                if spd > speed {
+                    s.vel_x = (s.vel_x / spd) * speed;
+                    s.vel_z = (s.vel_z / spd) * speed;
+                }
+
+                let new_x = s.char_pos[0] + s.vel_x * delta;
+                let new_z = s.char_pos[2] + s.vel_z * delta;
+                let old_x = s.char_pos[0];
+                let old_z = s.char_pos[2];
+                let gh = terrain::get_height(&s.params, s.char_pos[0], s.char_pos[2]);
+                let h_t = terrain::get_height(&s.params, new_x, new_z);
+                let diff = h_t - gh;
+
+                let blocked = diff > s.params.step_height
+                    || collides_with_blocks(new_x, s.char_pos[1], new_z, &s.placed_blocks);
+
+                if !blocked {
+                    s.char_pos[0] = new_x;
+                    s.char_pos[2] = new_z;
+                } else {
+                    let h_x = terrain::get_height(&s.params, new_x, s.char_pos[2]);
+                    if h_x - gh <= s.params.step_height
+                        && !collides_with_blocks(new_x, s.char_pos[1], s.char_pos[2], &s.placed_blocks)
+                    {
+                        s.char_pos[0] = new_x;
+                    }
+                    let h_z = terrain::get_height(&s.params, s.char_pos[0], new_z);
+                    if h_z - gh <= s.params.step_height
+                        && !collides_with_blocks(s.char_pos[0], s.char_pos[1], new_z, &s.placed_blocks)
+                    {
+                        s.char_pos[2] = new_z;
+                    }
+                    if s.char_pos[0] == old_x && s.char_pos[2] == old_z {
+                        s.vel_x = 0.0;
+                        s.vel_z = 0.0;
+                    }
                 }
 
                 if keys & MASK_Q != 0 {
@@ -758,15 +990,39 @@ impl Engine {
                 }
 
                 let ground_y = terrain::get_height(&s.params, s.char_pos[0], s.char_pos[2]);
-                if keys & MASK_SPACE != 0 && s.char_pos[1] <= ground_y + 0.1 {
-                    s.vel_y = JUMP_SPEED;
-                    audio::play_tone(400.0, 0.1);
-                }
-                s.vel_y -= GRAVITY * delta;
-                s.char_pos[1] += s.vel_y * delta;
-                if s.char_pos[1] < ground_y {
-                    s.char_pos[1] = ground_y;
+                if s.params.fly_mode {
+                    // Flying: no gravity, space=up, shift=down
+                    if keys & MASK_SPACE != 0 { s.char_pos[1] += speed * 1.5; }
+                    if keys & MASK_SHIFT != 0 { s.char_pos[1] -= speed * 1.5; }
                     s.vel_y = 0.0;
+                } else if s.char_pos[1] + 1.0 < water_surface {
+                    // Swimming / underwater
+                    if keys & MASK_SPACE != 0 { s.vel_y = 3.0; }
+                    if keys & MASK_SHIFT != 0 { s.vel_y = -2.0; }
+                    let buoyancy = (water_surface - s.char_pos[1]).max(0.0) * 0.5;
+                    s.vel_y += buoyancy * delta;
+                    s.vel_y -= s.params.gravity * 0.3 * delta;
+                    s.char_pos[1] += s.vel_y * delta;
+                    if s.char_pos[1] > water_surface {
+                        s.char_pos[1] = water_surface;
+                        s.vel_y = 0.0;
+                    }
+                    if s.char_pos[1] < ground_y {
+                        s.char_pos[1] = ground_y;
+                        s.vel_y = 0.0;
+                    }
+                } else {
+                    // Normal ground movement
+                    if keys & MASK_SPACE != 0 && s.char_pos[1] <= ground_y + 0.1 {
+                        s.vel_y = s.params.jump_speed;
+                        audio::play_tone(400.0, 0.1);
+                    }
+                    s.vel_y -= s.params.gravity * delta;
+                    s.char_pos[1] += s.vel_y * delta;
+                    if s.char_pos[1] < ground_y {
+                        s.char_pos[1] = ground_y;
+                        s.vel_y = 0.0;
+                    }
                 }
 
                 // Build mode: block interaction with raycast
@@ -860,21 +1116,45 @@ impl Engine {
                     s.walk_time *= 0.9;
                 }
 
+                // Hide character in first-person mode
+                let fp = s.params.camera_mode == CameraMode::FirstPerson;
+                bridge::set_mesh_visible("char_body", !fp);
+                bridge::set_mesh_visible("char_head", !fp);
+                bridge::set_mesh_visible("char_arm_l", !fp);
+                bridge::set_mesh_visible("char_arm_r", !fp);
+                bridge::set_mesh_visible("char_leg_l", !fp);
+                bridge::set_mesh_visible("char_leg_r", !fp);
+
+                if s.char_dirty {
+                    s.char_dirty = false;
+                    regenerate_character(&mut s);
+                }
+
+                if s.params_dirty {
+                    s.params_dirty = false;
+                    regenerate_all(&mut s);
+                }
+
                 let target_cx = (s.char_pos[0] / CHUNK_SIZE) as i32;
                 let target_cz = (s.char_pos[2] / CHUNK_SIZE) as i32;
                 if target_cx != s.prev_cx || target_cz != s.prev_cz {
                     generate_chunks(&mut s, target_cx, target_cz);
                 }
 
-                // Orbital camera from mouse yaw/pitch (or tour)
+                // Camera: first-person or third-person orbital (or tour)
                 let tour_params_cp = s.params;
                 let tour_pos_cp = s.char_pos;
                 let tour_yaw_cp = s.controls.yaw.get();
                 let tour_pitch_cp = s.controls.pitch.get();
                 let (cam_x, cam_y, cam_z, look_yaw, look_pitch) = if let Some(tu) = s.tour.update(delta, &tour_params_cp, &tour_pos_cp, tour_yaw_cp, tour_pitch_cp) {
                     (tu.pos[0], tu.pos[1], tu.pos[2], tu.yaw, tu.pitch)
+                } else if s.params.camera_mode == CameraMode::FirstPerson {
+                    let pitch = tour_pitch_cp.max(-1.5).min(1.5);
+                    let eye_y = s.char_pos[1] + 1.6;
+                    s.cam_pos = [s.char_pos[0], eye_y, s.char_pos[2]];
+                    (s.cam_pos[0], s.cam_pos[1], s.cam_pos[2], -tour_yaw_cp, pitch)
                 } else {
-                    let pitch_clamped = tour_pitch_cp.max(-0.2).min(1.0);
+                    let pitch_clamped = tour_pitch_cp.max(-0.6).min(1.0);
                     let (sp_c, cp_c) = pitch_clamped.sin_cos();
                     let target_x = s.char_pos[0] + ARM_LENGTH * cp_c * cam_yaw.sin();
                     let target_z = s.char_pos[2] + ARM_LENGTH * cp_c * cam_yaw.cos();
@@ -882,7 +1162,7 @@ impl Engine {
                         .max(terrain::get_height(&s.params, target_x, target_z) + 0.5);
                     s.cam_pos = [target_x, target_y, target_z];
                     let dx = s.char_pos[0] - s.cam_pos[0];
-                    let dy = s.char_pos[1] - s.cam_pos[1];
+                    let dy = s.char_pos[1] + 1.0 - s.cam_pos[1];
                     let dz = s.char_pos[2] - s.cam_pos[2];
                     let dist_h = (dx * dx + dz * dz).sqrt().max(0.001);
                     let ly = dx.atan2(-dz);
@@ -988,10 +1268,19 @@ impl Engine {
 
                 // Update particles
                 let zone = terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]);
-                let new_count = particles::particle_count(zone);
+                let mode = s.params.particle_mode;
+                let (new_count, mode_active) = if mode != ParticleMode::Off {
+                    (particles::mode_count(mode), true)
+                } else {
+                    (particles::particle_count(zone), false)
+                };
                 let should_have = new_count > 0;
                 if should_have && s.particles.is_none() {
-                    let (pr, pg, pb, ps) = particles::particle_color_size(zone);
+                    let (pr, pg, pb, ps) = if mode_active {
+                        particles::mode_color_size(mode)
+                    } else {
+                        particles::particle_color_size(zone)
+                    };
                     s.particles = Some(ParticleSystem::new("particles", new_count, pr, pg, pb, ps));
                 } else if !should_have && s.particles.is_some() {
                     if let Some(p) = s.particles.take() { p.remove(); }
@@ -1002,7 +1291,7 @@ impl Engine {
                     let p_py = s.char_pos[1];
                     let p_pz = s.char_pos[2];
                     if let Some(ref mut p) = s.particles {
-                        p.update(delta, zone, &p_params, p_px, p_py, p_pz, water_level);
+                        p.update(delta, zone, &p_params, p_px, p_py, p_pz, water_level, mode);
                     }
                 }
 

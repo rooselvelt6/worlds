@@ -72,4 +72,7 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeRenderFrame)]
     pub fn render_frame();
+
+    #[wasm_bindgen(js_name = threeBridgeSetMeshVisible)]
+    pub fn set_mesh_visible(key: &str, visible: bool);
 }

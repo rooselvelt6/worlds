@@ -107,5 +107,16 @@
         import init from './pkg/worlds_app.js';
         init().catch(console.error);
     </script>
-</body>
+
+<script type="module">
+import init, * as bindings from '/worlds-app-3866a9d68365c2fb.js';
+const wasm = await init({ module_or_path: '/worlds-app-3866a9d68365c2fb_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script></body>
 </html>

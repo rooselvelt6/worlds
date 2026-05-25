@@ -141,7 +141,7 @@ window.threeBridgeUploadWaterMesh = function (key, positions, normals, indices) 
     const mat = new THREE.MeshPhysicalMaterial({
         color: 0x0077aa,
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.35,
         roughness: 0.2,
         metalness: 0.1,
         side: THREE.DoubleSide,
@@ -212,6 +212,12 @@ window.threeBridgeSetSunLight = function (x, y, z, r, g, b, intensity) {
     light.name = '__sun';
     light.position.set(x, y, z);
     scene.add(light);
+};
+
+window.threeBridgeSetMeshVisible = function (key, visible) {
+    const mesh = meshes.get(key);
+    if (!mesh) return;
+    mesh.visible = visible;
 };
 
 window.threeBridgeRenderFrame = function () {

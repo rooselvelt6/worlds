@@ -1,65 +1,6 @@
 use crate::math::*;
-use crate::state::{FormulaType, WorldParams};
+use crate::state::WorldParams;
 use serde::{Deserialize, Serialize};
-
-fn eval_formula(formula: FormulaType, nx: f64, nz: f64, params: &WorldParams) -> f64 {
-    let octaves = params.octaves;
-    match formula {
-        FormulaType::FBM => fbm(nx, nz, octaves),
-        FormulaType::Perlin => perlin_noise(nx, nz),
-        FormulaType::Simplex => simplex_noise(nx, nz),
-        FormulaType::Voronoi => voronoi(nx, nz),
-        FormulaType::Mandelbrot => mandelbrot(nx, nz),
-        FormulaType::Sierpinski => sierpinski_triangle(nx, nz),
-        FormulaType::Julia => juliaset(nx, nz, params.param_a * 2.0 - 0.5),
-        FormulaType::Tetrahedron => tetrahedron(nx, nz),
-        FormulaType::Cube => cube_fractal(nx, nz),
-        FormulaType::Sphere => sphere_field(nx, nz),
-        FormulaType::Menger => menger_sponge(nx, nz),
-        FormulaType::Vortex => vortex(nx, nz),
-        FormulaType::Ice => ice(nx, nz),
-        FormulaType::Wave => wave_param(nx, nz, params.param_a * 2.0 + 0.2),
-        FormulaType::Spiral => spiral_param(nx, nz, params.param_b * 3.0 + 0.5),
-        FormulaType::Hexagonal => hexagonal(nx, nz),
-        FormulaType::RidgedMF => ridged_fbm(nx, nz, octaves.min(4)),
-        FormulaType::DomainWarp => domain_warp_strength(nx, nz, params.param_b * 4.0),
-        FormulaType::Hybrid => hybrid_terrain(nx, nz),
-        FormulaType::Plasma => plasma(nx, nz),
-        FormulaType::Cellular => cellular(nx, nz),
-        FormulaType::Strange => strange_attractor(nx, nz, params.param_a, params.param_b),
-        FormulaType::Worley => worley(nx, nz),
-        FormulaType::Marble => marble(nx, nz),
-        FormulaType::Terrazas => terrazas(nx, nz, params.param_a * 5.0 + 2.0),
-        FormulaType::Erosion => erosion(nx, nz),
-        FormulaType::Thermal => thermal(nx, nz),
-    }
-}
-
-fn formula_to_height(formula: FormulaType, base: f64, amplitude: f64, water_level: f64) -> f64 {
-    match formula {
-        FormulaType::Mandelbrot => base * amplitude * 0.3,
-        FormulaType::Sierpinski => base * amplitude * 2.0,
-        FormulaType::Voronoi => base * amplitude * 0.2 + water_level,
-        FormulaType::Cube | FormulaType::Sphere | FormulaType::Menger => base * amplitude * 2.0 + water_level,
-        FormulaType::Julia => base * amplitude * 0.4 + water_level,
-        FormulaType::Tetrahedron => base * amplitude * 1.5 + water_level,
-        FormulaType::Vortex => base * amplitude * 0.6 + water_level,
-        FormulaType::Ice => base * amplitude * 1.2 + water_level,
-        FormulaType::Wave | FormulaType::Spiral | FormulaType::Hexagonal => base * amplitude * 0.8 + water_level,
-        FormulaType::RidgedMF => base * amplitude * 1.5 + water_level,
-        FormulaType::DomainWarp => base * amplitude * 1.2 + water_level,
-        FormulaType::Hybrid => base * amplitude + water_level,
-        FormulaType::Plasma => base * amplitude * 0.8 + water_level,
-        FormulaType::Cellular => base * amplitude * 1.0 + water_level,
-        FormulaType::Strange => base * amplitude * 1.2 + water_level,
-        FormulaType::Worley => base * amplitude * 0.3 + water_level,
-        FormulaType::Marble => base * amplitude * 0.6 + water_level,
-        FormulaType::Terrazas => base * amplitude * 1.5 + water_level,
-        FormulaType::Erosion => base * amplitude * 1.0 + water_level,
-        FormulaType::Thermal => base * amplitude * 0.8 + water_level,
-        _ => base * amplitude + water_level,
-    }
-}
 
 pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
     let scale = params.scale;
@@ -69,21 +10,17 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
     let nx = wx * scale;
     let nz = wz * scale;
 
-    let base_a = eval_formula(params.formula, nx, nz, params);
-    let height_a = formula_to_height(params.formula, base_a, amplitude, water_level);
+    let base = fbm(nx, nz, params.octaves);
+    let mut h = (base * amplitude + water_level).max(0.0);
 
-    let base_b = eval_formula(params.formula_b, nx, nz, params);
-    let height_b = formula_to_height(params.formula_b, base_b, amplitude, water_level);
-
-    let blend = params.blend_a.clamp(0.0, 1.0);
-    let _base = if blend <= 0.0 { base_a } else if blend >= 1.0 { base_b } else {
-        base_a * (1.0 - blend) + base_b * blend
-    };
-    let height = if blend <= 0.0 { height_a } else if blend >= 1.0 { height_b } else {
-        height_a * (1.0 - blend) + height_b * blend
-    };
-
-    let mut h = height.max(0.0);
+    if params.canyons {
+        let canyon = (wx * 0.04).sin() * (wz * 0.04).cos()
+            + (wx * 0.06 + wz * 0.08).sin() * 0.5;
+        if canyon < -0.2 {
+            let depth = (-canyon - 0.2) * 12.0;
+            h = (h - depth).max(params.water_level - 6.0);
+        }
+    }
 
     match params.zone {
         Zone::Ocean => h += water_level,
@@ -215,87 +152,9 @@ fn gradient(stops: &[[f32; 3]], t: f32) -> [f32; 3] {
     mix_color(stops[i], stops[i + 1], frac)
 }
 
-pub fn get_formula_color(formula: FormulaType, h: f64, max_h: f64) -> [f32; 3] {
+pub fn get_terrain_color(h: f64, max_h: f64) -> [f32; 3] {
     let t = (h / max_h.max(0.1)).clamp(0.0, 1.0) as f32;
-    formula_color_map(formula, t)
-}
-
-pub fn get_blended_formula_color(formula_a: FormulaType, formula_b: FormulaType, blend: f64, h: f64, max_h: f64) -> [f32; 3] {
-    let t = (h / max_h.max(0.1)).clamp(0.0, 1.0) as f32;
-    let blend = blend.clamp(0.0, 1.0);
-    if blend <= 0.0 {
-        return formula_color_map(formula_a, t);
-    }
-    if blend >= 1.0 {
-        return formula_color_map(formula_b, t);
-    }
-    let ca = formula_color_map(formula_a, t);
-    let cb = formula_color_map(formula_b, t);
-    let b = blend as f32;
-    [
-        ca[0] * (1.0 - b) + cb[0] * b,
-        ca[1] * (1.0 - b) + cb[1] * b,
-        ca[2] * (1.0 - b) + cb[2] * b,
-    ]
-}
-
-fn formula_color_map(formula: FormulaType, t: f32) -> [f32; 3] {
-    match formula {
-        FormulaType::FBM =>
-            gradient(&[[0.05,0.15,0.30],[0.10,0.35,0.25],[0.25,0.55,0.20],[0.55,0.50,0.25],[0.85,0.80,0.70],[1.0,1.0,1.0]], t),
-        FormulaType::Perlin =>
-            gradient(&[[0.08,0.12,0.28],[0.15,0.30,0.50],[0.25,0.50,0.35],[0.50,0.45,0.25],[0.80,0.75,0.65],[0.95,0.95,0.95]], t),
-        FormulaType::Simplex =>
-            gradient(&[[0.10,0.05,0.25],[0.20,0.20,0.45],[0.30,0.45,0.55],[0.45,0.60,0.40],[0.75,0.70,0.55],[0.90,0.90,0.85]], t),
-        FormulaType::Voronoi =>
-            gradient(&[[0.15,0.10,0.20],[0.30,0.20,0.40],[0.50,0.30,0.55],[0.70,0.50,0.50],[0.85,0.75,0.60],[0.95,0.90,0.80]], t),
-        FormulaType::Mandelbrot =>
-            gradient(&[[0.05,0.00,0.10],[0.20,0.05,0.25],[0.45,0.10,0.40],[0.75,0.25,0.35],[0.95,0.60,0.40],[1.0,0.85,0.65]], t),
-        FormulaType::Sierpinski =>
-            gradient(&[[0.15,0.05,0.00],[0.35,0.10,0.00],[0.60,0.25,0.05],[0.85,0.50,0.10],[1.0,0.75,0.30],[1.0,0.95,0.60]], t),
-        FormulaType::Julia =>
-            gradient(&[[0.10,0.00,0.15],[0.30,0.05,0.35],[0.55,0.15,0.50],[0.80,0.30,0.45],[0.95,0.60,0.50],[1.0,0.85,0.75]], t),
-        FormulaType::Tetrahedron =>
-            gradient(&[[0.05,0.15,0.15],[0.10,0.30,0.35],[0.20,0.50,0.45],[0.40,0.60,0.40],[0.70,0.65,0.45],[0.90,0.85,0.75]], t),
-        FormulaType::Cube =>
-            gradient(&[[0.10,0.10,0.05],[0.25,0.25,0.10],[0.45,0.40,0.15],[0.65,0.55,0.25],[0.85,0.75,0.45],[1.0,0.95,0.70]], t),
-        FormulaType::Sphere =>
-            gradient(&[[0.05,0.10,0.20],[0.15,0.25,0.40],[0.25,0.40,0.55],[0.40,0.55,0.50],[0.70,0.70,0.60],[0.90,0.90,0.85]], t),
-        FormulaType::Menger =>
-            gradient(&[[0.10,0.05,0.10],[0.25,0.15,0.25],[0.40,0.25,0.35],[0.60,0.40,0.35],[0.80,0.65,0.45],[0.95,0.90,0.70]], t),
-        FormulaType::Vortex =>
-            gradient(&[[0.00,0.10,0.20],[0.10,0.25,0.45],[0.20,0.40,0.50],[0.40,0.55,0.40],[0.65,0.70,0.55],[0.90,0.90,0.80]], t),
-        FormulaType::Ice =>
-            gradient(&[[0.40,0.50,0.60],[0.55,0.65,0.75],[0.65,0.75,0.85],[0.75,0.85,0.90],[0.85,0.90,0.95],[0.95,0.97,1.0]], t),
-        FormulaType::Wave =>
-            gradient(&[[0.00,0.15,0.30],[0.05,0.30,0.50],[0.15,0.45,0.55],[0.35,0.55,0.45],[0.60,0.65,0.55],[0.85,0.85,0.80]], t),
-        FormulaType::Spiral =>
-            gradient(&[[0.15,0.05,0.20],[0.30,0.10,0.40],[0.50,0.20,0.50],[0.70,0.35,0.45],[0.85,0.60,0.50],[0.95,0.85,0.75]], t),
-        FormulaType::Hexagonal =>
-            gradient(&[[0.10,0.15,0.05],[0.20,0.30,0.10],[0.35,0.45,0.20],[0.55,0.55,0.30],[0.75,0.70,0.45],[0.95,0.90,0.70]], t),
-        FormulaType::RidgedMF =>
-            gradient(&[[0.20,0.15,0.10],[0.35,0.25,0.15],[0.50,0.35,0.20],[0.65,0.50,0.30],[0.85,0.70,0.50],[1.0,0.95,0.85]], t),
-        FormulaType::DomainWarp =>
-            gradient(&[[0.05,0.05,0.15],[0.15,0.10,0.30],[0.30,0.20,0.45],[0.50,0.35,0.45],[0.75,0.55,0.50],[0.95,0.85,0.75]], t),
-        FormulaType::Hybrid =>
-            gradient(&[[0.10,0.05,0.05],[0.25,0.15,0.15],[0.45,0.30,0.20],[0.65,0.50,0.30],[0.85,0.70,0.50],[1.0,0.90,0.75]], t),
-        FormulaType::Plasma =>
-            gradient(&[[0.30,0.05,0.10],[0.55,0.10,0.20],[0.70,0.20,0.30],[0.85,0.40,0.35],[0.95,0.65,0.45],[1.0,0.90,0.70]], t),
-        FormulaType::Cellular =>
-            gradient(&[[0.10,0.20,0.15],[0.15,0.35,0.25],[0.20,0.50,0.35],[0.35,0.60,0.40],[0.60,0.70,0.50],[0.85,0.90,0.80]], t),
-        FormulaType::Strange =>
-            gradient(&[[0.20,0.05,0.25],[0.35,0.10,0.40],[0.50,0.20,0.50],[0.65,0.35,0.45],[0.85,0.55,0.50],[1.0,0.85,0.75]], t),
-        FormulaType::Worley =>
-            gradient(&[[0.15,0.10,0.05],[0.30,0.20,0.10],[0.50,0.35,0.15],[0.65,0.50,0.25],[0.80,0.70,0.45],[0.95,0.90,0.75]], t),
-        FormulaType::Marble =>
-            gradient(&[[0.20,0.20,0.22],[0.35,0.35,0.38],[0.50,0.50,0.52],[0.65,0.65,0.67],[0.80,0.80,0.82],[0.95,0.95,0.97]], t),
-        FormulaType::Terrazas =>
-            gradient(&[[0.15,0.10,0.05],[0.30,0.22,0.10],[0.50,0.40,0.20],[0.70,0.60,0.35],[0.85,0.75,0.55],[1.0,0.95,0.80]], t),
-        FormulaType::Erosion =>
-            gradient(&[[0.10,0.15,0.20],[0.20,0.30,0.40],[0.30,0.45,0.50],[0.45,0.55,0.45],[0.65,0.65,0.55],[0.85,0.85,0.80]], t),
-        FormulaType::Thermal =>
-            gradient(&[[0.30,0.10,0.05],[0.50,0.20,0.10],[0.65,0.35,0.20],[0.80,0.55,0.35],[0.95,0.75,0.55],[1.0,0.95,0.85]], t),
-    }
+    gradient(&[[0.05,0.15,0.30],[0.10,0.35,0.25],[0.25,0.55,0.20],[0.55,0.50,0.25],[0.85,0.80,0.70],[1.0,1.0,1.0]], t)
 }
 
 pub fn zone_effects(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {

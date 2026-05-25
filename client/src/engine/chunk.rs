@@ -34,7 +34,6 @@ fn apply_mutation(params: &WorldParams, cx: i32, cz: i32) -> WorldParams {
     let offset = (norm - 0.5) * 2.0 * params.mutation;
     p.scale *= 1.0 + offset * 0.1;
     p.amplitude *= 1.0 + offset * 0.15;
-    p.blend_a = (p.blend_a + offset * 0.05).clamp(0.0, 1.0);
     p
 }
 
@@ -89,7 +88,7 @@ pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
             normals.push(1.0 / len);
             normals.push((-dz_h as f32) / len);
 
-            let mut c = terrain::get_blended_formula_color(params.formula, params.formula_b, params.blend_a, heights[idx], max_h);
+            let mut c = terrain::get_terrain_color(heights[idx], max_h);
             // Subsurface rock blending for cave/underground areas
             let water = params.water_level as f32;
             if heights[idx] as f32 <= water - 1.0 {
