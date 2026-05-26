@@ -62,6 +62,29 @@ pub const BLK_CLAY: u8 = 11;
 pub const BLK_WATER: u8 = 12;
 pub const BLK_LAVA: u8 = 13;
 
+// Underground biome blocks (20+ to avoid conflict with build-mode block types 0-8)
+pub const BLK_PACKED_ICE: u8 = 20;
+pub const BLK_OBSIDIAN: u8 = 21;
+pub const BLK_MOSS: u8 = 22;
+pub const BLK_GLOW_SHROOM: u8 = 23;
+pub const BLK_MAGMA_BLOCK: u8 = 24;
+pub const BLK_SOUL_SAND: u8 = 25;
+pub const BLK_BASALT: u8 = 26;
+
+/// Returns true if the block type emits light
+pub fn block_emits_light(bt: u8) -> bool {
+    matches!(bt, BLK_LAVA | BLK_GLOW_SHROOM | BLK_DIAMOND_ORE | BLK_GOLD_ORE)
+}
+
+/// Maximum light radius in blocks
+pub fn block_light_radius(bt: u8) -> f64 {
+    match bt {
+        BLK_LAVA => 6.0,
+        BLK_GLOW_SHROOM => 4.0,
+        _ => 0.0,
+    }
+}
+
 fn block_hash(wx: f64, wy: f64, wz: f64, seed: u64) -> f64 {
     let h = (seed as i64).wrapping_mul(374761393)
         .wrapping_add((wx.floor() as i64).wrapping_mul(668265263))
@@ -71,13 +94,104 @@ fn block_hash(wx: f64, wy: f64, wz: f64, seed: u64) -> f64 {
     norm
 }
 
+/// 3D worm tunnel noise: creates connected winding tunnels through the terrain
+fn worm_tunnel_noise(wx: f64, wy: f64, wz: f64, seed: u32) -> f64 {
+    let s = seed as f64 * 0.001;
+    // Curved path through 3D space
+    let path_x = wx + (wz * 0.05 + wy * 0.03 + s).sin() * 3.0;
+    let path_z = wz + (wx * 0.04 + wy * 0.02 + s * 1.3).cos() * 3.0;
+    let path_y = wy + (wx * 0.03 + wz * 0.04 + s * 0.7).sin() * 2.0;
+
+    // Distance from the curved path (worm center)
+    let dx = wx - path_x;
+    let dy = wy - path_y;
+    let dz = wz - path_z;
+    let dist_from_path = (dx * dx + dy * dy + dz * dz).sqrt();
+
+    // Varying tunnel radius
+    let radius_noise = crate::math::perlin_noise_3d(wx * 0.02, wy * 0.02, wz * 0.02);
+    let tunnel_radius = 1.5 + radius_noise * 1.5;
+
+    // Smooth falloff: 1.0 at center, 0.0 at edge
+    let t = (1.0 - dist_from_path / tunnel_radius).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t) // smoothstep
+}
+
+/// Check if a 3D position is inside a worm tunnel
+fn is_worm_tunnel_carved(wx: f64, wy: f64, wz: f64, params: &WorldParams, depth: f64) -> bool {
+    if depth < 2.0 { return false; }
+
+    let seed = params.seed;
+    // Multiple worm seeds for a connected network
+    let worm_seeds = [0u32, 137, 337, 577, 733];
+    for &ws in &worm_seeds {
+        let worm_strength = worm_tunnel_noise(wx, wy, wz, seed.wrapping_add(ws));
+        if worm_strength > 0.6 {
+            let carve_strength = (worm_strength - 0.6) / 0.4;
+            if carve_strength > 0.3 + (seed as f64 * 0.001).fract() * 0.15 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Returns true if a block should be filled with water (aquifer)
+fn is_aquifer(wx: f64, wy: f64, wz: f64, surface_h: f64, _params: &WorldParams, zone: Zone) -> bool {
+    let depth = surface_h - wy;
+    if depth < 5.0 || depth > 25.0 { return false; }
+    if zone == Zone::Desert || zone == Zone::Volcanic || zone == Zone::Lava || zone == Zone::Magma { return false; }
+    // Water pockets in certain depth ranges
+    let aquifer_noise = crate::math::perlin_noise_3d(wx * 0.03, wy * 0.03, wz * 0.03);
+    aquifer_noise > 0.72 && (wy as i64).wrapping_mul(127) as f64 * 0.001 % 1.0 > 0.3
+}
+
+/// Returns the zone-specific underground block type at a given depth
+fn deep_block_type(zone: Zone, depth: f64, seed: f64) -> u8 {
+    match zone {
+        Zone::Tundra | Zone::Aurora => {
+            if depth > 8.0 && seed < 0.06 { return BLK_PACKED_ICE; }
+        }
+        Zone::Volcanic | Zone::Lava | Zone::Magma => {
+            if depth > 6.0 && seed < 0.08 { return BLK_MAGMA_BLOCK; }
+            if depth > 12.0 && seed < 0.04 { return BLK_OBSIDIAN; }
+            if depth > 4.0 && seed < 0.1 { return BLK_BASALT; }
+        }
+        Zone::Crystal => {
+            if depth > 5.0 && seed < 0.05 {
+                return if seed < 0.025 { BLK_DIAMOND_ORE } else { BLK_PACKED_ICE };
+            }
+        }
+        Zone::Fungus => {
+            if depth > 4.0 && seed < 0.07 { return BLK_GLOW_SHROOM; }
+            if depth > 8.0 && seed < 0.08 { return BLK_MOSS; }
+        }
+        Zone::Jungle | Zone::Forest | Zone::Plains => {
+            if depth > 6.0 && seed < 0.05 { return BLK_MOSS; }
+        }
+        Zone::Abyss => {
+            if depth > 3.0 && seed < 0.1 { return BLK_SOUL_SAND; }
+            if depth > 8.0 && seed < 0.05 { return BLK_OBSIDIAN; }
+        }
+        Zone::Cave => {
+            if depth > 3.0 && seed < 0.06 { return BLK_MOSS; }
+            if depth > 10.0 && seed < 0.03 { return BLK_GLOW_SHROOM; }
+        }
+        _ => {}
+    }
+    BLK_STONE
+}
+
 pub fn get_block_type(params: &WorldParams, wx: f64, wy: f64, wz: f64, surface_h: f64, zone: Zone) -> u8 {
     if wy > surface_h {
         return BLK_AIR;
     }
 
+    let depth = surface_h - wy;
     let below = wy < surface_h - 0.5;
+
     if below {
+        // 3D cave noise (existing method)
         let cave_noise = crate::math::fbm_3d(wx * 0.04, wy * 0.04, wz * 0.04, 3);
         let cave_threshold = 0.45 + (params.seed as f64 * 0.001).fract() * 0.1;
         if cave_noise > cave_threshold {
@@ -90,9 +204,21 @@ pub fn get_block_type(params: &WorldParams, wx: f64, wy: f64, wz: f64, surface_h
         if room_noise > 0.65 {
             return BLK_AIR;
         }
-    }
 
-    let depth = surface_h - wy;
+        // Worm tunnel carving (connected cave systems)
+        if is_worm_tunnel_carved(wx, wy, wz, params, depth) {
+            // Check for aquifers first: if worm tunnel intersects an aquifer, fill with water
+            if is_aquifer(wx, wy, wz, surface_h, params, zone) {
+                return BLK_WATER;
+            }
+            return BLK_AIR;
+        }
+
+        // Fill aquifer blocks with water
+        if is_aquifer(wx, wy, wz, surface_h, params, zone) {
+            return BLK_WATER;
+        }
+    }
 
     if depth < 0.5 {
         return match zone {
@@ -109,6 +235,7 @@ pub fn get_block_type(params: &WorldParams, wx: f64, wy: f64, wz: f64, surface_h
 
     let seed = block_hash(wx, wy, wz, params.seed as u64);
 
+    // Ore distribution at various depths
     if depth > 1.0 && depth < 10.0 && seed < 0.08 {
         return BLK_COAL_ORE;
     }
@@ -122,12 +249,22 @@ pub fn get_block_type(params: &WorldParams, wx: f64, wy: f64, wz: f64, surface_h
         return BLK_DIAMOND_ORE;
     }
 
-    BLK_STONE
+    // Deep ore: rare, valuable ores at great depth
+    if depth > 20.0 && seed < 0.003 {
+        return BLK_DIAMOND_ORE;
+    }
+    if depth > 16.0 && seed < 0.006 {
+        return BLK_GOLD_ORE;
+    }
+
+    // Zone-specific deep blocks
+    deep_block_type(zone, depth, seed)
 }
 
 pub fn block_color(block_type: u8, _params: &WorldParams, wx: f64, wy: f64, wz: f64, zone: Zone, surface_h: f64, max_h: f64) -> [f32; 3] {
     let depth = (surface_h - wy) as f32;
-    let darken = 1.0 - (depth / 12.0).clamp(0.0, 0.6);
+    // Darken with depth but with a higher floor (min 0.25 brightness so caves aren't totally black)
+    let darken = (1.0 - (depth / 20.0).clamp(0.0, 0.75)).max(0.25);
 
     let base = match block_type {
         BLK_GRASS => get_zone_terrain_color(zone, surface_h, max_h, 0.8, wx, wz),
@@ -143,11 +280,28 @@ pub fn block_color(block_type: u8, _params: &WorldParams, wx: f64, wy: f64, wz: 
         BLK_CLAY => [0.6, 0.55, 0.5],
         BLK_WATER => [0.2, 0.4, 0.8],
         BLK_LAVA => [1.0, 0.3, 0.05],
+        BLK_PACKED_ICE => [0.6, 0.7, 0.85],
+        BLK_OBSIDIAN => [0.08, 0.06, 0.12],
+        BLK_MOSS => [0.35, 0.45, 0.2],
+        BLK_GLOW_SHROOM => [0.5, 0.7, 0.3],
+        BLK_MAGMA_BLOCK => [0.7, 0.2, 0.05],
+        BLK_SOUL_SAND => [0.25, 0.2, 0.15],
+        BLK_BASALT => [0.18, 0.18, 0.2],
         _ => zone_rock_color(zone),
     };
 
-    if block_type == BLK_GRASS {
+    if block_type == BLK_GRASS || block_type == BLK_WATER {
         return base;
+    }
+
+    // Emissive blocks glow
+    if block_emits_light(block_type) {
+        let glow = match block_type {
+            BLK_LAVA => 1.0,
+            BLK_GLOW_SHROOM => 0.7,
+            _ => 0.3,
+        };
+        return [base[0].max(glow), base[1].max(glow), base[2].max(glow)];
     }
 
     if depth > 0.5 {

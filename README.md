@@ -32,21 +32,30 @@ worlds/
 │   │   ├── engine/            # Núcleo del motor
 │   │   │   ├── mod.rs         # Game loop + física + colisión
 │   │   │   ├── terrain.rs     # Altura FBM, zonas, efectos, colores
-│   │   │   ├── chunk.rs       # Generación de mallas
+│   │   │   ├── chunk.rs       # Generación de mallas + voxel 3D
 │   │   │   ├── bridge.rs      # FFI → JavaScript
 │   │   │   ├── audio.rs       # Síntesis de audio por zona
-│   │   │   ├── controls.rs    # Teclado + mouse
+│   │   │   ├── controls.rs    # Teclado + mouse + gamepad
 │   │   │   ├── camera.rs      # Cámara primera/tercera persona
-│   │   │   ├── particles.rs   # Lluvia/Nieve ambientales
+│   │   │   ├── particles.rs   # Lluvia/Nieve/Insectos ambientales
 │   │   │   ├── vegetation.rs  # Árboles, arbustos, rocas
 │   │   │   ├── structures.rs  # Estructuras arquitectónicas
 │   │   │   ├── minerals.rs    # Depósitos de minerales
-│   │   │   ├── creatures.rs   # Criaturas procedurales
-│   │   │   └── portals.rs     # Portales
+│   │   │   ├── creatures.rs   # Criaturas procedurales + IA
+│   │   │   ├── portals.rs     # Portales
+│   │   │   ├── codex.rs       # Codex de criaturas
+│   │   │   ├── achievements.rs# Logros
+│   │   │   ├── inventory.rs   # Inventario + crafteo
+│   │   │   ├── db.rs          # IndexedDB persistencia
+│   │   │   ├── foam.rs        # Espuma de agua
+│   │   │   └── waterfall.rs   # Cascadas
 │   │   ├── math/              # Ruido FBM y funciones
 │   │   ├── state/mod.rs       # Estado global, tipos
 │   │   └── app.rs             # UI Leptos (menús deslizantes)
-│   └── three_bridge.js        # Render Three.js
+│   ├── three_bridge.js        # Render Three.js
+│   ├── i18n/                  # Traducciones ES/EN
+│   ├── manifest.json          # PWA manifest
+│   └── service-worker.js      # Service worker
 ├── server/                    # Servidor Axum
 │   └── assets/                # Frontend estático
 └── shared/                    # Librería compartida
@@ -64,6 +73,15 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 - **Cañones**: tallado profundo con ondas sinusoidales
 - **15 Zonas**: Forest, Plains, Desert, Tundra, Jungle, Volcanic, Ocean, Crystal, Cave, Lava, Fungus, Abyss, Storm, Aurora, Magma — cada una con color, altura y efectos únicos
 
+### 🗺️ Terreno Voxel 3D Subterráneo
+
+- **32 capas** de profundidad con bloqueo sólido
+- **Cuevas, acuíferos, lava tubes, cavernas de hongo, geodas, dungeon rooms**
+- LOD 3 niveles (32/8/2 capas)
+- Iluminación por vóxel con antorchas + bloques emisivos
+- Color blending superficie↔subterráneo
+- **7 nuevos tipos de bloque**: Dirt, Stone, Wood, Leaves, Crystal, Lava Stone, Ice, Sand, Moss
+
 ### 💧 Agua Dinámica
 
 - Nivel de agua configurable (−1.0 a 2.0)
@@ -72,7 +90,7 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 
 ### 🧑 Personaje Personalizable
 
-- **4 Presets**: Humano, Robot, Bestia, Fantasma
+- **6 Presets**: Humano, Robot, Bestia, Fantasma, Teddy, Panda, Kraken
 - **7 Esquemas de color** con paletas propias
 - **Escala** (0.5×–1.5×)
 - Animación de caminar/correr con brazos y piernas
@@ -97,6 +115,16 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 - Sol en arco, cielo transiciona, estrellas aparecen de noche
 - Cambio de color de luz y niebla
 
+### 🌸 Estaciones y Ecosistemas
+
+- **4 estaciones**: Primavera, Verano, Otoño, Invierno con ciclo automático
+- Colores de follaje, floración y tamaño de vegetación cambian por estación
+- **Crecimiento de árboles**: semilla → brote → joven → adulto con ticks cada ~10s
+- **Frutos**: aparecen en árboles en verano/otoño, recolectables con clic derecho
+- **Insectos de bioma**: mariposas (Forest/Jungle/Plains), pájaros (abiertos), luciérnagas (Cave/Fungus)
+- **Frentes meteorológicos**: masas de lluvia que se desplazan por el mapa
+- **Viento**: dirección y fuerza variables, afecta partículas y vegetación
+
 ### 🏃 Física y Colisiones
 
 - **Gravedad** configurable (5–40)
@@ -116,9 +144,55 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 
 ### 🌲 Vegetación 3D
 
-- Árboles, arbustos, rocas, cactus, hongos, cristales
+- Árboles, arbustos, rocas, cactus, hongos, cristales, corales, algas, anémonas, esponjas
 - Sway animado por viento
 - Hasta 120 instancias por chunk
+
+### 🦎 Criaturas Procedurales
+
+- 16 tipos: Ciervo, Mono, Ave, Cristalino, Murciélago, Elemental de fuego, Serpiente, Oso polar, Zorro, Suricata, Pez, Cangrejo, Medusa, Mariposa, Pájaro, Luciérnaga
+- Asignadas por bioma (terrestres, acuáticas, voladoras)
+- IA con estados: idle, wander, flee, follow, eat
+- Pathfinding A* sobre grid del terreno
+- **Alimentar y domar**: clic derecho con fruta → domesticación
+- Criaturas domadas siguen al jugador
+- Movimiento sinusoidal + huida del jugador
+- Descubrimiento vía Codex con clic derecho
+
+### 🏛️ Estructuras Arquitectónicas
+
+- Plazas, Murallas, Entradas de mazmorra, Torres, Ruinas, Arcos, Pilares, Cúpulas, Pirámides, Espirales de cristal, Cabañas de hongo, Obeliscos
+- Variedad por bioma
+
+### 🎮 Multijugador
+
+- WebSocket vía servidor Axum
+- Chat en tiempo real
+- Jugadores remotos visibles como cápsulas con nombre
+
+### 📖 Codex y Logros
+
+- **Codex**: registro de criaturas descubiertas por bioma, con nombre y zona
+- **Logros**: sistema de logros desbloqueables por acciones (domar, descubrir, explorar)
+
+### 💾 Persistencia
+
+- Save/Load automático y manual vía IndexedDB
+- 3 ranuras de guardado con nombre y timestamp
+- Persiste: posición, waypoints, seed, parámetros, inventario, codex, logros, bloques colocados
+
+### 🏭 Inventario y Crafteo
+
+- Inventario con recolección de frutos y minerales
+- Sistema de crafteo básico
+- Consumibles: fruta para alimentar criaturas
+
+### 🌊 Hidrología
+
+- **Cascadas**: efecto visual con partículas en acantilados
+- **Espuma**: foam en la línea de costa
+- **Flora acuática**: algas, corales, kelp en zonas marinas
+- **Oleaje**: vertex displacement en el agua
 
 ## UI — Menús Deslizantes
 
@@ -139,7 +213,11 @@ Interfaz de 3 columnas con botones de acción directa. Cada botón abre un panel
 | ESPACIO | Saltar / Subir (vuelo/natación) |
 | SHIFT | Bajar (vuelo/natación) |
 | Q/E | Rotar cámara |
+| G | Ciclar clima |
+| T | Activar/desactivar vuelo |
+| B | Modo construcción |
 | Click | Activar pointer lock |
+| Click derecho | Examinar criatura / Recolectar fruta |
 
 ## Build & Deploy
 

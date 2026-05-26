@@ -254,6 +254,15 @@
         }
     };
 
+    // --- Wind ---
+
+    window.threeBridgeSetWind = function (dir, strength) {
+        if (!scene) return;
+        scene.userData = scene.userData || {};
+        scene.userData.windDir = dir;
+        scene.userData.windStrength = strength;
+    };
+
     // --- Legacy / backward-compat aliases ---
 
     window.threeBridgeAddChunk = function (key, posArr, colArr, idxArr, ox, oz) {

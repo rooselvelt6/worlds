@@ -12,9 +12,9 @@ pub fn start() {
     #[cfg(feature = "parallel")]
     {
         let n = web_sys::window()
-            .and_then(|w| w.navigator().hardware_concurrency())
-            .unwrap_or(4) as usize;
-        wasm_bindgen_rayon::init_thread_pool(n);
+            .and_then(|w| Some(w.navigator().hardware_concurrency()))
+            .unwrap_or(4.0) as usize;
+        let _ = wasm_bindgen_rayon::init_thread_pool(n);
     }
 
     leptos::mount::mount_to_body(app::App);

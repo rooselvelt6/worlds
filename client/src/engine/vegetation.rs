@@ -37,7 +37,7 @@ pub struct VegData {
 
 const MAX_VEG: usize = 120;
 
-pub fn compute_chunk_vegetation(params: &WorldParams, cx: i32, cz: i32) -> VegData {
+pub fn compute_chunk_vegetation(params: &WorldParams, cx: i32, cz: i32, season: u8) -> VegData {
     let ox = cx as f64 * crate::engine::chunk::CHUNK_SIZE;
     let oz = cz as f64 * crate::engine::chunk::CHUNK_SIZE;
     let seed = params.seed.wrapping_mul(2654435761).wrapping_add((cx as u32).wrapping_mul(374761393)).wrapping_add((cz as u32).wrapping_mul(668265263));
@@ -79,8 +79,9 @@ pub fn compute_chunk_vegetation(params: &WorldParams, cx: i32, cz: i32) -> VegDa
         let r = rng as f64 / u32::MAX as f64;
 
         let veg_type = veg_for_zone(zone, r);
-        let size = veg_size(veg_type, zone, r);
+        let base_size = veg_size(veg_type, zone, r);
         let variation = (rng.wrapping_mul(7) as u8) % 8;
+        let size = growth_size(base_size, variation, season);
 
         instances.push(VegInstance {
             x: wx as f32,
@@ -189,10 +190,6 @@ fn veg_for_zone(zone: Zone, r: f64) -> VegType {
         }
         _ => VegType::Rock,
     }
-}
-
-fn veg_color(veg_type: VegType) -> [f32; 3] {
-    veg_color_season(veg_type, 1) // default summer
 }
 
 pub fn veg_color_season(veg_type: VegType, season: u8) -> [f32; 3] {
@@ -329,6 +326,18 @@ fn emit_veg(
             let canopy = tree_canopy_color(season);
             push_box(pos, norms, idx, cols, x, y + th * 0.5, z, tw, th * 0.5, tw, 0.4, 0.25, 0.1, base_idx);
             push_box(pos, norms, idx, cols, x, y + th + fh * 0.5, z, fw, fh * 0.5, fw, canopy[0], canopy[1], canopy[2], base_idx);
+            // Fruit in summer and autumn
+            if season == 1 || season == 2 {
+                let fruit_color = if season == 1 { [0.9, 0.2, 0.1] } else { [1.0, 0.5, 0.1] };
+                let fruit_r = fw * 0.15;
+                for fi in 0..4 {
+                    let angle = fi as f32 * std::f32::consts::PI * 0.5 + 0.3;
+                    let fx = x + angle.cos() * fw * 0.6;
+                    let fz = z + angle.sin() * fw * 0.6;
+                    let fy = y + th + fh * 0.3 + (fi as f32 * 0.1);
+                    push_box(pos, norms, idx, cols, fx, fy, fz, fruit_r, fruit_r, fruit_r, fruit_color[0], fruit_color[1], fruit_color[2], base_idx);
+                }
+            }
         }
         VegType::DeadTree => {
             let th = size * 0.7;
@@ -405,20 +414,41 @@ fn emit_veg(
     }
 }
 
-pub fn generate_veg_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>)> {
-    let veg = compute_chunk_vegetation(params, cx, cz);
-    if veg.instances.is_empty() { return None; }
-    Some(generate_veg_mesh_from_data(&veg, 1))
+fn tree_growth_factor(inst: &VegInstance, growth_ticks: u64) -> f32 {
+    if inst.veg_type != VegType::Tree { return 1.0; }
+    // Derive birth tick from instance position hash
+    let h = (inst.x.to_bits() as u64).wrapping_mul(374761393)
+        .wrapping_add((inst.z.to_bits() as u64).wrapping_mul(668265263))
+        .wrapping_add(inst.variation as u64);
+    let birth_tick = (h >> 16) % 20; // 0..19 — tree "plants" at different times
+    let age = if growth_ticks > birth_tick { growth_ticks - birth_tick } else { 0 };
+    let stage = (age / 3).min(3); // 0=seed, 1=sprout, 2=young, 3=adult
+    match stage {
+        0 => 0.25,
+        1 => 0.45,
+        2 => 0.70,
+        _ => 1.0,
+    }
 }
 
-pub fn generate_veg_mesh_from_data(veg: &VegData, season: u8) -> (Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>) {
+pub fn generate_veg_mesh(params: &WorldParams, cx: i32, cz: i32, season: u8, growth_ticks: u64) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>)> {
+    let veg = compute_chunk_vegetation(params, cx, cz, season);
+    if veg.instances.is_empty() { return None; }
+    Some(generate_veg_mesh_from_data(&veg, season, growth_ticks))
+}
+
+pub fn generate_veg_mesh_from_data(veg: &VegData, season: u8, growth_ticks: u64) -> (Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>) {
     let mut pos = Vec::new();
     let mut norms = Vec::new();
     let mut idx = Vec::new();
     let mut cols = Vec::new();
     let mut base_idx = 0u32;
     for inst in &veg.instances {
-        emit_veg(inst.veg_type, inst.x, inst.y, inst.z, inst.size, season, &mut pos, &mut norms, &mut idx, &mut cols, &mut base_idx);
+        let mut gs = inst.size;
+        if inst.veg_type == VegType::Tree {
+            gs *= tree_growth_factor(inst, growth_ticks);
+        }
+        emit_veg(inst.veg_type, inst.x, inst.y, inst.z, gs, season, &mut pos, &mut norms, &mut idx, &mut cols, &mut base_idx);
     }
     (pos, norms, idx, cols)
 }

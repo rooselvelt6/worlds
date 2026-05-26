@@ -52,7 +52,7 @@ struct PlayerState {
     pitch: f32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 struct ChatMessage {
     player_id: String,
     player_name: String,

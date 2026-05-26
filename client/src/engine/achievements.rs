@@ -111,4 +111,8 @@ impl AchievementState {
     pub fn check_build(&mut self, count: u32) {
         if count >= 10 { self.try_unlock(Achievement::Builder); }
     }
+
+    pub fn check_creatures(&mut self, _count: u32) {
+        self.try_unlock(Achievement::Explorer);
+    }
 }

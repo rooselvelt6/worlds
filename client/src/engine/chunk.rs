@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use crate::engine::terrain;
 use crate::engine::terrain::{Zone, BLK_AIR};
 use crate::math::{hsl_to_rgb, rgb_to_hsl};
@@ -8,7 +8,7 @@ pub const CHUNK_SIZE: f64 = 24.0;
 pub const BLOCK_RES: u32 = 24;
 const BLOCK_SIZE: f64 = CHUNK_SIZE / BLOCK_RES as f64;
 const BLOCK_HALF: f32 = (BLOCK_SIZE * 0.5) as f32;
-const UNDERGROUND_LAYERS: i32 = 8;
+const UNDERGROUND_LAYERS: i32 = 32;
 
 #[derive(Clone)]
 pub struct ChunkData {
@@ -121,8 +121,8 @@ fn is_air(params: &WorldParams, wx: f64, wy: f64, wz: f64) -> bool {
     wy > h2
 }
 
-fn block_key(cx: i32, cz: i32, ix: usize, iy: usize, iz: usize) -> (i32, i32, i32) {
-    (cx * 24 + ix as i32, -UNDERGROUND_LAYERS + iy as i32, cz * 24 + iz as i32)
+fn block_key(cx: i32, cz: i32, ix: usize, iy: usize, iz: usize, ug_layers: i32) -> (i32, i32, i32) {
+    (cx * 24 + ix as i32, -ug_layers + iy as i32, cz * 24 + iz as i32)
 }
 
 fn feature_hash(cx: i32, cz: i32, seed: u32, index: u32) -> f64 {
@@ -163,11 +163,32 @@ fn apply_underground_features(
                         let depth = surface_h - wy;
                         let pool = (lava_noise - 0.55) / 0.45;
                         if depth < 12.0 && pool > 0.3 && pool < 0.7 {
-                            // Lava pool center — make lava
                             blocks[idx] = terrain::BLK_LAVA;
                         } else if pool >= 0.7 {
-                            // Carve air above lava
                             blocks[idx] = terrain::BLK_AIR;
+                        }
+                    }
+                }
+            }
+
+            // ── Deep lava tubes in Volcanic/Lava/Magma (great depth, any surface_h) ──
+            if matches!(zone, Zone::Volcanic | Zone::Lava | Zone::Magma) {
+                let tube_noise = crate::math::perlin_noise_3d(wx * 0.02, surface_h * 0.02, wz * 0.02);
+                if tube_noise > 0.6 {
+                    for iy in 0..grid_ny {
+                        let wy = wy_min + iy as f64 + BLOCK_SIZE * 0.5;
+                        let depth = surface_h - wy;
+                        if depth < 8.0 || depth > 20.0 { continue; }
+                        let idx = iy * n * n + iz * n + ix;
+                        if blocks[idx] == terrain::BLK_AIR { continue; }
+                        let tube_radius = 1.0 + (tube_noise - 0.6) / 0.4 * 2.0;
+                        let dist_from_tube_center = (wy - (surface_h - 14.0)).abs();
+                        if dist_from_tube_center < tube_radius {
+                            if dist_from_tube_center < tube_radius * 0.4 {
+                                blocks[idx] = terrain::BLK_LAVA;
+                            } else {
+                                blocks[idx] = terrain::BLK_AIR;
+                            }
                         }
                     }
                 }
@@ -186,6 +207,46 @@ fn apply_underground_features(
                         let dist_from_top = (surface_h - 3.0 - wy) as usize;
                         if dist_from_top < crystal_h {
                             blocks[idx] = terrain::BLK_DIAMOND_ORE;
+                        }
+                    }
+                }
+                // Crystal geodes — small clusters of packed ice deep underground
+                let geode_seed = feature_hash(cx, cz, seed.wrapping_add(0xDEF), (ix * n + iz) as u32);
+                if geode_seed > 0.99 {
+                    for iy in 0..grid_ny {
+                        let wy = wy_min + iy as f64 + BLOCK_SIZE * 0.5;
+                        let depth = surface_h - wy;
+                        if depth < 5.0 || depth > 14.0 { continue; }
+                        let idx = iy * n * n + iz * n + ix;
+                        if blocks[idx] == terrain::BLK_AIR { continue; }
+                        let layer = (wy * 3.0 + 100.0).sin() * (wx * 3.0 + wz * 2.0).cos() * 0.5 + 0.5;
+                        if layer > 0.6 {
+                            blocks[idx] = terrain::BLK_PACKED_ICE;
+                        }
+                    }
+                }
+            }
+
+            // ── Fungus caverns: large open chambers with glow shrooms ──
+            if zone == Zone::Fungus && surface_h > 4.0 {
+                let cavern_noise = crate::math::perlin_noise_3d(wx * 0.01, surface_h * 0.01, wz * 0.01);
+                if cavern_noise > 0.55 {
+                    for iy in 0..grid_ny {
+                        let wy = wy_min + iy as f64 + BLOCK_SIZE * 0.5;
+                        let depth = surface_h - wy;
+                        if depth < 3.0 || depth > 15.0 { continue; }
+                        let idx = iy * n * n + iz * n + ix;
+                        if blocks[idx] == terrain::BLK_AIR { continue; }
+                        // Carve a large chamber
+                        let czn = crate::math::perlin_noise_3d(wx * 0.04, wy * 0.04, wz * 0.04);
+                        if czn > 0.3 {
+                            let floor_dist = (wy - (surface_h - depth.max(3.0))).abs();
+                            if floor_dist < 0.5 {
+                                // Chamber floor — glow shrooms
+                                blocks[idx] = terrain::BLK_GLOW_SHROOM;
+                            } else {
+                                blocks[idx] = terrain::BLK_AIR;
+                            }
                         }
                     }
                 }
@@ -209,20 +270,16 @@ fn apply_underground_features(
                                 let idx2 = iy * n * n + rz * n + rx;
                                 let wy2 = wy_min + iy as f64 + BLOCK_SIZE * 0.5;
                                 if wy2 > surface_h - 0.5 { continue; }
-                                // Carve room interior
                                 if dy == 0 || dy == 2 || dx == 0 || dx == 4 || dz == 0 || dz == 4 {
-                                    // Walls — only replace stone/dirt, not ores
                                     if blocks[idx2] == terrain::BLK_STONE || blocks[idx2] == terrain::BLK_DIRT {
                                         blocks[idx2] = terrain::BLK_STONE;
                                     }
                                 } else {
-                                    // Interior — air
                                     blocks[idx2] = terrain::BLK_AIR;
                                 }
                             }
                         }
                     }
-                    // Place a treasure block on the floor center
                     let center_idx = (room_iy + 1) * n * n + (room_oz + 2) * n + (room_ox + 2);
                     if center_idx < blocks.len() {
                         blocks[center_idx] = if dungeon_seed > 0.9995 {
@@ -239,19 +296,83 @@ fn apply_underground_features(
     }
 }
 
-pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32, mined: &HashSet<(i32,i32,i32)>) -> ChunkData {
-    compute_chunk_data_lod(params, cx, cz, mined, 0)
+/// Compute lighting at a block position by checking nearby light-emitting blocks.
+/// surface_h is the terrain surface height above this column.
+fn block_light_level(wx: f64, wy: f64, wz: f64, surface_h: f64,
+    blocks: &[u8], n: usize, grid_ny: usize, wy_min: f64, ox: f64, oz: f64,
+    placed_blocks: &HashMap<(i32,i32,i32), u8>, cx_chunk: i32, cz_chunk: i32) -> f32
+{
+    // Surface light: blocks near the surface get full brightness
+    let depth_below_surface = surface_h - wy;
+    let surface_light = if depth_below_surface <= 0.5 { 1.0 }
+        else { (1.0 - (depth_below_surface - 0.5) / 6.0).clamp(0.1, 1.0) };
+
+    // Check nearby light-emitting blocks (torches = placed block type 2, plus natural emitters)
+    let mut nearby_light = 0.0_f32;
+    let check_radius = 4.0;
+    let steps = 5;
+    let step_sz = check_radius / steps as f64;
+
+    // Convert world coords to block grid indices
+    let base_ix = ((wx - ox) / BLOCK_SIZE) as i32;
+    let base_iy = ((wy - wy_min) / BLOCK_SIZE) as i32;
+    let base_iz = ((wz - oz) / BLOCK_SIZE) as i32;
+
+    for diy in -steps..=steps {
+        let iy = base_iy + diy;
+        if iy < 0 || iy >= grid_ny as i32 { continue; }
+        let dy = diy as f64 * step_sz;
+        for dix in -steps..=steps {
+            let ix = base_ix + dix;
+            if ix < 0 || ix >= n as i32 { continue; }
+            let dx = dix as f64 * step_sz;
+            for diz in -steps..=steps {
+                let iz = base_iz + diz;
+                if iz < 0 || iz >= n as i32 { continue; }
+                let dz = diz as f64 * step_sz;
+
+                let dist2 = (dx*dx + dy*dy + dz*dz) as f32;
+                if dist2 > (check_radius * check_radius) as f32 { continue; }
+
+                let block_idx = iy as usize * n * n + iz as usize * n + ix as usize;
+                let bt = blocks[block_idx];
+                if terrain::block_emits_light(bt) {
+                    let light_strength = 1.0 - (dist2.sqrt() / check_radius as f32).clamp(0.0, 1.0);
+                    nearby_light = nearby_light.max(light_strength * 0.8);
+                }
+
+                // Check placed torches (block type 2 = torch)
+                let world_x = cx_chunk * 24 + ix as i32;
+                let world_y = -(underground_layers(0)) + iy as i32;
+                let world_z = cz_chunk * 24 + iz as i32;
+                let world_key = (world_x, world_y, world_z);
+                if let Some(&pt) = placed_blocks.get(&world_key) {
+                    if pt == 2 { // torch
+                        let light_strength = 1.0 - (dist2.sqrt() / check_radius as f32).clamp(0.0, 1.0);
+                        nearby_light = nearby_light.max(light_strength);
+                    }
+                }
+            }
+        }
+    }
+
+    let total_light = surface_light.max(nearby_light as f64);
+    total_light.clamp(0.1, 1.0) as f32
+}
+
+pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32, mined: &HashSet<(i32,i32,i32)>, placed: &HashMap<(i32,i32,i32), u8>) -> ChunkData {
+    compute_chunk_data_lod(params, cx, cz, mined, placed, 0)
 }
 
 fn underground_layers(lod: u32) -> i32 {
     match lod {
         0 => UNDERGROUND_LAYERS,
-        1 => 3,
-        _ => 1,
+        1 => 8,
+        _ => 2,
     }
 }
 
-pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &HashSet<(i32,i32,i32)>, lod: u32) -> ChunkData {
+pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &HashSet<(i32,i32,i32)>, placed: &HashMap<(i32,i32,i32), u8>, lod: u32) -> ChunkData {
     let mutated = apply_mutation(params, cx, cz);
     let p = &mutated;
 
@@ -284,7 +405,7 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 let wy = wy_min + iy as f64 + BLOCK_SIZE * 0.5;
                 let idx = iy * n * n + iz * n + ix;
                 let bt = terrain::get_block_type(p, wx, wy, wz, surface_h, zone);
-                if bt != BLK_AIR && mined.contains(&block_key(cx, cz, ix, iy, iz)) {
+                if bt != BLK_AIR && mined.contains(&block_key(cx, cz, ix, iy, iz, ug_layers)) {
                     blocks[idx] = BLK_AIR;
                 } else {
                     blocks[idx] = bt;
@@ -335,6 +456,21 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                     )
                 };
 
+                // Torch/emissive lighting
+                let light = if terrain::block_emits_light(blocks[idx]) {
+                    1.0_f32
+                } else if sample_step > 1 {
+                    // Skip detailed lighting for LOD chunks
+                    0.7_f32
+                } else if lod == 0 {
+                    block_light_level(wx, wy, wz, surface_h, &blocks, n, grid_ny, wy_min, ox, oz, placed, cx, cz)
+                } else {
+                    0.7_f32
+                };
+                let rl = (r * light).clamp(0.0, 1.0);
+                let gl = (g * light).clamp(0.0, 1.0);
+                let bl = (b * light).clamp(0.0, 1.0);
+
                 let wx_f = wx as f32;
                 let wy_f = wy as f32;
                 let wz_f = wz as f32;
@@ -342,46 +478,46 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 // +X
                 if ix + sample_step < n {
                     if blocks[iy * n * n + iz * n + (ix + sample_step)] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 0, r, g, b);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 0, rl, gl, bl);
                     }
                 } else if is_air(p, wx + BLOCK_SIZE * sample_step as f64, wy, wz) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 0, r, g, b);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 0, rl, gl, bl);
                 }
                 // -X
                 if ix >= sample_step {
                     if blocks[iy * n * n + iz * n + (ix - sample_step)] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 1, r, g, b);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 1, rl, gl, bl);
                     }
                 } else if is_air(p, wx - BLOCK_SIZE * sample_step as f64, wy, wz) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 1, r, g, b);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 1, rl, gl, bl);
                 }
                 // +Y (top)
                 if iy + sample_step < grid_ny {
                     if blocks[(iy + sample_step) * n * n + iz * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 2, r, g, b);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 2, rl, gl, bl);
                     }
                 }
                 // -Y (bottom)
                 if iy >= sample_step {
                     if blocks[(iy - sample_step) * n * n + iz * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 3, r, g, b);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 3, rl, gl, bl);
                     }
                 }
                 // +Z
                 if iz + sample_step < n {
                     if blocks[iy * n * n + (iz + sample_step) * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 4, r, g, b);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 4, rl, gl, bl);
                     }
                 } else if is_air(p, wx, wy, wz + BLOCK_SIZE * sample_step as f64) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 4, r, g, b);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 4, rl, gl, bl);
                 }
                 // -Z
                 if iz >= sample_step {
                     if blocks[iy * n * n + (iz - sample_step) * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 5, r, g, b);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 5, rl, gl, bl);
                     }
                 } else if is_air(p, wx, wy, wz - BLOCK_SIZE * sample_step as f64) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 5, r, g, b);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 5, rl, gl, bl);
                 }
 
                 iy += sample_step;

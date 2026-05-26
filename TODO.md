@@ -4,69 +4,68 @@ Priorizado por impacto/dependencias. Cada fase lista archivos a modificar y tare
 
 ---
 
-## 1. F5 — Persistencia (Save/Load en IndexedDB)
-**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 2-3h
+## 1. ✅ F5 — Persistencia (Save/Load en IndexedDB)
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 2-3h **COMPLETADO**
 
-- [ ] Migrar `localStorage` a `IndexedDB` (almacenamiento más grande y estructurado)
-- [ ] Serializar: posición, waypoints, descubrimientos, seed, parámetros, día, inventario, logros, codex, bloques colocados
-- [ ] Ranuras de guardado (3 slots) con nombre, timestamp, screenshot thumbnail
-- [ ] Auto-save cada 30s + Save manual
-- [ ] Carga automática al iniciar (con diálogo "nuevo mundo" vs "continuar")
-- [ ] Load game desde el menú principal
+- [x] Migrar `localStorage` a `IndexedDB` (almacenamiento más grande y estructurado)
+- [x] Serializar: posición, waypoints, descubrimientos, seed, parámetros, día, inventario, logros, codex, bloques colocados
+- [x] Ranuras de guardado (3 slots) con nombre, timestamp, screenshot thumbnail
+- [x] Auto-save cada 30s + Save manual
+- [x] Carga automática al iniciar (con diálogo "nuevo mundo" vs "continuar")
+- [x] Load game desde el menú principal
 
 **Archivos:** `app.rs`, `state/mod.rs`, `engine/mod.rs`, `index.html`
 
 ---
 
-## 2. F7 — Terreno Voxel 3D (Cuevas reales)
-**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F6 | **Tamaño:** 15-20h
-> ⚠️ FASE MAS PESADA — dividir en sub-fases:
+## 2. ✅ F7 — Terreno Voxel 3D (Cuevas reales)
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F6 | **Tamaño:** 15-20h **COMPLETADO**
 
 ### 2a. Estructura de chunks 3D
-- [ ] Cambiar `ChunkData` de heightmap 2D a grid tridimensional (16×64×16)
-- [ ] Algoritmo de tallado 3D (noise 3D para cuevas, cavernas, túneles)
-- [ ] Face culling: solo renderizar caras visibles entre bloques sólidos y aire
-- [ ] Transición suave superficie↔subterráneo (blending de colores)
+- [x] Cambiar `ChunkData` de heightmap 2D a grid tridimensional (16×64×16)
+- [x] Algoritmo de tallado 3D (noise 3D para cuevas, cavernas, túneles)
+- [x] Face culling: solo renderizar caras visibles entre bloques sólidos y aire
+- [x] Transición suave superficie↔subterráneo (blending de colores)
 
 ### 2b. Bloques individuales
-- [ ] Tipos de bloque: tierra, piedra, carbón, hierro, oro, diamante, lava, agua subterránea
-- [ ] Break animation (partículas al romper)
-- [ ] Drop de items al romper
-- [ ] Iluminación de antorcha (vertex lighting dinámico)
+- [x] Tipos de bloque: tierra, piedra, carbón, hierro, oro, diamante, lava, agua subterránea
+- [x] Break animation (partículas al romper)
+- [x] Drop de items al romper
+- [x] Iluminación de antorcha (vertex lighting dinámico)
 
 ### 2c. Features subterráneas
-- [ ] Acuíferos subterráneos
-- [ ] Lagos de lava en profundidad (zona Magma)
-- [ ] Dungeons/Dungeon rooms generadas proceduralmente
-- [ ] Cristales gigantes (Crystal zone bajo tierra)
+- [x] Acuíferos subterráneos
+- [x] Lagos de lava en profundidad (zona Magma)
+- [x] Dungeons/Dungeon rooms generadas proceduralmente
+- [x] Cristales gigantes (Crystal zone bajo tierra)
 
 **Archivos:** `chunk.rs` (reforma mayor), `terrain.rs`, `engine/mod.rs`, `minerals.rs`, `three_bridge.js`, nuevo `engine/voxel.rs`
 
 ---
 
-## 3. F8 — Ecosistemas Dinámicos
-**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F1 | **Tamaño:** 8-10h
+## 3. ✅ F8 — Ecosistemas Dinámicos
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F1 | **Tamaño:** 8-10h **COMPLETADO**
 
-- [ ] Sistema de estaciones (4 estaciones con duración configurable)
-- [ ] Cambio de color de follaje por estación
-- [ ] Crecimiento de árboles (semilla → brote → joven → adulto) con tick semanal
-- [ ] Flores y polinización (insectos voladores)
-- [ ] Frentes meteorológicos: sistemas de lluvia que se desplazan por el mapa
-- [ ] Animales de bioma (mariposas, peces, aves) como partículas especiales
+- [x] Sistema de estaciones (4 estaciones con duración configurable)
+- [x] Cambio de color de follaje por estación
+- [x] Crecimiento de árboles (semilla → brote → joven → adulto) con tick semanal
+- [x] Flores y polinización (insectos voladores + frutos)
+- [x] Frentes meteorológicos: sistemas de lluvia que se desplazan por el mapa
+- [x] Animales de bioma (mariposas, peces, aves)
 
 **Archivos:** `vegetation.rs`, `particles.rs`, `engine/mod.rs`, `terrain.rs`, `creatures.rs`, `app.rs`
 
 ---
 
 ## 4. F9 — Criaturas con IA
-**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F7, F8 | **Tamaño:** 8-12h
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F7, F8 | **Tamaño:** 8-12h (parcial)
 
-- [ ] Pathfinding A* sobre grid del terreno
-- [ ] Comportamientos: deambular, huir, alimentarse, seguir
-- [ ] Spawn condicional: tipo de criatura según bioma, hora, clima
+- [x] Pathfinding A* sobre grid del terreno
+- [x] Comportamientos: deambular, huir, alimentarse, seguir
+- [x] Spawn condicional: tipo de criatura según bioma, hora, clima
 - [ ] Animaciones (idle, walk, run, attack) con morph targets o rotación de partes
 - [ ] Criaturas de rescate ocultas en estructuras con recompensa
-- [ ] Interacción: click para examinar, alimentar, domar
+- [x] Interacción: click para examinar, alimentar, domar
 - [ ] Criaturas montables (caballo, dragón pequeño)
 
 **Archivos:** `creatures.rs` (reforma mayor), `engine/mod.rs`, `structures.rs`, `three_bridge.js`, `controls.rs`
@@ -102,12 +101,14 @@ Priorizado por impacto/dependencias. Cada fase lista archivos a modificar y tare
 ---
 
 ## 7. F13 — Hidrología (completar)
-**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F7 | **Tamaño:** 6-8h
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F7 | **Tamaño:** 6-8h (parcial)
 
 - [ ] Ríos: detectar cauces naturales desde altura hasta water_level (erosion simulation)
 - [ ] Puentes sobre ríos (conectar caminos F17)
-- [ ] Oleaje en costa (vertex displacement en shader de agua)
-- [ ] Flora acuática: algas, corales, kelp (mesh instances en zona acuática)
+- [x] Oleaje en costa (vertex displacement en shader de agua)
+- [x] Flora acuática: algas, corales, kelp (mesh instances en zona acuática)
+- [x] Espuma en costa (foam)
+- [x] Cascadas con partículas
 - [ ] Burbujas bajo el agua (partículas ascendentes)
 - [ ] Sonido de cascadas (requiere F10)
 
@@ -188,15 +189,15 @@ Priorizado por impacto/dependencias. Cada fase lista archivos a modificar y tare
 
 | Prio | Fase | Esfuerzo | Por qué ahora |
 |------|------|----------|---------------|
-| **1** | F5 Persistencia | 2-3h | Sin save no hay progreso real |
-| **2** | F7 Voxel 3D | 15-20h | Desbloquea cuevas, minería real, dungeons |
-| **3** | F8 Ecosistemas | 8-10h | Da vida al mundo |
-| **4** | F9 Criaturas IA | 8-12h | El mundo se siente habitado |
-| **5** | F10 Audio 3D | 5-8h | Inmersión masiva con poco código |
-| **6** | F13 Hidrología | 6-8h | Ríos + oleaje transforman el agua |
-| **7** | F11 Portales | 3-5h | Mejora viajes entre mundos |
-| **8** | F15 Social | 5-8h | Multiplayer completo |
-| **9** | F17 Arq. | 4-6h | Civilización procedural |
-| **10** | F18 VR | 10-15h | Experiencia inmersiva |
-| **11** | F19 Modding | 8-10h | Contenido infinito |
-| **12** | F20 Optimizar | continuo | Pulido final |
+| **1** | ✅ F5 Persistencia | Hecho | IndexedDB auto-save |
+| **2** | ✅ F7 Voxel 3D | Hecho | 32 capas, cuevas, dungeons |
+| **3** | ✅ F8 Ecosistemas | Hecho | Estaciones, crecimiento, frutos, clima |
+| **4** | F9 Criaturas IA | 4-6h | Pathfinding A*, alimentar/domar, seguir |
+| **5** | F10 Audio 3D | 5-8h | PannerNode, eco, música dinámica |
+| **6** | F13 Hidrología | 4-6h | Cascadas, foam, flora acuática, oleaje |
+| **7** | F11 Portales | 3-5h | Shader distorsión, fade, hub |
+| **8** | F15 Social | 5-8h | Chat burbujas, comandos, co-op |
+| **9** | F17 Arq. | 4-6h | Plazas, puentes, variedad por bioma |
+| **10** | F18 VR | 10-15h | WebXR, manos, 72fps |
+| **11** | F19 Modding | 8-10h | Biomas TOML, plugins, blueprints |
+| **12** | F20 Optimizar | continuo | LOD, workers, PWA, i18n |

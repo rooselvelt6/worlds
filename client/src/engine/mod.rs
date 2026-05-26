@@ -38,13 +38,13 @@ use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
 use controls::{Controls, MASK_1, MASK_2, MASK_3, MASK_4, MASK_5, MASK_6, MASK_7, MASK_8, MASK_9,
     MASK_A, MASK_B, MASK_D, MASK_E, MASK_G, MASK_LCLICK, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
-use creatures::{generate_creature_mesh, creature_animated_positions};
+use creatures::generate_creature_mesh_from_data;
 use gamepad::poll_gamepad;
 use inventory::Inventory;
 use minerals::generate_mineral_mesh;
 use particles::ParticleSystem;
 use portals::generate_portal_mesh;
-use structures::{compute_chunk_structures, generate_road_mesh, generate_struct_mesh};
+use structures::{generate_road_mesh, generate_struct_mesh};
 use tour::TourState;
 use vegetation::{compute_chunk_vegetation, generate_veg_mesh_from_data, VegData, VegType};
 use waterfall::WaterfallSystem;
@@ -93,7 +93,7 @@ pub struct HudData {
     pub codex_creatures: (usize, usize),
 }
 
-fn collides_with_veg(x: f64, z: f64, veg_chunks: &std::collections::HashMap<(i32, i32), VegData>) -> bool {
+pub(crate) fn collides_with_veg(x: f64, z: f64, veg_chunks: &std::collections::HashMap<(i32, i32), VegData>) -> bool {
     let cx = (x / CHUNK_SIZE) as i32;
     let cz = (z / CHUNK_SIZE) as i32;
     for dcx in -1..=1 {
@@ -179,7 +179,7 @@ fn load_mined() -> HashSet<(i32,i32,i32)> {
     set
 }
 
-fn collides_with_blocks(x: f64, y: f64, z: f64,
+pub(crate) fn collides_with_blocks(x: f64, y: f64, z: f64,
     blocks: &std::collections::HashMap<(i32,i32,i32), u8>) -> bool
 {
     let bx = x.floor() as i32;
@@ -288,6 +288,7 @@ impl BreakParticle {
     }
 }
 
+#[allow(dead_code)]
 struct RemotePlayerData {
     name: String,
     x: f64, y: f64, z: f64,
@@ -328,6 +329,14 @@ struct GameState {
     weather_target: f64,
     weather_timer: f64,
     lightning_flash: f64,
+    wind_dir: f64,
+    wind_strength: f64,
+    weather_front_x: f64,
+    weather_front_z: f64,
+    season_progress: f64,
+    veg_season: u8,
+    tree_growth_ticks: u64,
+    veg_dirty: bool,
     veg_chunks: std::collections::HashMap<(i32, i32), VegData>,
     placed_blocks: std::collections::HashMap<(i32, i32, i32), u8>,
     block_inventory: Vec<(u8, u32)>,
@@ -348,6 +357,7 @@ struct GameState {
     weather_power_idx: u8,
     weather_cooldown: f64,
     mined_blocks: HashSet<(i32, i32, i32)>,
+    creature_persistent: std::collections::HashMap<(i32, i32), creatures::CreatureData>,
     break_counter: u32,
     break_particles: Vec<BreakParticle>,
     ws_connected: bool,
@@ -606,6 +616,7 @@ fn regenerate_all(s: &mut GameState) {
         bridge::remove_mesh(&format!("mineral_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("portal_{},{}", old.cx, old.cz));
     }
+    s.creature_persistent.clear();
     s.waterfalls.remove_all();
     s.foam.remove();
     s.bubbles.remove();
@@ -613,17 +624,17 @@ fn regenerate_all(s: &mut GameState) {
     let mut new_chunks: Vec<ChunkData> = Vec::new();
     for x in (pcx - d)..=(pcx + d) {
         for z in (pcz - d)..=(pcz + d) {
-            let data = chunk::compute_chunk_data(&s.params, x, z, &s.mined_blocks);
+            let data = chunk::compute_chunk_data(&s.params, x, z, &s.mined_blocks, &s.placed_blocks);
             let key = format!("chunk_{},{}", data.cx, data.cz);
             let pos_arr = js_sys::Float32Array::from(&data.positions[..]);
             let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
             let col_arr = js_sys::Float32Array::from(&data.colors[..]);
             let idx_arr = js_sys::Uint32Array::from(&data.indices[..]);
             bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr);
-            let veg_data = compute_chunk_vegetation(&s.params, x, z);
+            let veg_data = compute_chunk_vegetation(&s.params, x, z, s.params.season);
             if !veg_data.instances.is_empty() {
                 let vkey = format!("veg_{},{}", x, z);
-                let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, 1);
+                let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, s.params.season, s.tree_growth_ticks);
                 let vp = js_sys::Float32Array::from(&vpos[..]);
                 let vn = js_sys::Float32Array::from(&vnorm[..]);
                 let vi = js_sys::Uint32Array::from(&vidx[..]);
@@ -631,13 +642,19 @@ fn regenerate_all(s: &mut GameState) {
                 bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
             }
             s.veg_chunks.insert((x, z), veg_data);
-            if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh(&s.params, x, z) {
-                let ckey = format!("crea_{},{}", x, z);
-                let cp = js_sys::Float32Array::from(&cpos[..]);
-                let cn = js_sys::Float32Array::from(&cnorm[..]);
-                let ci = js_sys::Uint32Array::from(&cidx[..]);
-                let cc = js_sys::Float32Array::from(&ccol[..]);
-                bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+            {
+                let creature_data = creatures::compute_chunk_creatures_with_time(&s.params, x, z, s.day_time);
+                if !creature_data.creatures.is_empty() {
+                    let ckey = format!("crea_{},{}", x, z);
+                    if let Some((cpos, cnorm, cidx, ccol)) = creatures::generate_creature_mesh_from_data(&creature_data) {
+                        let cp = js_sys::Float32Array::from(&cpos[..]);
+                        let cn = js_sys::Float32Array::from(&cnorm[..]);
+                        let ci = js_sys::Uint32Array::from(&cidx[..]);
+                        let cc = js_sys::Float32Array::from(&ccol[..]);
+                        bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+                    }
+                    s.creature_persistent.insert((x, z), creature_data);
+                }
             }
             if let Some((spos, snorm, sidx, scol)) = generate_struct_mesh(&s.params, x, z) {
                 let skey = format!("struct_{},{}", x, z);
@@ -712,6 +729,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         bridge::remove_mesh(&format!("mineral_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("portal_{},{}", old.cx, old.cz));
         s.veg_chunks.remove(&(old.cx, old.cz));
+        s.creature_persistent.remove(&(old.cx, old.cz));
     }
 
     for &(cx, cz) in &to_compute {
@@ -720,9 +738,9 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
 
         // Use LOD chunk generation for distant chunks
         let data = if lod > 0 {
-            chunk::compute_chunk_data_lod(&s.params, cx, cz, &s.mined_blocks, lod)
+            chunk::compute_chunk_data_lod(&s.params, cx, cz, &s.mined_blocks, &s.placed_blocks, lod)
         } else {
-            chunk::compute_chunk_data(&s.params, cx, cz, &s.mined_blocks)
+            chunk::compute_chunk_data(&s.params, cx, cz, &s.mined_blocks, &s.placed_blocks)
         };
         let key = format!("chunk_{},{}", data.cx, data.cz);
         let pos_arr = js_sys::Float32Array::from(&data.positions[..]);
@@ -735,10 +753,10 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         // Skip vegetation/creatures/structures/minerals for far LOD chunks (LOD 2)
         if lod < 2 {
             // Vegetation mesh for this chunk
-            let veg_data = compute_chunk_vegetation(&s.params, cx, cz);
+            let veg_data = compute_chunk_vegetation(&s.params, cx, cz, s.params.season);
             if !veg_data.instances.is_empty() {
                 let vkey = format!("veg_{},{}", cx, cz);
-                let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, 1);
+                let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, s.params.season, s.tree_growth_ticks);
                 let vp = js_sys::Float32Array::from(&vpos[..]);
                 let vn = js_sys::Float32Array::from(&vnorm[..]);
                 let vi = js_sys::Uint32Array::from(&vidx[..]);
@@ -747,14 +765,20 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
             }
             s.veg_chunks.insert((cx, cz), veg_data);
 
-            // Creature mesh for this chunk
-            if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh(&s.params, cx, cz) {
-                let ckey = format!("crea_{},{}", cx, cz);
-                let cp = js_sys::Float32Array::from(&cpos[..]);
-                let cn = js_sys::Float32Array::from(&cnorm[..]);
-                let ci = js_sys::Uint32Array::from(&cidx[..]);
-                let cc = js_sys::Float32Array::from(&ccol[..]);
-                bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+            // Creature mesh + persistent AI data for this chunk
+            {
+                let creature_data = creatures::compute_chunk_creatures_with_time(&s.params, cx, cz, s.day_time);
+                if !creature_data.creatures.is_empty() {
+                    let ckey = format!("crea_{},{}", cx, cz);
+                    if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh_from_data(&creature_data) {
+                        let cp = js_sys::Float32Array::from(&cpos[..]);
+                        let cn = js_sys::Float32Array::from(&cnorm[..]);
+                        let ci = js_sys::Uint32Array::from(&cidx[..]);
+                        let cc = js_sys::Float32Array::from(&ccol[..]);
+                        bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+                    }
+                    s.creature_persistent.insert((cx, cz), creature_data);
+                }
             }
 
             // Structure mesh for this chunk
@@ -1018,6 +1042,14 @@ impl Engine {
             weather_target: 0.0,
             weather_timer: 0.0,
             lightning_flash: 0.0,
+            wind_dir: 0.0,
+            wind_strength: 0.0,
+            weather_front_x: char_pos[0],
+            weather_front_z: char_pos[2],
+            season_progress: 0.0,
+            veg_season: 0,
+            tree_growth_ticks: 0,
+            veg_dirty: false,
             veg_chunks: std::collections::HashMap::new(),
             placed_blocks: load_blocks(),
             mined_blocks: load_mined(),
@@ -1038,6 +1070,7 @@ impl Engine {
             total_distance: 0.0,
             weather_power_idx: 0,
             weather_cooldown: 0.0,
+            creature_persistent: std::collections::HashMap::new(),
             break_counter: 0,
             break_particles: Vec::new(),
             ws_connected: false,
@@ -1320,7 +1353,7 @@ impl Engine {
                                         let bkey = format!("b_{}_{}_{}", hx, hy, hz);
                                         let block_colors = [[0.6,0.45,0.3],[0.5,0.5,0.5],[0.55,0.35,0.15],[0.2,0.6,0.2],[0.7,0.4,1.0],[0.8,0.3,0.05],[0.7,0.9,1.0],[0.85,0.75,0.5],[0.3,0.5,0.2]];
                                         let bcol = if sel_slot == 2 { [0.9, 0.6, 0.1] } else { block_colors[sel_slot as usize % block_colors.len()] };
-                                        let is_torch = sel_slot == 2;
+                                        let _is_torch = sel_slot == 2;
                                         let (pos, nrm, idx) = box_mesh(1.0, 1.0, 1.0);
                                         let col = fill_color(24, bcol[0], bcol[1], bcol[2]);
                                         let bp = js_sys::Float32Array::from(&pos[..]);
@@ -1404,20 +1437,73 @@ impl Engine {
                             }
                         }
                     }
-                    // Examine nearby creatures
+                    // Feed or examine nearby creatures
                     if keys & MASK_RCLICK != 0 {
-                        for c in &s.chunks {
-                            let data = creatures::compute_chunk_creatures(&s.params, c.cx, c.cz);
-                            for cr in &data.creatures {
-                                let dx = cr.x - s.char_pos[0];
-                                let dz = cr.z - s.char_pos[2];
+                        let has_fruit = s.inventory.has(18, 1);
+                        let mut fed = false;
+                        let px = s.char_pos[0];
+                        let pz = s.char_pos[2];
+                        let params_cp = s.params;
+                        let chunks_copy: Vec<(i32, i32)> = s.chunks.iter().map(|c| (c.cx, c.cz)).collect();
+                        let mut messages: Vec<String> = Vec::new();
+                        let mut discovered_ct: Option<u8> = None;
+                        let mut consumed = false;
+                        for (cx, cz) in &chunks_copy {
+                            if let Some(data) = s.creature_persistent.get_mut(&(*cx, *cz)) {
+                                for cr in &mut data.creatures {
+                                    let dx = cr.x - px;
+                                    let dz = cr.z - pz;
+                                    if dx * dx + dz * dz < 9.0 {
+                                        if has_fruit && !fed {
+                                            consumed = true;
+                                            fed = true;
+                                            cr.state = creatures::STATE_EAT;
+                                            cr.state_timer = 2.0;
+                                            cr.hunger = (cr.hunger + 30.0).min(100.0);
+                                            if !cr.tamed && cr.hunger < 30.0 {
+                                                cr.tamed = true;
+                                                cr.state = creatures::STATE_FOLLOW;
+                                                messages.push(format!("💕 ¡{} domesticado!", creatures::creature_name(cr.creature_type)));
+                                            } else {
+                                                messages.push(format!("🍎 {} comió fruta", creatures::creature_name(cr.creature_type)));
+                                            }
+                                            break;
+                                        }
+                                        discovered_ct = Some(cr.creature_type);
+                                        let name = creatures::creature_name(cr.creature_type);
+                                        let zone_str = crate::engine::terrain::get_zone(&params_cp, cr.x, cr.z).as_str().to_string();
+                                        messages.push(format!("🔍 {} — {}", name, zone_str));
+                                        break;
+                                    }
+                                }
+                            }
+                            if fed { break; }
+                        }
+                        if consumed {
+                            let _ = s.inventory.consume(18, 1);
+                        }
+                        if let Some(ct) = discovered_ct {
+                            s.codex.discover_creature(ct);
+                            s.achievements.check_creatures(1);
+                        }
+                        for msg in messages {
+                            if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
+                            s.chat_messages.push_back(("Sistema".into(), msg));
+                        }
+                    }
+                    // Harvest fruit from nearby trees (summer/autumn)
+                    if s.params.season == 1 || s.params.season == 2 {
+                        let chunks_copy: Vec<(i32, i32)> = s.chunks.iter().map(|c| (c.cx, c.cz)).collect();
+                        for (cx, cz) in &chunks_copy {
+                            let data = vegetation::compute_chunk_vegetation(&s.params, *cx, *cz, s.params.season);
+                            for inst in &data.instances {
+                                if inst.veg_type != vegetation::VegType::Tree { continue; }
+                                let dx = inst.x as f64 - s.char_pos[0];
+                                let dz = inst.z as f64 - s.char_pos[2];
                                 if dx * dx + dz * dz < 9.0 {
-                                    let name = creatures::creature_name(cr.creature_type);
-                                    s.codex.discover_creature(cr.creature_type);
-                                    s.achievements.check_creatures(1);
-                                    let msg = format!("🔍 {} — {}", name, crate::engine::terrain::get_zone(&s.params, cr.x, cr.z).as_str());
+                                    s.inventory.add_mineral(18, 1);
                                     if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
-                                    s.chat_messages.push_back(("Sistema".into(), msg));
+                                    s.chat_messages.push_back(("Sistema".into(), "🍎 Recolectaste fruta".into()));
                                     break;
                                 }
                             }
@@ -1533,16 +1619,28 @@ impl Engine {
                 // Update sky dome position to follow camera
                 bridge::set_mesh_position("sky_dome", s.cam_pos[0], s.cam_pos[1], s.cam_pos[2]);
 
-                // Creature AI update (wander + flee) every other frame
+                // Creature AI state machine update every other frame
                 if s.frame_count & 1 == 0 {
-                    for c in &s.chunks {
-                        if let Some((positions, rotations)) = creatures::update_creature_positions(
-                            &s.params, c.cx, c.cz, s.time,
-                            s.char_pos[0], s.char_pos[2],
-                        ) {
-                            let key = format!("crea_{},{}", c.cx, c.cz);
-                            let arr = js_sys::Float32Array::from(&positions[..]);
-                            bridge::update_mesh_positions(&key, &arr);
+                    let params_cp = s.params;
+                    let placed = unsafe { &*(&s.placed_blocks as *const std::collections::HashMap<(i32,i32,i32), u8>) };
+                    let veg = unsafe { &*(&s.veg_chunks as *const std::collections::HashMap<(i32, i32), crate::engine::vegetation::VegData>) };
+                    let dt = s.day_time;
+                    let px = s.char_pos[0];
+                    let pz = s.char_pos[2];
+                    let tm = s.time;
+                    let chunks_copy: Vec<(i32, i32)> = s.chunks.iter().map(|c| (c.cx, c.cz)).collect();
+                    for (cx, cz) in &chunks_copy {
+                        if let Some(data) = s.creature_persistent.get_mut(&(*cx, *cz)) {
+                            if let Some(positions) = creatures::update_creature_ai(
+                                &params_cp, data, tm,
+                                px, pz,
+                                placed, veg,
+                                dt, delta,
+                            ) {
+                                let key = format!("crea_{},{}", cx, cz);
+                                let arr = js_sys::Float32Array::from(&positions[..]);
+                                bridge::update_mesh_positions(&key, &arr);
+                            }
                         }
                     }
                 }
@@ -1725,6 +1823,58 @@ impl Engine {
                     audio::play_tone(500.0 + s.weather_power_idx as f32 * 100.0, 0.15);
                 }
                 s.g_prev = g_pressed;
+
+                // Wind system (natural variation over time)
+                let wind_seed = s.time * 0.1;
+                s.wind_dir = (wind_seed * 1.7).sin() * 0.5 + (wind_seed * 0.9 + 1.3).sin() * 0.5;
+                s.wind_strength = (0.2 + (wind_seed * 0.5).sin().abs() * 0.8) * (1.0 - s.weather_power * 0.5);
+                bridge::set_wind(s.wind_dir, s.wind_strength);
+
+                // Weather front: a moving high-weather zone that drifts with wind
+                let front_speed = 20.0 + s.wind_strength * 30.0;
+                s.weather_front_x += s.wind_dir.cos() * front_speed * delta;
+                s.weather_front_z += s.wind_dir.sin() * front_speed * delta;
+                let dx_front = s.weather_front_x - s.char_pos[0];
+                let dz_front = s.weather_front_z - s.char_pos[2];
+                let front_dist = (dx_front * dx_front + dz_front * dz_front).sqrt();
+                if front_dist > 200.0 {
+                    s.weather_front_x = s.char_pos[0] + dx_front / front_dist * 150.0;
+                    s.weather_front_z = s.char_pos[2] + dz_front / front_dist * 150.0;
+                }
+
+                // Season cycle
+                if s.params.season_speed > 0.0 {
+                    s.season_progress += delta * s.params.season_speed;
+                    if s.season_progress >= 1.0 {
+                        s.season_progress = 0.0;
+                        s.params.season = (s.params.season + 1) % 4;
+                    }
+                }
+
+                // Tree growth tick — every ~10s at 60fps
+                let new_growth_ticks = (s.time / 10.0) as u64;
+                if new_growth_ticks != s.tree_growth_ticks {
+                    s.tree_growth_ticks = new_growth_ticks;
+                    s.veg_dirty = true;
+                }
+
+                // Regenerate vegetation meshes when season changes or trees grow
+                let veg_needs_update = s.veg_season != s.params.season || s.veg_dirty;
+                if veg_needs_update {
+                    s.veg_season = s.params.season;
+                    s.veg_dirty = false;
+                    for (&(cx, cz), veg_data) in &s.veg_chunks {
+                        if !veg_data.instances.is_empty() {
+                            let vkey = format!("veg_{},{}", cx, cz);
+                            let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(veg_data, s.params.season, s.tree_growth_ticks);
+                            let vp = js_sys::Float32Array::from(&vpos[..]);
+                            let vn = js_sys::Float32Array::from(&vnorm[..]);
+                            let vi = js_sys::Uint32Array::from(&vidx[..]);
+                            let vc = js_sys::Float32Array::from(&vcol[..]);
+                            bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
+                        }
+                    }
+                }
 
                 // Send position to multiplayer server
                 if s.ws_connected {
@@ -2067,9 +2217,10 @@ impl Engine {
                         // Green particles burst around player
                         let pkey = format!("heal_{}", s.break_counter);
                         s.break_counter += 1;
+                        let pos = s.char_pos;
                         s.break_particles.push(BreakParticle::new(
                             pkey,
-                            [s.char_pos[0], s.char_pos[1] + 1.0, s.char_pos[2]],
+                            [pos[0], pos[1] + 1.0, pos[2]],
                             30,
                         ));
                     }
@@ -2170,9 +2321,7 @@ impl Engine {
                 }
             }
         });
-        let url_js = js_sys::JsString::from(server_url);
-        let seed_js = js_sys::JsValue::from(seed);
-        bridge::ws_connect(&url_js, seed, cb.as_ref().unchecked_ref());
+        bridge::ws_connect(server_url, seed, cb.as_ref().unchecked_ref());
         cb.forget();
         self.state.borrow_mut().ws_connected = true;
     }

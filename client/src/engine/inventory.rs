@@ -65,6 +65,7 @@ pub const RECIPES: &[CraftRecipe] = &[
     CraftRecipe { name: "Pico avanzado", icon: "⚒️", ingredients: &[(0, 2), (3, 1), (4, 1)], result: ("Pico avanzado", 15, 1) },
     CraftRecipe { name: "Escudo de oro", icon: "🛡️", ingredients: &[(6, 3), (1, 2)], result: ("Escudo de oro", 16, 1) },
     CraftRecipe { name: "Anillo de poder", icon: "💍", ingredients: &[(4, 2), (6, 1), (7, 1)], result: ("Anillo de poder", 17, 1) },
+    CraftRecipe { name: "Mermelada", icon: "🍯", ingredients: &[(18, 2)], result: ("Mermelada", 19, 1) },
 ];
 
 pub fn can_craft(recipe: &CraftRecipe, inv: &Inventory) -> bool {
@@ -98,4 +99,5 @@ pub const BLOCK_TYPES: &[BlockType] = &[
     BlockType { id: 6, name: "Ice", color: [0.7, 0.9, 1.0] },
     BlockType { id: 7, name: "Sand", color: [0.85, 0.75, 0.5] },
     BlockType { id: 8, name: "Moss", color: [0.3, 0.5, 0.2] },
+    BlockType { id: 18, name: "Fruit", color: [0.9, 0.3, 0.1] },
 ];

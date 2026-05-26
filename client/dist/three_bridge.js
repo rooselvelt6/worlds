@@ -259,6 +259,13 @@ window.threeBridgeSetMeshOpacity = function (key, opacity) {
     }
 };
 
+window.threeBridgeSetWind = function (dir, strength) {
+    if (!scene) return;
+    scene.userData = scene.userData || {};
+    scene.userData.windDir = dir;
+    scene.userData.windStrength = strength;
+};
+
 window.threeBridgeRenderFrame = function () {
     if (!composer || !scene || !camera) return;
     composer.render();

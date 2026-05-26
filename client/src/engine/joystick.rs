@@ -51,7 +51,7 @@ impl Joystick {
         });
 
         let el3 = canvas.clone();
-        let active_c2 = active.clone();
+        let _active_c2 = active.clone();
         let dx_c2 = dx.clone();
         let dy_c2 = dy.clone();
         let touch_move = Closure::<dyn Fn(web_sys::TouchEvent)>::new(move |e: web_sys::TouchEvent| {

@@ -270,6 +270,16 @@ window.threeBridgeRenderFrame = function () {
     composer.render();
 };
 
+// ── Wind / Weather ──
+window.threeBridgeSetWind = function (dir, strength) {
+    // Wind direction (radians) and strength (0-1) for visual effects
+    // This will be used for particle systems, foliage animation, etc.
+    if (!scene) return;
+    scene.userData = scene.userData || {};
+    scene.userData.windDir = dir;
+    scene.userData.windStrength = strength;
+};
+
 // ── WebSocket / Multiplayer ──
 let ws = null;
 let wsConnected = false;

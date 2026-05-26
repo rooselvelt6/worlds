@@ -23,7 +23,7 @@ pub fn set_noise_seed(seed: u32) {
         for i in (1..256).rev() {
             rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             let j = (rng >> 32) as usize % (i + 1);
-            PERM.swap(i, j);
+            std::ptr::swap(std::ptr::addr_of_mut!(PERM[i]), std::ptr::addr_of_mut!(PERM[j]));
         }
     }
 }

@@ -82,6 +82,9 @@ extern "C" {
     #[wasm_bindgen(js_name = threeBridgeSetMeshFrustumCulled)]
     pub fn set_mesh_frustum_culled(key: &str, value: bool);
 
+    #[wasm_bindgen(js_name = threeBridgeSetWind)]
+    pub fn set_wind(dir: f64, strength: f64);
+
     // WebSocket / Multiplayer
     #[wasm_bindgen(js_name = threeBridgeWsConnect)]
     pub fn ws_connect(url: &str, seed: u32, on_message: &js_sys::Function);

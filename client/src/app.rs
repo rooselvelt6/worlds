@@ -11,6 +11,7 @@ use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::window;
+use web_sys::KeyboardEvent;
 
 const SCALE_PRESETS: &[f64] = &[0.005, 0.008, 0.012, 0.015, 0.02, 0.03, 0.05];
 const AMP_PRESETS: &[f64] = &[1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0];
@@ -72,6 +73,9 @@ pub fn App() -> impl IntoView {
 
     let map_open = RwSignal::new(false);
     let chat_input = RwSignal::new(String::new());
+    let chat_msgs = RwSignal::new(Vec::<(String, String)>::new());
+    let chat_send = RwSignal::new(None::<String>);
+    let mp_connected = RwSignal::new(false);
     let waypoints = RwSignal::new(Vec::<(f64, f64, f64, String)>::new());
     let waypoint_counter = RwSignal::new(0u32);
     let map_canvas_ref: NodeRef<html::Canvas> = NodeRef::new();
@@ -138,9 +142,7 @@ pub fn App() -> impl IntoView {
 
         // Register service worker for PWA
         if let Some(win) = web_sys::window() {
-            if let Ok(Some(nav)) = win.navigator().service_worker() {
-                let _ = nav.register("/service-worker.js");
-            }
+            let _ = win.navigator().service_worker().register("/service-worker.js");
         }
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -181,8 +183,13 @@ pub fn App() -> impl IntoView {
     {
         let engine = engine.clone();
         let hud = hud;
+        let mp_connected = mp_connected.clone();
         let cb = Closure::<dyn FnMut()>::new(move || {
-            if let Some(ref eng) = *engine.borrow() { hud.set(eng.get_hud()); }
+            if let Some(ref eng) = *engine.borrow() { 
+                hud.set(eng.get_hud());
+                mp_connected.set(eng.is_ws_connected());
+                chat_msgs.set(eng.chat_messages());
+            }
         });
         let raw: &js_sys::Function = cb.as_ref().unchecked_ref();
         window().unwrap().set_interval_with_callback_and_timeout_and_arguments_0(raw, 50).ok();
@@ -200,7 +207,7 @@ pub fn App() -> impl IntoView {
         let cb = Closure::<dyn FnMut()>::new(move || {
             if !map_open.get_untracked() { return; }
             if let Some(canvas) = map_canvas_ref.get() {
-                if let Some(ref eng) = *engine.borrow() {
+                if let Some(ref _eng) = *engine.borrow() {
                     let hud_data = hud.get_untracked();
                     let params = state.params.get_untracked();
                     let wps = waypoints.get_untracked();
@@ -274,6 +281,61 @@ pub fn App() -> impl IntoView {
         })
     };
 
+    // Multiplayer action signals + effects (avoid capturing !Send Rc in view closures)
+    let mp_connect_url = RwSignal::new(None::<String>);
+    let mp_disconnect = RwSignal::new(false);
+    Effect::new({
+        let engine = engine.clone();
+        let state = state.clone();
+        let open_menu = open_menu;
+        move || {
+            if let Some(url) = mp_connect_url.get() {
+                mp_connect_url.set(None);
+                if let Some(ref mut eng) = *engine.borrow_mut() {
+                    eng.connect_multiplayer(&url, state.params.get_untracked().seed);
+                }
+                open_menu.set(None);
+            }
+        }
+    });
+    Effect::new({
+        let engine = engine.clone();
+        let open_menu = open_menu;
+        move || {
+            if mp_disconnect.get() {
+                mp_disconnect.set(false);
+                if let Some(ref mut eng) = *engine.borrow_mut() {
+                    eng.disconnect_multiplayer();
+                }
+                open_menu.set(None);
+            }
+        }
+    });
+    // Chat keydown handler (signal-based, avoids capturing !Send Rc)
+    let on_chat_keydown = {
+        let chat_input = chat_input.clone();
+        move |ev: KeyboardEvent| {
+            if ev.key() == "Enter" {
+                let text = chat_input.get_untracked();
+                if !text.is_empty() {
+                    chat_send.set(Some(text));
+                    chat_input.set(String::new());
+                }
+            }
+        }
+    };
+    Effect::new({
+        let engine = engine.clone();
+        move || {
+            if let Some(text) = chat_send.get() {
+                chat_send.set(None);
+                if let Some(ref mut eng) = *engine.borrow_mut() {
+                    eng.send_chat(&text);
+                }
+            }
+        }
+    });
+
     view! {
         <div class="w-screen h-screen overflow-hidden relative select-none antialiased"
             style="font-family: 'Inter', 'Orbitron', system-ui, sans-serif; background: #0a0a12;">
@@ -341,6 +403,14 @@ pub fn App() -> impl IntoView {
                         }}
                     </span>
                     <span class="text-[10px] font-mono text-white/80">{move || format!("{}fps", hud.get().fps)}</span>
+                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
+                        title="Estación">
+                        {move || {
+                            let s = hud.get().season;
+                            let name = match s { 0 => "🌸Primavera", 1 => "☀️Verano", 2 => "🍂Otoño", _ => "❄️Invierno" };
+                            name.to_string()
+                        }}
+                    </span>
                 </div>
             </div>
 
@@ -376,6 +446,7 @@ pub fn App() -> impl IntoView {
                 <button on:click=move |_| toggle_menu("character") class=BTN title="Personaje">{ "🧑" }</button>
                 <button on:click=move |_| toggle_menu("color") class=BTN title="Esquema de color">{ "🎨" }</button>
                 <button on:click=move |_| toggle_menu("charscale") class=BTN title="Tamaño del personaje">{ "📐" }</button>
+                <button on:click=move |_| toggle_menu("season") class=BTN title="Estaciones">{ "🍂" }</button>
             </div>
 
             {move || open_menu.get().map(|_| {
@@ -399,6 +470,7 @@ pub fn App() -> impl IntoView {
                                     Some("color") => "Esquema de Color",
                                     Some("charscale") => "Tamaño del Personaje",
                                     Some("saves") => "Guardar / Cargar",
+                                    Some("season") => "Estaciones",
                                     Some("codex") => "Codex / Bestiario",
                                     _ => "",
                                 }}
@@ -420,8 +492,8 @@ pub fn App() -> impl IntoView {
                                             web_sys::window().and_then(|w| w.location().href().ok()).unwrap_or_default().split('?').next().unwrap_or("").to_string(),
                                             p.seed, p.zone.as_str(), p.scale, p.amplitude, p.water_level,
                                             if p.fly_mode { 1 } else { 0 }, p.speed);
-                                        let _ = web_sys::window().and_then(|w| {
-                                            w.navigator().clipboard().ok().and_then(|cb| cb.write_text(&url).ok())
+                                        let _ = web_sys::window().map(|w| {
+                                            w.navigator().clipboard().write_text(&url)
                                         });
                                         open_menu.set(None);
                                     } class=PBTN>"🔗 Compartir"</button>
@@ -636,45 +708,52 @@ pub fn App() -> impl IntoView {
                             }) } else { None }}
 
                             {move || if open_menu.get() == Some("multiplayer") { Some(view! {
-                                let engine_ref = engine.borrow();
-                                let connected = engine_ref.as_ref().map(|e| e.is_ws_connected()).unwrap_or(false);
-                                view! {
-                                    <div class="flex flex-col gap-2 min-w-[220px]">
-                                        <div class="text-white/80 text-[10px] font-mono uppercase tracking-widest mb-2">
-                                            {if connected { "🌐 Conectado" } else { "🌐 Multijugador" }}
-                                        </div>
-                                        {if !connected {
-                                            view! {
-                                                <input id="mp-url" type="text"
-                                                    placeholder="ws://servidor:3000/ws"
-                                                    class="w-full px-2 py-1.5 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white/80 text-xs font-mono outline-none focus:border-cyan-400/30"
-                                                />
-                                                <button on:click=move |_| {
-                                                    let url = web_sys::window().and_then(|w| {
-                                                        let input = w.document().and_then(|d| d.get_element_by_id("mp-url"))?;
-                                                        let el = input.dyn_into::<web_sys::HtmlInputElement>().ok()?;
-                                                        Some(el.value())
-                                                    }).unwrap_or_default();
-                                                    if !url.is_empty() {
-                                                        if let Some(ref mut eng) = *engine.borrow_mut() {
-                                                            eng.connect_multiplayer(&url, state.params.get_untracked().seed);
-                                                        }
-                                                    }
-                                                    open_menu.set(None);
-                                                } class=PBTN>"Conectar"</button>
-                                            }.into_any()
-                                        } else {
-                                            view! {
-                                                <button on:click=move |_| {
-                                                    if let Some(ref mut eng) = *engine.borrow_mut() {
-                                                        eng.disconnect_multiplayer();
-                                                    }
-                                                    open_menu.set(None);
-                                                } class=PBTN>"Desconectar"</button>
-                                            }.into_any()
+                                <div class="flex flex-col gap-2 min-w-[220px]">
+                                    <div class="text-white/80 text-[10px] font-mono uppercase tracking-widest mb-2">
+                                        {move || if mp_connected.get() { "🌐 Conectado" } else { "🌐 Multijugador" }}
+                                    </div>
+                                    {move || if !mp_connected.get() {
+                                        view! {
+                                            <input id="mp-url" type="text"
+                                                placeholder="ws://servidor:3000/ws"
+                                                class="w-full px-2 py-1.5 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white/80 text-xs font-mono outline-none focus:border-cyan-400/30"
+                                            />
+                                            <button on:click=move |_| {
+                                                let url = web_sys::window().and_then(|w| {
+                                                    let input = w.document().and_then(|d| d.get_element_by_id("mp-url"))?;
+                                                    let el = input.dyn_into::<web_sys::HtmlInputElement>().ok()?;
+                                                    Some(el.value())
+                                                }).unwrap_or_default();
+                                                if !url.is_empty() { mp_connect_url.set(Some(url)); }
+                                            } class=PBTN>"Conectar"</button>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <button on:click=move |_| mp_disconnect.set(true) class=PBTN>"Desconectar"</button>
+                                        }.into_any()
+                                    }}
+                                </div>
+                            }) } else { None }}
+
+                            {move || if open_menu.get() == Some("season") { Some(view! {
+                                <div class="flex flex-col gap-3 min-w-[220px]">
+                                    <div class="flex gap-2 items-center">
+                                        {move || {
+                                            let s = state.params.get().season;
+                                            let icons = ["🌸", "☀️", "🍂", "❄️"];
+                                            let names = ["Primavera", "Verano", "Otoño", "Invierno"];
+                                            format!("{} {}", icons[s as usize], names[s as usize])
                                         }}
                                     </div>
-                                }
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Velocidad <span class="text-white/60 ml-1">{move || format!("{:.3}", state.params.get().season_speed)}</span></div>
+                                        <input type="range" min="0" max="0.1" step="0.001" prop:value={move || format!("{:.3}", state.params.get().season_speed)} on:input=move |ev| { state.params.update(|p| p.season_speed = event_target_value(&ev).parse::<f64>().unwrap_or(0.01).max(0.0).min(0.1)); } class=SLIDER/></div>
+                                    <div class="flex gap-2">
+                                        <button on:click=move |_| state.params.update(|p| p.season = 0) class={move || if state.params.get().season == 0 { TBTN_ON } else { TBTN_OFF }}>"🌸Prim"</button>
+                                        <button on:click=move |_| state.params.update(|p| p.season = 1) class={move || if state.params.get().season == 1 { TBTN_ON } else { TBTN_OFF }}>"☀️Ver"</button>
+                                        <button on:click=move |_| state.params.update(|p| p.season = 2) class={move || if state.params.get().season == 2 { TBTN_ON } else { TBTN_OFF }}>"🍂Oto"</button>
+                                        <button on:click=move |_| state.params.update(|p| p.season = 3) class={move || if state.params.get().season == 3 { TBTN_ON } else { TBTN_OFF }}>"❄️Inv"</button>
+                                    </div>
+                                </div>
                             }) } else { None }}
 
                             {move || if open_menu.get() == Some("codex") { Some(view! {
@@ -737,10 +816,8 @@ pub fn App() -> impl IntoView {
 
             // Chat overlay (visible when multiplayer connected)
             {move || {
-                let engine_ref = engine.borrow();
-                let connected = engine_ref.as_ref().map(|e| e.is_ws_connected()).unwrap_or(false);
-                if !connected { return None; }
-                let msgs = engine_ref.as_ref().map(|e| e.chat_messages()).unwrap_or_default();
+                if !mp_connected.get() { return None; }
+                let msgs = chat_msgs.get();
                 Some(view! {
                     <div class="absolute bottom-4 right-4 z-20 w-80">
                         <div class="flex flex-col-reverse gap-1 max-h-32 overflow-hidden mb-1 pointer-events-none">
@@ -757,17 +834,7 @@ pub fn App() -> impl IntoView {
                         <input type="text" placeholder="Chat..."
                             prop:value=chat_input
                             on:input=move |ev| chat_input.set(event_target_value(&ev))
-                            on:keydown=move |ev| {
-                                if ev.key() == "Enter" {
-                                    let text = chat_input.get_untracked();
-                                    if !text.is_empty() {
-                                        if let Some(ref mut eng) = *engine.borrow_mut() {
-                                            eng.send_chat(&text);
-                                        }
-                                        chat_input.set(String::new());
-                                    }
-                                }
-                            }
+                            on:keydown=on_chat_keydown
                             class="w-full px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-sm border border-white/20 text-white/80 text-xs font-mono outline-none focus:border-cyan-400/40"
                         />
                     </div>
