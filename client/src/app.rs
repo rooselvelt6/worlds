@@ -19,6 +19,8 @@ const WATER_PRESETS: &[f64] = &[-0.5, 0.0, 0.3, 0.5, 0.8, 1.2];
 const CHAR_PRESETS: &[CharacterPreset] = &[
     CharacterPreset::Human, CharacterPreset::Robot,
     CharacterPreset::Beast, CharacterPreset::Ghost,
+    CharacterPreset::Teddy, CharacterPreset::Panda,
+    CharacterPreset::Kraken,
 ];
 const CHAR_SCALES: &[f64] = &[0.7, 0.85, 1.0, 1.15, 1.3];
 
@@ -69,6 +71,7 @@ pub fn App() -> impl IntoView {
     let open_menu = RwSignal::new(None::<&'static str>);
 
     let map_open = RwSignal::new(false);
+    let chat_input = RwSignal::new(String::new());
     let waypoints = RwSignal::new(Vec::<(f64, f64, f64, String)>::new());
     let waypoint_counter = RwSignal::new(0u32);
     let map_canvas_ref: NodeRef<html::Canvas> = NodeRef::new();
@@ -82,23 +85,97 @@ pub fn App() -> impl IntoView {
     {
         let canvas_ref = canvas_ref.clone();
         let engine = engine.clone();
-        let params = state.params.get();
-        let init_cb = Rc::new(RefCell::new(None::<Closure<dyn FnMut()>>));
-        let init_cb2 = init_cb.clone();
-        let cb = Closure::<dyn FnMut()>::new(move || {
-            audio::init();
-            if let Some(canvas) = canvas_ref.get() {
-                match Engine::new(canvas, params) {
-                    Ok(mut e) => { e.start(); *engine.borrow_mut() = Some(e); }
-                    Err(msg) => leptos::logging::error!("Engine init error: {}", msg),
+        let mut params = state.params.get();
+
+        // Parse URL params for sharing (?seed=...&formula=...&zone=...)
+        if let Some(search) = web_sys::window().and_then(|w| w.location().search().ok()) {
+            if !search.is_empty() {
+                let stripped = search.trim_start_matches('?');
+                for pair in stripped.split('&') {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next().unwrap_or("");
+                    let val = parts.next().unwrap_or("");
+                    match key {
+                        "seed" => {
+                            if let Ok(s) = val.parse::<u32>() {
+                                params.seed = s.max(1).min(9999);
+                            }
+                        }
+                        "zone" => {
+                            let z = crate::engine::terrain::Zone::from_str(val);
+                            if z != crate::engine::terrain::Zone::Forest {
+                                params.zone = z;
+                            }
+                        }
+                        "scale" => {
+                            if let Ok(s) = val.parse::<f64>() {
+                                params.scale = s.max(0.001).min(0.1);
+                            }
+                        }
+                        "amplitude" => {
+                            if let Ok(a) = val.parse::<f64>() {
+                                params.amplitude = a.max(0.5).min(20.0);
+                            }
+                        }
+                        "fly" => {
+                            params.fly_mode = val == "1" || val == "true";
+                        }
+                        "speed" => {
+                            if let Ok(s) = val.parse::<f64>() {
+                                params.speed = s.max(10.0).min(1000.0);
+                            }
+                        }
+                        "water" => {
+                            if let Ok(w) = val.parse::<f64>() {
+                                params.water_level = w.max(-1.0).min(2.0);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
-            *init_cb2.borrow_mut() = None;
-        });
-        if let Some(win) = window() {
-            win.request_animation_frame(cb.as_ref().unchecked_ref()).ok();
         }
-        *init_cb.borrow_mut() = Some(cb);
+
+        // Register service worker for PWA
+        if let Some(win) = web_sys::window() {
+            if let Ok(Some(nav)) = win.navigator().service_worker() {
+                let _ = nav.register("/service-worker.js");
+            }
+        }
+
+        wasm_bindgen_futures::spawn_local(async move {
+            // Inicializar IndexedDB y migrar datos existentes de localStorage
+            let _ = crate::engine::db::init_async().await;
+            crate::engine::db::migrate_from_local_storage().await;
+
+            let canvas_ref = canvas_ref.clone();
+            let engine = engine.clone();
+            let params = params;
+            let init_cb = Rc::new(RefCell::new(None::<Closure<dyn FnMut()>>));
+            let init_cb2 = init_cb.clone();
+            let cb = Closure::<dyn FnMut()>::new(move || {
+                audio::init();
+                if let Some(canvas) = canvas_ref.get() {
+                    let autosave = Engine::load_autosave();
+                    let engine_params = autosave.as_ref().map(|d| d.params).unwrap_or(params);
+                    match Engine::new(canvas, engine_params) {
+                        Ok(mut e) => {
+                            if let Some(ref data) = autosave {
+                                e.apply_save(data);
+                            }
+                            e.start();
+                            *engine.borrow_mut() = Some(e);
+                        }
+                        Err(msg) => leptos::logging::error!("Engine init error: {}", msg),
+                    }
+                }
+                *init_cb2.borrow_mut() = None;
+            });
+            if let Some(win) = window() {
+                win.request_animation_frame(cb.as_ref().unchecked_ref()).ok();
+            }
+            *init_cb.borrow_mut() = Some(cb);
+        });
     }
 
     {
@@ -281,6 +358,8 @@ pub fn App() -> impl IntoView {
                 <button on:click=move |_| map_open.set(!map_open.get()) class=BTN title="Mapa del mundo">{ "🧭" }</button>
                 <button on:click=move |_| toggle_menu("saves") class=BTN title="Guardar / cargar">{ "💾" }</button>
                 <button on:click=move |_| toggle_menu("crafting") class=BTN title="Crafteo">{ "⚒️" }</button>
+                <button on:click=move |_| toggle_menu("codex") class=BTN title="Codex / Bestiario">{ "📖" }</button>
+                <button on:click=move |_| toggle_menu("multiplayer") class=BTN title="Multijugador">{ "🌐" }</button>
             </div>
 
             <div class="absolute left-[78px] top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
@@ -320,6 +399,7 @@ pub fn App() -> impl IntoView {
                                     Some("color") => "Esquema de Color",
                                     Some("charscale") => "Tamaño del Personaje",
                                     Some("saves") => "Guardar / Cargar",
+                                    Some("codex") => "Codex / Bestiario",
                                     _ => "",
                                 }}
                             </div>
@@ -334,6 +414,17 @@ pub fn App() -> impl IntoView {
                                         state.params.update(|p| p.seed = (js_sys::Math::random() * 9999.0) as u32 + 1);
                                         open_menu.set(None);
                                     } class=PBTN>"🎲 Aleatorio"</button>
+                                    <button on:click=move |_| {
+                                        let p = state.params.get_untracked();
+                                        let url = format!("{}?seed={}&zone={}&scale={:.3}&amplitude={:.1}&water={:.1}&fly={}&speed={:.0}",
+                                            web_sys::window().and_then(|w| w.location().href().ok()).unwrap_or_default().split('?').next().unwrap_or("").to_string(),
+                                            p.seed, p.zone.as_str(), p.scale, p.amplitude, p.water_level,
+                                            if p.fly_mode { 1 } else { 0 }, p.speed);
+                                        let _ = web_sys::window().and_then(|w| {
+                                            w.navigator().clipboard().ok().and_then(|cb| cb.write_text(&url).ok())
+                                        });
+                                        open_menu.set(None);
+                                    } class=PBTN>"🔗 Compartir"</button>
                                 </div>
                             }) } else { None }}
 
@@ -472,7 +563,7 @@ pub fn App() -> impl IntoView {
                                 <div class="flex flex-col gap-1.5">
                                     {CHAR_PRESETS.iter().map(|c| {
                                         let preset = *c;
-                                        let name = match preset { CharacterPreset::Human => "Humano", CharacterPreset::Robot => "Robot", CharacterPreset::Beast => "Bestia", CharacterPreset::Ghost => "Fantasma", };
+                                        let name = match preset { CharacterPreset::Human => "Humano", CharacterPreset::Robot => "Robot", CharacterPreset::Beast => "Bestia", CharacterPreset::Ghost => "Fantasma", CharacterPreset::Teddy => "Teddy Bear", CharacterPreset::Panda => "Panda", CharacterPreset::Kraken => "Kraken", };
                                         view! {
                                             <button on:click=move |_| state.params.update(|p| p.character = preset) class={move || {
                                                 let active = state.params.get().character == preset;
@@ -511,26 +602,106 @@ pub fn App() -> impl IntoView {
                             }) } else { None }}
 
                             {move || if open_menu.get() == Some("saves") { Some(view! {
-                                <div class="flex flex-col gap-2 min-w-[240px]">
-                                    {(0u32..5).map(|slot| {
-                                        let saved = Engine::list_slots().iter().any(|(s, _)| *s == slot);
-                                        let s_save = save_action;
-                                        let s_load = load_action;
-                                        let s_del = del_action;
-                                        view! {
-                                            <div class="flex items-center gap-2 py-1.5 px-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
-                                                <span class="text-white/40 text-[10px] font-mono min-w-[3ch]">{slot + 1}.</span>
-                                                <span class="flex-1 text-white/50 text-[11px] font-mono">
-                                                    {if saved { "💾 Partida guardada" } else { "⬜ Vacío" }}
-                                                </span>
-                                                <button on:click=move |_| s_save.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "text-cyan-400/70" } else { "" })}>"Guardar"</button>
-                                                <button on:click=move |_| s_load.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "" } else { "opacity-30 pointer-events-none" })}>"Cargar"</button>
-                                                <button on:click=move |_| s_del.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "text-red-400/60" } else { "opacity-30 pointer-events-none" })}>"Eliminar"</button>
-                                            </div>
-                                        }
-                                    }).collect::<Vec<_>>()}
+                                <div class="flex flex-col gap-2 min-w-[280px]">
+                                    {move || {
+                                        let slots = Engine::list_slots();
+                                        (0u32..5).map(|slot| {
+                                            let saved = slots.iter().any(|(s, _)| *s == slot);
+                                            let s_save = save_action;
+                                            let s_load = load_action;
+                                            let s_del = del_action;
+                                            let slot_data = if saved {
+                                                Engine::load_from_slot(slot)
+                                            } else { None };
+                                            let label = slot_data.as_ref().map(|d| {
+                                                format!("{} — {} | seed:{}", d.slot_name, d.params.zone.as_str(), d.params.seed)
+                                            }).unwrap_or_default();
+                                            view! {
+                                                <div class="flex items-center gap-2 py-1.5 px-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                                                    <span class="text-white/40 text-[10px] font-mono min-w-[3ch]">{slot + 1}.</span>
+                                                    <span class="flex-1 text-white/50 text-[10px] font-mono truncate">
+                                                        {if saved { label.clone() } else { "⬜ Vacío".to_string() }}
+                                                    </span>
+                                                    <button on:click=move |_| s_save.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "text-cyan-400/70" } else { "" })}>"G"</button>
+                                                    <button on:click=move |_| s_load.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "" } else { "opacity-30 pointer-events-none" })}>"C"</button>
+                                                    <button on:click=move |_| s_del.set(Some(slot)) class={format!("{} text-[9px] {}", PBTN, if saved { "text-red-400/60" } else { "opacity-30 pointer-events-none" })}>"X"</button>
+                                                </div>
+                                            }
+                                        }).collect::<Vec<_>>()
+                                    }}
                                     <div class="text-[9px] font-mono text-white/20 text-center mt-1">
-                                        Los bloques colocados se guardan automáticamente
+                                        Auto-save cada 15s. G=Guardar C=Cargar X=Eliminar
+                                    </div>
+                                </div>
+                            }) } else { None }}
+
+                            {move || if open_menu.get() == Some("multiplayer") { Some(view! {
+                                let engine_ref = engine.borrow();
+                                let connected = engine_ref.as_ref().map(|e| e.is_ws_connected()).unwrap_or(false);
+                                view! {
+                                    <div class="flex flex-col gap-2 min-w-[220px]">
+                                        <div class="text-white/80 text-[10px] font-mono uppercase tracking-widest mb-2">
+                                            {if connected { "🌐 Conectado" } else { "🌐 Multijugador" }}
+                                        </div>
+                                        {if !connected {
+                                            view! {
+                                                <input id="mp-url" type="text"
+                                                    placeholder="ws://servidor:3000/ws"
+                                                    class="w-full px-2 py-1.5 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white/80 text-xs font-mono outline-none focus:border-cyan-400/30"
+                                                />
+                                                <button on:click=move |_| {
+                                                    let url = web_sys::window().and_then(|w| {
+                                                        let input = w.document().and_then(|d| d.get_element_by_id("mp-url"))?;
+                                                        let el = input.dyn_into::<web_sys::HtmlInputElement>().ok()?;
+                                                        Some(el.value())
+                                                    }).unwrap_or_default();
+                                                    if !url.is_empty() {
+                                                        if let Some(ref mut eng) = *engine.borrow_mut() {
+                                                            eng.connect_multiplayer(&url, state.params.get_untracked().seed);
+                                                        }
+                                                    }
+                                                    open_menu.set(None);
+                                                } class=PBTN>"Conectar"</button>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <button on:click=move |_| {
+                                                    if let Some(ref mut eng) = *engine.borrow_mut() {
+                                                        eng.disconnect_multiplayer();
+                                                    }
+                                                    open_menu.set(None);
+                                                } class=PBTN>"Desconectar"</button>
+                                            }.into_any()
+                                        }}
+                                    </div>
+                                }
+                            }) } else { None }}
+
+                            {move || if open_menu.get() == Some("codex") { Some(view! {
+                                <div class="flex flex-col gap-2 min-w-[220px]">
+                                    <div class="text-white/80 text-[10px] font-mono uppercase tracking-widest mb-2">"📖 Codex / Bestiario"</div>
+                                    {move || {
+                                        let h = hud.get();
+                                        vec![
+                                            ("🌲 Biomas", h.codex_biomes),
+                                            ("🏛️ Estructuras", h.codex_structures),
+                                            ("💎 Minerales", h.codex_minerals),
+                                            ("🦁 Criaturas", h.codex_creatures),
+                                        ].into_iter().map(|(label, (found, total))| {
+                                            let pct = if total > 0 { found * 100 / total } else { 0 };
+                                            view! {
+                                                <div class="flex items-center gap-2 py-1.5 px-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                                                    <span class="text-[11px] font-mono text-white/60 min-w-[5ch]">{label}</span>
+                                                    <span class="flex-1 text-right text-[11px] font-mono text-white/80">{found}{" / "}{total}</span>
+                                                    <div class="w-16 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                                        <div class="h-full rounded-full bg-cyan-400/40 transition-all" style={format!("width: {}%", pct)}></div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }).collect::<Vec<_>>()
+                                    }}
+                                    <div class="text-[9px] font-mono text-white/20 text-center mt-1">
+                                        Presiona G para cambiar clima
                                     </div>
                                 </div>
                             }) } else { None }}
@@ -551,6 +722,57 @@ pub fn App() -> impl IntoView {
                     </div>
                 }
             })}
+
+            {move || hud.get().achievement_message.clone().map(|msg| {
+                view! {
+                    <div class="absolute right-6 bottom-24 z-20 pointer-events-none ach-fade-in">
+                        <div class="bg-yellow-500/20 backdrop-blur-md border border-yellow-400/30 rounded-2xl px-5 py-3 shadow-2xl shadow-yellow-500/10">
+                            <div class="text-yellow-300 text-sm font-mono text-center">
+                                {msg}
+                            </div>
+                        </div>
+                    </div>
+                }
+            })}
+
+            // Chat overlay (visible when multiplayer connected)
+            {move || {
+                let engine_ref = engine.borrow();
+                let connected = engine_ref.as_ref().map(|e| e.is_ws_connected()).unwrap_or(false);
+                if !connected { return None; }
+                let msgs = engine_ref.as_ref().map(|e| e.chat_messages()).unwrap_or_default();
+                Some(view! {
+                    <div class="absolute bottom-4 right-4 z-20 w-80">
+                        <div class="flex flex-col-reverse gap-1 max-h-32 overflow-hidden mb-1 pointer-events-none">
+                            {msgs.into_iter().rev().take(8).map(|(name, text)| {
+                                view! {
+                                    <div class="text-[10px] font-mono text-white/90 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/10">
+                                        <span class="text-cyan-400/80">{name}</span>
+                                        <span class="text-white/40 mx-0.5">:</span>
+                                        <span>{text}</span>
+                                    </div>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                        <input type="text" placeholder="Chat..."
+                            prop:value=chat_input
+                            on:input=move |ev| chat_input.set(event_target_value(&ev))
+                            on:keydown=move |ev| {
+                                if ev.key() == "Enter" {
+                                    let text = chat_input.get_untracked();
+                                    if !text.is_empty() {
+                                        if let Some(ref mut eng) = *engine.borrow_mut() {
+                                            eng.send_chat(&text);
+                                        }
+                                        chat_input.set(String::new());
+                                    }
+                                }
+                            }
+                            class="w-full px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-sm border border-white/20 text-white/80 text-xs font-mono outline-none focus:border-cyan-400/40"
+                        />
+                    </div>
+                })
+            }}
 
             {move || map_open.get().then(|| {
                 view! {

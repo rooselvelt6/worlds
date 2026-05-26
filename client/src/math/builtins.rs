@@ -107,6 +107,65 @@ pub fn simplex_noise(x: f64, z: f64) -> f64 {
     (n0 + n1 + n2) * 0.5 + 0.5
 }
 
+fn grad3(hash: u8, x: f64, y: f64, z: f64) -> f64 {
+    let h = hash & 15;
+    let u = if h < 8 { x } else { y };
+    let v = if h < 4 { y } else { if h == 12 || h == 14 { x } else { z } };
+    let u = if h & 1 == 0 { u } else { -u };
+    let v = if h & 2 == 0 { v } else { -v };
+    u + v
+}
+
+fn p3(ix: i64, iy: i64, iz: i64) -> u8 {
+    let a = perm(perm_index(ix)) as i64;
+    let b = perm(perm_index(a + iy)) as i64;
+    perm(perm_index(b + iz))
+}
+
+pub fn perlin_noise_3d(x: f64, y: f64, z: f64) -> f64 {
+    let ix = x.floor() as i64;
+    let iy = y.floor() as i64;
+    let iz = z.floor() as i64;
+    let fx = x - ix as f64;
+    let fy = y - iy as f64;
+    let fz = z - iz as f64;
+
+    let ux = fx * fx * fx * (fx * (fx * 6.0 - 15.0) + 10.0);
+    let uy = fy * fy * fy * (fy * (fy * 6.0 - 15.0) + 10.0);
+    let uz = fz * fz * fz * (fz * (fz * 6.0 - 15.0) + 10.0);
+
+    let v000 = grad3(p3(ix, iy, iz), fx, fy, fz);
+    let v100 = grad3(p3(ix + 1, iy, iz), fx - 1.0, fy, fz);
+    let v010 = grad3(p3(ix, iy + 1, iz), fx, fy - 1.0, fz);
+    let v110 = grad3(p3(ix + 1, iy + 1, iz), fx - 1.0, fy - 1.0, fz);
+    let v001 = grad3(p3(ix, iy, iz + 1), fx, fy, fz - 1.0);
+    let v101 = grad3(p3(ix + 1, iy, iz + 1), fx - 1.0, fy, fz - 1.0);
+    let v011 = grad3(p3(ix, iy + 1, iz + 1), fx, fy - 1.0, fz - 1.0);
+    let v111 = grad3(p3(ix + 1, iy + 1, iz + 1), fx - 1.0, fy - 1.0, fz - 1.0);
+
+    let v00 = v000 + (v100 - v000) * ux;
+    let v10 = v010 + (v110 - v010) * ux;
+    let v01 = v001 + (v101 - v001) * ux;
+    let v11 = v011 + (v111 - v011) * ux;
+    let v0 = v00 + (v10 - v00) * uy;
+    let v1 = v01 + (v11 - v01) * uy;
+    (v0 + (v1 - v0) * uz + 1.0) * 0.5
+}
+
+pub fn fbm_3d(x: f64, y: f64, z: f64, octaves: u32) -> f64 {
+    let mut v = 0.0;
+    let mut a = 1.0;
+    let mut f = 1.0;
+    let mut m = 0.0;
+    for _ in 0..octaves {
+        v += perlin_noise_3d(x * f, y * f, z * f) * a;
+        m += a;
+        a *= 0.5;
+        f *= 2.0;
+    }
+    if m > 0.0 { v / m } else { 0.0 }
+}
+
 pub fn fbm(x: f64, z: f64, octaves: u32) -> f64 {
     let mut v = 0.0;
     let mut a = 1.0;

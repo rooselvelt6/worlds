@@ -1,12 +1,12 @@
 const MAX_INVENTORY_SLOTS: usize = 16;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct InventoryItem {
     pub mineral_type: u8,
     pub count: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Inventory {
     pub items: Vec<InventoryItem>,
     pub selected_slot: u8,

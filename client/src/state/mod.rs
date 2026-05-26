@@ -13,6 +13,9 @@ pub enum CharacterPreset {
     Robot,
     Beast,
     Ghost,
+    Teddy,
+    Panda,
+    Kraken,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +134,11 @@ pub struct SaveData {
     pub fly_mode: bool,
     pub observer_mode: bool,
     pub created_at: f64,
+    pub inventory_json: Option<String>,
+    pub codex_json: Option<String>,
+    pub achievements_json: Option<String>,
+    pub placed_blocks: Vec<[i32; 4]>,
+    pub block_inventory: Vec<(u8, u32)>,
 }
 
 impl SaveData {
@@ -149,6 +157,11 @@ impl SaveData {
             fly_mode,
             observer_mode,
             created_at: js_sys::Date::now(),
+            inventory_json: None,
+            codex_json: None,
+            achievements_json: None,
+            placed_blocks: Vec::new(),
+            block_inventory: Vec::new(),
         }
     }
 }

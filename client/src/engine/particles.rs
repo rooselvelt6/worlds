@@ -43,6 +43,98 @@ pub fn particle_count(zone: Zone) -> usize {
     }
 }
 
+pub struct BubbleSystem {
+    key: String,
+    count: usize,
+    positions: Vec<f64>,
+    velocities: Vec<[f64; 3]>,
+    lifetimes: Vec<f64>,
+    max_lifetimes: Vec<f64>,
+    spawned: bool,
+}
+
+impl BubbleSystem {
+    pub fn new() -> Self {
+        Self {
+            key: "bubbles".to_string(),
+            count: 40,
+            positions: vec![0.0; 40 * 3],
+            velocities: vec![[0.0; 3]; 40],
+            lifetimes: vec![0.0; 40],
+            max_lifetimes: vec![2.0; 40],
+            spawned: false,
+        }
+    }
+
+    pub fn ensure_spawned(&mut self) {
+        if !self.spawned {
+            bridge::create_particles(&self.key, self.count as u32, 0.8, 0.9, 1.0, 0.12);
+            let arr = js_sys::Float32Array::from(&vec![0.0f32; self.count * 3][..]);
+            bridge::update_particles(&self.key, &arr);
+            self.spawned = true;
+        }
+    }
+
+    pub fn remove(&self) {
+        if self.spawned {
+            bridge::remove_mesh(&self.key);
+        }
+    }
+
+    pub fn update(&mut self, delta: f64, params: &WorldParams, px: f64, py: f64, pz: f64, water_level: f64) {
+        let underwater = py + 0.5 < water_level;
+        if !underwater {
+            if self.spawned {
+                // Hide bubbles when above water
+                let hide: Vec<f32> = vec![0.0f32; self.count * 3];
+                bridge::update_particles(&self.key, &js_sys::Float32Array::from(&hide[..]));
+            }
+            return;
+        }
+        self.ensure_spawned();
+
+        let mut rng: u64 = (params.seed as u64).wrapping_mul(6364136223846793005);
+        for i in 0..self.count {
+            self.lifetimes[i] -= delta;
+            if self.lifetimes[i] <= 0.0 {
+                let i3 = i * 3;
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let r1 = ((rng >> 16) & 0x7FFF) as f64 / 32767.0;
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let r2 = ((rng >> 16) & 0x7FFF) as f64 / 32767.0;
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let r3 = ((rng >> 16) & 0x7FFF) as f64 / 32767.0;
+                let spread = 4.0;
+                self.positions[i3] = px + (r1 - 0.5) * spread;
+                self.positions[i3 + 1] = py - 0.5 + r2 * 1.5;
+                self.positions[i3 + 2] = pz + (r3 - 0.5) * spread;
+                self.velocities[i] = [
+                    (r1 - 0.5) * 0.3,
+                    0.8 + r2 * 0.8,
+                    (r3 - 0.5) * 0.3,
+                ];
+                self.max_lifetimes[i] = 2.0 + r2 * 2.0;
+                self.lifetimes[i] = self.max_lifetimes[i];
+            } else {
+                let i3 = i * 3;
+                self.positions[i3] += self.velocities[i][0] * delta;
+                self.positions[i3 + 1] += self.velocities[i][1] * delta;
+                self.positions[i3 + 2] += self.velocities[i][2] * delta;
+                // Wobble
+                let wobble = (params.seed as f64 + i as f64 * 0.5 + self.lifetimes[i]).sin() * 0.3 * delta;
+                self.positions[i3] += wobble;
+                // Pop at surface
+                if self.positions[i3 + 1] >= water_level {
+                    self.lifetimes[i] = 0.0;
+                }
+            }
+        }
+
+        let flat: Vec<f32> = self.positions.iter().map(|&v| v as f32).collect();
+        bridge::update_particles(&self.key, &js_sys::Float32Array::from(&flat[..]));
+    }
+}
+
 pub fn mode_count(mode: ParticleMode) -> usize {
     match mode {
         ParticleMode::Rain => 1200,

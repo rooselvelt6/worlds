@@ -13,6 +13,10 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
     let base = fbm(nx, nz, params.octaves);
     let mut h = (base * amplitude + water_level).max(0.0);
 
+    // River carving (before zone modifiers so rivers work across biomes)
+    let river_depth = river_carve(params, wx, wz);
+    h -= river_depth;
+
     if params.canyons {
         let canyon = (wx * 0.04).sin() * (wz * 0.04).cos()
             + (wx * 0.06 + wz * 0.08).sin() * 0.5;
@@ -26,7 +30,11 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         Zone::Ocean => h += water_level,
         Zone::Volcanic => h = h * 1.5 + 2.0,
         Zone::Crystal => h *= 0.5,
-        Zone::Cave => h = 3.0 + (wx * 0.5).sin() * 2.0,
+        Zone::Cave => {
+            let cave_noise = (wx * 0.3).sin() * (wz * 0.25).cos() * 3.0;
+            let entrance = ((wx * 0.8).sin() * (wz * 0.7).cos()).abs().max(0.3) * 4.0;
+            h = 5.0 + cave_noise - entrance.max(0.0).min(2.0);
+        }
         Zone::Fungus => h = h * 0.6 + 1.0 + (wx * 0.3).sin() * (wz * 0.3).cos() * 1.5,
         Zone::Abyss => h = h * 0.2 + water_level * 0.3,
         Zone::Storm => h = h * 1.8 + 1.0,
@@ -36,6 +44,188 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
     }
 
     h
+}
+
+// ── Block type constants for voxel terrain ──
+pub const BLK_AIR: u8 = 0;
+pub const BLK_GRASS: u8 = 1;
+pub const BLK_DIRT: u8 = 2;
+pub const BLK_STONE: u8 = 3;
+pub const BLK_SAND: u8 = 4;
+pub const BLK_SNOW: u8 = 5;
+pub const BLK_COAL_ORE: u8 = 6;
+pub const BLK_IRON_ORE: u8 = 7;
+pub const BLK_GOLD_ORE: u8 = 8;
+pub const BLK_DIAMOND_ORE: u8 = 9;
+pub const BLK_GRAVEL: u8 = 10;
+pub const BLK_CLAY: u8 = 11;
+pub const BLK_WATER: u8 = 12;
+pub const BLK_LAVA: u8 = 13;
+
+fn block_hash(wx: f64, wy: f64, wz: f64, seed: u64) -> f64 {
+    let h = (seed as i64).wrapping_mul(374761393)
+        .wrapping_add((wx.floor() as i64).wrapping_mul(668265263))
+        .wrapping_add((wy.floor() as i64).wrapping_mul(1274126177))
+        .wrapping_add((wz.floor() as i64).wrapping_mul(1013904243));
+    let norm = (h as f64 * 0.000000001).fract().abs();
+    norm
+}
+
+pub fn get_block_type(params: &WorldParams, wx: f64, wy: f64, wz: f64, surface_h: f64, zone: Zone) -> u8 {
+    if wy > surface_h {
+        return BLK_AIR;
+    }
+
+    let below = wy < surface_h - 0.5;
+    if below {
+        let cave_noise = crate::math::fbm_3d(wx * 0.04, wy * 0.04, wz * 0.04, 3);
+        let cave_threshold = 0.45 + (params.seed as f64 * 0.001).fract() * 0.1;
+        if cave_noise > cave_threshold {
+            let carve = (cave_noise - cave_threshold) / (1.0 - cave_threshold);
+            if carve > 0.3 {
+                return BLK_AIR;
+            }
+        }
+        let room_noise = crate::math::perlin_noise_3d(wx * 0.015, wy * 0.015, wz * 0.015);
+        if room_noise > 0.65 {
+            return BLK_AIR;
+        }
+    }
+
+    let depth = surface_h - wy;
+
+    if depth < 0.5 {
+        return match zone {
+            Zone::Desert | Zone::SandyPlain => BLK_SAND,
+            Zone::Tundra => BLK_SNOW,
+            _ => BLK_GRASS,
+        };
+    }
+
+    if depth < 2.0 {
+        let seed = block_hash(wx, wy, wz, params.seed as u64);
+        return if seed < 0.1 { BLK_GRAVEL } else { BLK_DIRT };
+    }
+
+    let seed = block_hash(wx, wy, wz, params.seed as u64);
+
+    if depth > 1.0 && depth < 10.0 && seed < 0.08 {
+        return BLK_COAL_ORE;
+    }
+    if depth > 4.0 && depth < 16.0 && seed < 0.04 {
+        return BLK_IRON_ORE;
+    }
+    if depth > 8.0 && depth < 24.0 && seed < 0.015 {
+        return BLK_GOLD_ORE;
+    }
+    if depth > 14.0 && seed < 0.008 {
+        return BLK_DIAMOND_ORE;
+    }
+
+    BLK_STONE
+}
+
+pub fn block_color(block_type: u8, _params: &WorldParams, wx: f64, wy: f64, wz: f64, zone: Zone, surface_h: f64, max_h: f64) -> [f32; 3] {
+    let depth = (surface_h - wy) as f32;
+    let darken = 1.0 - (depth / 12.0).clamp(0.0, 0.6);
+
+    let base = match block_type {
+        BLK_GRASS => get_zone_terrain_color(zone, surface_h, max_h, 0.8, wx, wz),
+        BLK_DIRT => [0.55, 0.35, 0.18],
+        BLK_SAND => [0.85, 0.75, 0.5],
+        BLK_SNOW => [0.9, 0.92, 0.95],
+        BLK_STONE => zone_rock_color(zone),
+        BLK_COAL_ORE => [0.15, 0.15, 0.15],
+        BLK_IRON_ORE => [0.7, 0.6, 0.5],
+        BLK_GOLD_ORE => [0.9, 0.75, 0.2],
+        BLK_DIAMOND_ORE => [0.4, 0.7, 0.9],
+        BLK_GRAVEL => [0.5, 0.45, 0.4],
+        BLK_CLAY => [0.6, 0.55, 0.5],
+        BLK_WATER => [0.2, 0.4, 0.8],
+        BLK_LAVA => [1.0, 0.3, 0.05],
+        _ => zone_rock_color(zone),
+    };
+
+    if block_type == BLK_GRASS {
+        return base;
+    }
+
+    if depth > 0.5 {
+        let rock = zone_rock_color(zone);
+        let rock_t = ((depth - 0.5) / 4.0).clamp(0.0, 1.0);
+        let mut c = [
+            base[0] * (1.0 - rock_t) + rock[0] * rock_t,
+            base[1] * (1.0 - rock_t) + rock[1] * rock_t,
+            base[2] * (1.0 - rock_t) + rock[2] * rock_t,
+        ];
+        c[0] *= darken;
+        c[1] *= darken;
+        c[2] *= darken;
+        c
+    } else {
+        base
+    }
+}
+
+fn river_carve(params: &WorldParams, wx: f64, wz: f64) -> f64 {
+    let seed = params.seed as f64;
+    // Meandering river paths using phase-shifted sin combinations
+    // Creates diagonal ribbon patterns that naturally meander
+    let s = seed * 0.01;
+    let river_a = ((wx * 0.004 + wz * 0.002 + s).sin() + (wx * 0.002 - wz * 0.004 + s * 0.7).cos()) * 0.5;
+    let river_b = ((wx * 0.006 - wz * 0.003 + s * 1.3).sin() + (wx * 0.003 + wz * 0.005 + s * 0.5).cos()) * 0.5;
+
+    // River mask: winding ribbon-like paths near zero crossings
+    let river_val = (river_a * 0.65 + river_b * 0.35).abs();
+
+    // Only carve where terrain is above water level (rivers above water)
+    let base_h = fbm(wx * params.scale, wz * params.scale, params.octaves) * params.amplitude + params.water_level;
+    if base_h <= params.water_level + 0.5 { return 0.0; }
+
+    // River width varies with noise for natural meandering
+    let width_vary = fbm_2d(wx * 0.005 + 100.0, wz * 0.005, 2) * 0.5 + 0.5;
+    let base_width = 0.12 + width_vary * 0.13;
+
+    // Carve where river_val is below threshold (within the river bed)
+    if river_val < base_width {
+        let t = 1.0 - (river_val / base_width).max(0.0).min(1.0);
+        let depth = t * t * (3.0 + width_vary * 3.0);
+        // Smooth banks: no carve near edges
+        let edge = (river_val / base_width).clamp(0.0, 1.0);
+        let smooth = 1.0 - edge * edge * edge;
+        depth * smooth
+    } else {
+        0.0
+    }
+}
+
+pub fn is_river(params: &WorldParams, wx: f64, wz: f64) -> bool {
+    river_carve(params, wx, wz) > 0.3
+}
+
+pub fn river_width(params: &WorldParams, wx: f64, wz: f64) -> f64 {
+    let seed = params.seed as f64;
+    let s = seed * 0.01;
+    let river_a = ((wx * 0.004 + wz * 0.002 + s).sin() + (wx * 0.002 - wz * 0.004 + s * 0.7).cos()) * 0.5;
+    let river_b = ((wx * 0.006 - wz * 0.003 + s * 1.3).sin() + (wx * 0.003 + wz * 0.005 + s * 0.5).cos()) * 0.5;
+    let river_val = (river_a * 0.65 + river_b * 0.35).abs();
+    let width_vary = fbm_2d(wx * 0.005 + 100.0, wz * 0.005, 2) * 0.5 + 0.5;
+    let base_width = 0.12 + width_vary * 0.13;
+    if river_val < base_width { base_width } else { 0.0 }
+}
+
+fn fbm_2d(x: f64, y: f64, octaves: u32) -> f64 {
+    let mut value = 0.0;
+    let mut amplitude = 1.0;
+    let mut frequency = 1.0;
+    let mut max_val = 0.0;
+    for _ in 0..octaves {
+        value += amplitude * (x * frequency).sin() * (y * frequency).cos();
+        max_val += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+    value / max_val
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -152,9 +342,65 @@ fn gradient(stops: &[[f32; 3]], t: f32) -> [f32; 3] {
     mix_color(stops[i], stops[i + 1], frac)
 }
 
-pub fn get_terrain_color(h: f64, max_h: f64) -> [f32; 3] {
+fn zone_stops(zone: Zone) -> &'static [[f32; 3]] {
+    match zone {
+        Zone::Forest => &[[0.05,0.10,0.25],[0.08,0.30,0.18],[0.12,0.42,0.10],[0.20,0.48,0.14],[0.38,0.42,0.22],[0.65,0.60,0.48],[1.0,1.0,1.0]],
+        Zone::Plains => &[[0.05,0.10,0.25],[0.18,0.45,0.18],[0.35,0.55,0.18],[0.50,0.52,0.22],[0.65,0.60,0.38],[0.82,0.78,0.62],[1.0,1.0,1.0]],
+        Zone::Desert => &[[0.05,0.10,0.25],[0.55,0.35,0.15],[0.72,0.50,0.20],[0.78,0.58,0.28],[0.72,0.48,0.22],[0.50,0.32,0.18],[1.0,1.0,1.0]],
+        Zone::Tundra => &[[0.05,0.10,0.25],[0.18,0.22,0.18],[0.32,0.35,0.30],[0.50,0.55,0.50],[0.72,0.78,0.72],[0.88,0.92,0.98],[1.0,1.0,1.0]],
+        Zone::Jungle => &[[0.05,0.10,0.25],[0.06,0.25,0.12],[0.06,0.40,0.08],[0.08,0.48,0.10],[0.25,0.42,0.14],[0.45,0.48,0.28],[1.0,1.0,1.0]],
+        Zone::Volcanic => &[[0.05,0.10,0.25],[0.12,0.08,0.08],[0.22,0.12,0.08],[0.32,0.18,0.10],[0.48,0.22,0.08],[0.68,0.32,0.12],[1.0,1.0,1.0]],
+        Zone::Crystal => &[[0.05,0.10,0.25],[0.25,0.12,0.35],[0.35,0.20,0.50],[0.45,0.30,0.65],[0.52,0.48,0.78],[0.68,0.68,0.88],[1.0,1.0,1.0]],
+        Zone::Cave => &[[0.03,0.02,0.05],[0.10,0.08,0.06],[0.15,0.12,0.10],[0.20,0.16,0.13],[0.22,0.20,0.16],[0.28,0.25,0.22],[1.0,1.0,1.0]],
+        Zone::Lava => &[[0.05,0.10,0.25],[0.25,0.03,0.0],[0.45,0.08,0.0],[0.65,0.18,0.03],[0.85,0.35,0.08],[0.95,0.55,0.18],[1.0,1.0,1.0]],
+        Zone::Fungus => &[[0.05,0.10,0.25],[0.18,0.03,0.18],[0.28,0.08,0.28],[0.22,0.32,0.12],[0.38,0.42,0.18],[0.52,0.52,0.28],[1.0,1.0,1.0]],
+        Zone::Abyss => &[[0.01,0.01,0.03],[0.02,0.02,0.06],[0.04,0.04,0.08],[0.05,0.05,0.10],[0.06,0.06,0.12],[0.08,0.08,0.15],[1.0,1.0,1.0]],
+        Zone::Storm => &[[0.05,0.10,0.25],[0.12,0.15,0.20],[0.18,0.22,0.28],[0.28,0.32,0.38],[0.38,0.42,0.48],[0.52,0.52,0.58],[1.0,1.0,1.0]],
+        Zone::Aurora => &[[0.05,0.10,0.25],[0.12,0.22,0.28],[0.12,0.38,0.32],[0.18,0.52,0.38],[0.38,0.58,0.48],[0.58,0.68,0.62],[1.0,1.0,1.0]],
+        Zone::Magma => &[[0.05,0.10,0.25],[0.28,0.06,0.02],[0.42,0.12,0.03],[0.58,0.22,0.06],[0.78,0.38,0.10],[0.92,0.58,0.22],[1.0,1.0,1.0]],
+        Zone::Ocean | Zone::DeepOcean => &[[0.01,0.02,0.08],[0.02,0.05,0.15],[0.05,0.10,0.22],[0.08,0.18,0.30],[0.12,0.25,0.38],[0.18,0.30,0.42],[0.25,0.35,0.48]],
+        Zone::CoralReef => &[[0.02,0.05,0.12],[0.08,0.25,0.22],[0.20,0.45,0.30],[0.35,0.55,0.35],[0.50,0.60,0.40],[0.60,0.55,0.45],[0.70,0.60,0.55]],
+        Zone::KelpForest => &[[0.02,0.05,0.12],[0.05,0.20,0.15],[0.08,0.35,0.12],[0.12,0.40,0.15],[0.20,0.40,0.20],[0.30,0.45,0.25],[0.40,0.50,0.30]],
+        Zone::SandyPlain => &[[0.02,0.05,0.12],[0.15,0.30,0.20],[0.30,0.42,0.22],[0.45,0.50,0.25],[0.55,0.55,0.30],[0.60,0.58,0.35],[0.65,0.60,0.40]],
+        Zone::RockyReef => &[[0.02,0.05,0.12],[0.10,0.20,0.18],[0.18,0.30,0.22],[0.25,0.35,0.25],[0.30,0.38,0.28],[0.35,0.40,0.30],[0.40,0.42,0.35]],
+    }
+}
+
+pub fn zone_rock_color(zone: Zone) -> [f32; 3] {
+    match zone {
+        Zone::Desert => [0.55, 0.35, 0.18],
+        Zone::Volcanic | Zone::Lava | Zone::Magma => [0.28, 0.16, 0.08],
+        Zone::Cave | Zone::Abyss => [0.12, 0.10, 0.08],
+        Zone::Crystal => [0.38, 0.32, 0.48],
+        Zone::Tundra => [0.30, 0.32, 0.35],
+        Zone::Jungle => [0.20, 0.18, 0.12],
+        Zone::Forest => [0.25, 0.22, 0.15],
+        Zone::Fungus => [0.30, 0.15, 0.25],
+        _ => [0.32, 0.28, 0.22],
+    }
+}
+
+pub fn get_zone_terrain_color(zone: Zone, h: f64, max_h: f64, slope: f32, wx: f64, wz: f64) -> [f32; 3] {
     let t = (h / max_h.max(0.1)).clamp(0.0, 1.0) as f32;
-    gradient(&[[0.05,0.15,0.30],[0.10,0.35,0.25],[0.25,0.55,0.20],[0.55,0.50,0.25],[0.85,0.80,0.70],[1.0,1.0,1.0]], t)
+    let stops = zone_stops(zone);
+    let mut color = gradient(stops, t);
+
+    // Slope-based rock blending: steep areas expose rock
+    let rock = zone_rock_color(zone);
+    let slope_factor = (1.0 - slope).clamp(0.0, 0.6); // 0=flat, 0.6=max rock blend
+    color = mix_color(color, rock, slope_factor);
+
+    // Subtle noise variation to break up uniformity
+    let variation = ((wx * 0.3).sin() * (wz * 0.5).cos() * 0.5 + (wx * 0.7 + wz * 0.4).sin() * 0.3) * 0.04;
+    color[0] = (color[0] + variation as f32).clamp(0.0, 1.0);
+    color[1] = (color[1] + variation as f32 * 0.8).clamp(0.0, 1.0);
+    color[2] = (color[2] + variation as f32 * 0.6).clamp(0.0, 1.0);
+
+    color
+}
+
+pub fn get_terrain_color(h: f64, max_h: f64) -> [f32; 3] {
+    get_zone_terrain_color(Zone::Forest, h, max_h, 0.8, 0.0, 0.0)
 }
 
 pub fn zone_effects(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {

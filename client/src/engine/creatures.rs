@@ -291,3 +291,85 @@ pub fn creature_animated_positions(params: &crate::state::WorldParams, cx: i32, 
     }
     Some(pos)
 }
+
+// ── Creature AI update ──
+// Returns updated positions for a chunk after applying wander/flee behavior
+pub fn update_creature_positions(
+    params: &crate::state::WorldParams,
+    cx: i32, cz: i32,
+    time: f64,
+    player_x: f64, player_z: f64,
+) -> Option<(Vec<f32>, Vec<f32>)> {
+    let seed = (params.seed as u64).wrapping_mul(6364136223846793005)
+        .wrapping_add(cx as u64 * 924839).wrapping_add(cz as u64 * 729384);
+    let mut rng: u64 = seed;
+    let zone = crate::engine::terrain::get_zone(params, cx as f64 * 24.0 + 12.0, cz as f64 * 24.0 + 12.0);
+    let is_underwater = matches!(zone, Zone::CoralReef | Zone::KelpForest | Zone::RockyReef | Zone::SandyPlain | Zone::DeepOcean);
+    let creature_types = creature_types_for_zone(zone);
+    if creature_types.is_empty() { return None; }
+    let count = if is_underwater { ((rng >> 16) & 0x7) + 3 } else { ((rng >> 16) & 0x3) + 1 };
+
+    let mut positions = Vec::new();
+    let mut rotations = Vec::new();
+    for i in 0..count {
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let lx = ((rng >> 16) & 0xFFFF) as f64 / 65536.0 * 24.0;
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let lz = ((rng >> 16) & 0xFFFF) as f64 / 65536.0 * 24.0;
+        let wx = cx as f64 * 24.0 + lx;
+        let wz = cz as f64 * 24.0 + lz;
+        let h = crate::engine::terrain::get_height(params, wx, wz);
+        if !is_underwater && h < params.water_level { continue; }
+
+        let ct = creature_types[i as usize % creature_types.len()];
+        let speed = 1.0 + (rng & 3) as f64;
+        let wander_phase = (cx.wrapping_mul(739).wrapping_add(cz.wrapping_mul(431)) as f64 * 0.1 + i as f64 * 1.7).fract() * std::f64::consts::TAU;
+
+        // Wander: sinusoidal movement
+        let wander_speed = 0.3 + speed * 0.1;
+        let wander_angle = wander_phase + time * wander_speed;
+        let wander_radius = 2.0 + speed * 0.3;
+        let target_x = wx + wander_angle.cos() * (time * 0.5).sin() * wander_radius;
+        let target_z = wz + wander_angle.sin() * (time * 0.5).sin() * wander_radius;
+
+        // Flee from player if close
+        let dx = target_x - player_x;
+        let dz = target_z - player_z;
+        let dist_to_player = (dx * dx + dz * dz).sqrt();
+        let (final_x, final_z) = if dist_to_player < 6.0 {
+            let flee_angle = dx.atan2(dz);
+            (target_x + flee_angle.cos() * 3.0, target_z + flee_angle.sin() * 3.0)
+        } else {
+            (target_x, target_z)
+        };
+
+        let final_h = crate::engine::terrain::get_height(params, final_x, final_z);
+        let y_pos = if is_underwater { params.water_level - 0.5 - (rng >> 8) as f64 * 0.1 } else { final_h };
+
+        let bob = (time * 1.8 + wander_phase).sin() * 0.04;
+        let emit_y = y_pos as f32 + bob as f32;
+        emit_creature_positions(ct, final_x as f32, emit_y, final_z as f32, &mut positions);
+        rotations.push(final_x as f32);
+        rotations.push(final_z as f32);
+    }
+    if positions.is_empty() { None } else { Some((positions, rotations)) }
+}
+
+pub fn creature_name(ct: u8) -> &'static str {
+    match ct {
+        0 => "Ciervo",
+        1 => "Mono",
+        2 => "Ave",
+        3 => "Cristalino",
+        4 => "Murciélago",
+        5 => "Elemental de fuego",
+        6 => "Serpiente",
+        7 => "Oso polar",
+        8 => "Zorro",
+        9 => "Suricata",
+        10 => "Pez",
+        11 => "Cangrejo",
+        12 => "Medusa",
+        _ => "Desconocido",
+    }
+}

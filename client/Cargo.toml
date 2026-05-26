@@ -24,12 +24,16 @@ web-sys = { version = "0.3", features = [
     "Event", "Storage",
     "Gamepad", "GamepadButton",
         "AudioContext", "OscillatorNode", "GainNode", "AudioNode", "AudioDestinationNode", "AudioParam", "OscillatorType",
+        "IdbDatabase", "IdbFactory", "IdbOpenDbRequest", "IdbRequest",
+        "IdbTransaction", "IdbTransactionMode", "IdbVersionChangeEvent",
+        "IdbObjectStore", "IdbIndex", "IdbCursorWithValue",
+        "Location", "ServiceWorkerContainer", "ServiceWorkerRegistration", "Clipboard",
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [features]
-default = []
+default = ["parallel"]
 parallel = ["wasm-bindgen-rayon"]
 
 [profile.release]

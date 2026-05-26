@@ -13,6 +13,9 @@ pub enum StructType {
     CrystalSpire,
     MushroomHut,
     Obelisk,
+    Plaza,
+    Muralla,
+    DungeonEntrance,
 }
 
 #[derive(Clone)]
@@ -117,19 +120,19 @@ fn struct_density(zone: Zone) -> f64 {
 
 fn types_for_zone(zone: Zone) -> Vec<StructType> {
     match zone {
-        Zone::Forest => vec![StructType::Hut, StructType::Ruins, StructType::Tower],
-        Zone::Plains => vec![StructType::Hut, StructType::Tower, StructType::Obelisk],
-        Zone::Desert => vec![StructType::Pyramid, StructType::Ruins, StructType::Arch],
-        Zone::Tundra => vec![StructType::Dome, StructType::Hut, StructType::Pillar],
-        Zone::Jungle => vec![StructType::Pyramid, StructType::Ruins, StructType::Arch],
-        Zone::Volcanic => vec![StructType::Pillar, StructType::Ruins],
-        Zone::Crystal => vec![StructType::CrystalSpire, StructType::Arch],
+        Zone::Forest => vec![StructType::Hut, StructType::Ruins, StructType::Tower, StructType::Plaza],
+        Zone::Plains => vec![StructType::Hut, StructType::Tower, StructType::Obelisk, StructType::Plaza],
+        Zone::Desert => vec![StructType::Pyramid, StructType::Ruins, StructType::Arch, StructType::Plaza],
+        Zone::Tundra => vec![StructType::Dome, StructType::Hut, StructType::Pillar, StructType::DungeonEntrance],
+        Zone::Jungle => vec![StructType::Pyramid, StructType::Ruins, StructType::Arch, StructType::DungeonEntrance],
+        Zone::Volcanic => vec![StructType::Pillar, StructType::Ruins, StructType::Muralla],
+        Zone::Crystal => vec![StructType::CrystalSpire, StructType::Arch, StructType::Plaza],
         Zone::Fungus => vec![StructType::MushroomHut, StructType::Arch],
-        Zone::Lava => vec![StructType::Pillar, StructType::Obelisk],
-        Zone::Abyss => vec![StructType::Pillar],
-        Zone::Storm => vec![StructType::Tower, StructType::Obelisk],
-        Zone::Aurora => vec![StructType::CrystalSpire, StructType::Arch],
-        Zone::Magma => vec![StructType::Pillar, StructType::Obelisk],
+        Zone::Lava => vec![StructType::Pillar, StructType::Obelisk, StructType::Muralla],
+        Zone::Abyss => vec![StructType::Pillar, StructType::DungeonEntrance],
+        Zone::Storm => vec![StructType::Tower, StructType::Obelisk, StructType::Muralla],
+        Zone::Aurora => vec![StructType::CrystalSpire, StructType::Arch, StructType::Plaza],
+        Zone::Magma => vec![StructType::Pillar, StructType::Obelisk, StructType::Muralla],
         _ => vec![],
     }
 }
@@ -146,6 +149,9 @@ fn struct_size(struct_type: StructType, zone: Zone, r: f64) -> f32 {
         StructType::CrystalSpire => 0.5 + r * 1.5,
         StructType::MushroomHut => 0.7 + r * 1.0,
         StructType::Obelisk => 0.4 + r * 0.8,
+        StructType::Plaza => 2.0 + r * 2.0,
+        StructType::Muralla => 1.5 + r * 1.5,
+        StructType::DungeonEntrance => 1.0 + r * 1.0,
     };
     let scale = match zone {
         Zone::Jungle => 1.3,
@@ -203,6 +209,9 @@ fn struct_color(st: StructType, cv: u8) -> [f32; 3] {
         StructType::CrystalSpire => [0.35 + varied * 0.1, 0.45 + varied * 0.1, 0.95 + varied * 0.05],
         StructType::MushroomHut => [0.45 + varied * 0.1, 0.25 + varied * 0.1, 0.15 + varied * 0.05],
         StructType::Obelisk => [0.25 + varied * 0.1, 0.25 + varied * 0.1, 0.25 + varied * 0.1],
+        StructType::Plaza => [0.55 + varied * 0.1, 0.50 + varied * 0.1, 0.40 + varied * 0.1],
+        StructType::Muralla => [0.40 + varied * 0.1, 0.35 + varied * 0.1, 0.30 + varied * 0.1],
+        StructType::DungeonEntrance => [0.30 + varied * 0.1, 0.28 + varied * 0.1, 0.25 + varied * 0.1],
     }
 }
 
@@ -276,6 +285,46 @@ fn emit_struct(
             let th = s * 0.15;
             push_box(pos, norms, idx, cols, x, y + hh * 2.0 + th, z, hw * 0.3, th, hd * 0.3, c[0], c[1], c[2], base_idx);
         }
+        StructType::Plaza => {
+            // Flat octagonal platform with decorative center
+            let hw = s * 0.6; let hd = s * 0.6; let hh = s * 0.08;
+            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
+            // Inner decorative ring
+            let rw = hw * 0.5; let rd = hd * 0.5; let rh = hh * 0.3;
+            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + rh, z, rw, rh, rd, c[0] * 1.1, c[1] * 1.1, c[2] * 0.9, base_idx);
+            // Central pillar/fountain
+            let pw = s * 0.06; let ph = s * 0.2; let pd = s * 0.06;
+            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + ph, z, pw, ph, pd, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, base_idx);
+        }
+        StructType::Muralla => {
+            // Wall segment: long horizontal bar with crenellation
+            let hw = s * 0.4; let hh = s * 0.25; let hd = s * 0.06;
+            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
+            // Crenellation (battlements)
+            let ch = s * 0.08; let cw = s * 0.08;
+            let num_cren = 3;
+            for i in 0..num_cren {
+                let cx2 = x - hw + (i as f32 + 0.5) * (hw * 2.0 / num_cren as f32);
+                push_box(pos, norms, idx, cols, cx2, y + hh * 2.0 + ch, z, cw, ch, hd, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, base_idx);
+            }
+        }
+        StructType::DungeonEntrance => {
+            // Archway entrance with stairs going down
+            let hw = s * 0.15; let hh = s * 0.35; let hd = s * 0.15;
+            push_box(pos, norms, idx, cols, x - s * 0.2, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
+            push_box(pos, norms, idx, cols, x + s * 0.2, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
+            // Arch top
+            let ah = s * 0.06;
+            push_box(pos, norms, idx, cols, x, y + s * 0.85, z, s * 0.18, ah, hd, c[0], c[1], c[2], base_idx);
+            // Stair steps going down
+            for i in 0..3 {
+                let step_y = y - (i as f32) * s * 0.06;
+                let step_z = z + (i as f32 + 1.0) * s * 0.1;
+                push_box(pos, norms, idx, cols, x, step_y, step_z, s * 0.1, s * 0.03, s * 0.05, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx);
+            }
+            // Dark entrance interior
+            push_box(pos, norms, idx, cols, x, y + hh * 0.6, z + hd * 0.5, hw * 0.8, hh * 0.6, hd * 0.3, 0.05, 0.05, 0.08, base_idx);
+        }
     }
 }
 
@@ -290,6 +339,172 @@ pub fn generate_struct_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(V
     for inst in &data.instances {
         emit_struct(inst.struct_type, inst.x, inst.y, inst.z, inst.scale, inst.rotation, inst.color_variation,
             &mut pos, &mut norms, &mut idx, &mut cols, &mut base_idx);
+    }
+    Some((pos, norms, idx, cols))
+}
+
+#[derive(Clone)]
+pub struct RoadSegment {
+    pub x1: f32, pub y1: f32, pub z1: f32,
+    pub x2: f32, pub y2: f32, pub z2: f32,
+}
+
+fn push_road_quad(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, width: f32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+) {
+    let dx = x2 - x1;
+    let dz = z2 - z1;
+    let len = (dx * dx + dz * dz).sqrt();
+    if len < 0.01 { return; }
+    let nx = -dz / len * width * 0.5;
+    let nz = dx / len * width * 0.5;
+    let thickness = 0.06;
+    let verts: [[f32; 3]; 8] = [
+        [x1 + nx, y1 + thickness, z1 + nz],
+        [x2 + nx, y2 + thickness, z2 + nz],
+        [x2 - nx, y2 + thickness, z2 - nz],
+        [x1 - nx, y1 + thickness, z1 - nz],
+        [x1 + nx, y1, z1 + nz],
+        [x2 + nx, y2, z2 + nz],
+        [x2 - nx, y2, z2 - nz],
+        [x1 - nx, y1, z1 - nz],
+    ];
+    let norms_data: [[f32; 3]; 8] = [
+        [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+        [0.0, -1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0],
+    ];
+    let nv = pos.len() as u32 / 3;
+    for &v in &verts { pos.push(v[0]); pos.push(v[1]); pos.push(v[2]); }
+    for &n in &norms_data { norms.push(n[0]); norms.push(n[1]); norms.push(n[2]); }
+    for _ in 0..8 { cols.push(r); cols.push(g); cols.push(b); }
+    // Top quad: 0-1-2, 0-2-3; bottom: 4-6-5, 4-7-6; sides: 0-4-1, 1-4-5, etc.
+    let ipat: [u32; 36] = [
+        0, 1, 2, 0, 2, 3,
+        4, 6, 5, 4, 7, 6,
+        0, 4, 1, 1, 4, 5,
+        1, 5, 2, 2, 5, 6,
+        2, 6, 3, 3, 6, 7,
+        3, 7, 0, 0, 7, 4,
+    ];
+    for &i in &ipat { idx.push(nv + i); }
+    *base_idx = nv + 8;
+}
+
+pub fn generate_road_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>)> {
+    let ox = cx as f64 * crate::engine::chunk::CHUNK_SIZE;
+    let oz = cz as f64 * crate::engine::chunk::CHUNK_SIZE;
+    let min_dist = 8.0;
+    let max_dist = 30.0;
+    let mut all_instances = Vec::new();
+
+    // Collect structures from 3x3 chunk area
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            let data = compute_chunk_structures(params, cx + dx, cz + dz);
+            all_instances.extend(data.instances);
+        }
+    }
+    if all_instances.len() < 2 { return None; }
+
+    // Build roads: connect nearest-neighbor pairs within range
+    let mut used = vec![false; all_instances.len()];
+    let mut segments = Vec::new();
+    for i in 0..all_instances.len() {
+        if used[i] { continue; }
+        let a = &all_instances[i];
+        let mut best = max_dist;
+        let mut best_j = None;
+        for j in (i + 1)..all_instances.len() {
+            if used[j] { continue; }
+            let b = &all_instances[j];
+            let dx = a.x as f64 - b.x as f64;
+            let dz = a.z as f64 - b.z as f64;
+            let dist = (dx * dx + dz * dz).sqrt();
+            if dist >= min_dist && dist < best {
+                best = dist;
+                best_j = Some(j);
+            }
+        }
+        if let Some(j) = best_j {
+            let b = &all_instances[j];
+            let mid_x = (a.x + b.x) * 0.5;
+            let mid_z = (a.z + b.z) * 0.5;
+            // Only keep roads whose midpoint is in this chunk
+            if mid_x >= ox as f32 && mid_x < (ox + crate::engine::chunk::CHUNK_SIZE) as f32 &&
+               mid_z >= oz as f32 && mid_z < (oz + crate::engine::chunk::CHUNK_SIZE) as f32
+            {
+                segments.push(RoadSegment {
+                    x1: a.x, y1: a.y, z1: a.z,
+                    x2: b.x, y2: b.y, z2: b.z,
+                });
+            }
+            used[i] = true;
+            used[j] = true;
+        }
+    }
+    if segments.is_empty() { return None; }
+
+    let mut pos = Vec::new();
+    let mut norms = Vec::new();
+    let mut idx = Vec::new();
+    let mut cols = Vec::new();
+    let mut base_idx = 0u32;
+    let road_color = [0.55, 0.45, 0.3];
+    let bridge_color = [0.45, 0.35, 0.25];
+    let water_level = params.water_level as f32;
+    for seg in &segments {
+        let mid_x = (seg.x1 + seg.x2) * 0.5;
+        let mid_z = (seg.z1 + seg.z2) * 0.5;
+        // Check if this road segment crosses a river
+        if terrain::is_river(params, mid_x as f64, mid_z as f64) {
+            // Bridge deck
+            let dx = seg.x2 - seg.x1;
+            let dz = seg.z2 - seg.z1;
+            let len = (dx * dx + dz * dz).sqrt().max(0.01);
+            let nx = -dz / len;
+            let nz = dx / len;
+            let deck_hw = 0.5;
+            let deck_hh = 0.04;
+            let deck_hd = 0.5;
+            let bridge_y = water_level + 0.5;
+            // Center of bridge at midpoint
+            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+                mid_x, bridge_y + deck_hh, mid_z,
+                deck_hw, deck_hh, deck_hd,
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx);
+            // Railings
+            let rail_h = 0.25;
+            let rail_w = 0.02;
+            let r_offset = 0.45;
+            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+                mid_x + nx * r_offset, bridge_y + deck_hh * 2.0 + rail_h, mid_z + nz * r_offset,
+                rail_w, rail_h, 0.02,
+                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx);
+            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+                mid_x - nx * r_offset, bridge_y + deck_hh * 2.0 + rail_h, mid_z - nz * r_offset,
+                rail_w, rail_h, 0.02,
+                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx);
+            // Bridge supports at ends
+            let sup_h = (bridge_y - seg.y1).max(0.1);
+            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+                seg.x1, seg.y1 + sup_h * 0.5, seg.z1,
+                0.04, sup_h * 0.5, 0.04,
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx);
+            let sup_h2 = (bridge_y - seg.y2).max(0.1);
+            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+                seg.x2, seg.y2 + sup_h2 * 0.5, seg.z2,
+                0.04, sup_h2 * 0.5, 0.04,
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx);
+        } else {
+            push_road_quad(
+                &mut pos, &mut norms, &mut idx, &mut cols,
+                seg.x1, seg.y1 + 0.1, seg.z1,
+                seg.x2, seg.y2 + 0.1, seg.z2,
+                0.8, road_color[0], road_color[1], road_color[2], &mut base_idx,
+            );
+        }
     }
     Some((pos, norms, idx, cols))
 }

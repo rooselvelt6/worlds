@@ -37,6 +37,8 @@ struct ClientMessage {
     pitch: f32,
     #[serde(default)]
     name: String,
+    #[serde(default)]
+    text: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -51,6 +53,13 @@ struct PlayerState {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+struct ChatMessage {
+    player_id: String,
+    player_name: String,
+    text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct ServerMessage {
     #[serde(rename = "type")]
     msg_type: String,
@@ -60,6 +69,8 @@ struct ServerMessage {
     your_id: String,
     #[serde(default)]
     count: u32,
+    #[serde(default)]
+    chat: ChatMessage,
 }
 
 pub async fn ws_handler(ws: WebSocketUpgrade, State(app): State<AppState>) -> impl IntoResponse {
@@ -101,6 +112,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                         players: vec![],
                                         your_id: player_id.clone(),
                                         count: sender.receiver_count() as u32,
+                                        chat: ChatMessage { player_id: String::new(), player_name: String::new(), text: String::new() },
                                     };
                                     let _ = socket.send(Message::Text(serde_json::to_string(&welcome).unwrap().into())).await;
 
@@ -124,8 +136,65 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                                 players: vec![player],
                                                 your_id: String::new(),
                                                 count: 0,
+                                                chat: ChatMessage { player_id: String::new(), player_name: String::new(), text: String::new() },
                                             };
                                             let _ = sender.send(serde_json::to_string(&msg).unwrap());
+                                        }
+                                    }
+                                }
+                                "chat" => {
+                                    if let Some(ref key) = room_key {
+                                        let rooms = state.rooms.read().await;
+                                        if let Some(sender) = rooms.get(key) {
+                                            let chat_text = cmsg.text.trim().to_string();
+                                            if chat_text.is_empty() { return; }
+                                            if chat_text.starts_with('/') {
+                                                match chat_text.split_once(' ') {
+                                                    Some(("/whisper", rest)) => {
+                                                        // whisper — broadcast with whisper prefix
+                                                        let msg = ServerMessage {
+                                                            msg_type: "chat".into(),
+                                                            players: vec![],
+                                                            your_id: String::new(),
+                                                            count: 0,
+                                                            chat: ChatMessage {
+                                                                player_id: player_id.clone(),
+                                                                player_name: player_name.clone(),
+                                                                text: format!("[whisper] {}", rest),
+                                                            },
+                                                        };
+                                                        let _ = sender.send(serde_json::to_string(&msg).unwrap());
+                                                    }
+                                                    _ => {
+                                                        let help = format!("Comandos: /list, /whisper <msg>");
+                                                        let msg = ServerMessage {
+                                                            msg_type: "chat".into(),
+                                                            players: vec![],
+                                                            your_id: String::new(),
+                                                            count: 0,
+                                                            chat: ChatMessage {
+                                                                player_id: String::new(),
+                                                                player_name: "Sistema".into(),
+                                                                text: help,
+                                                            },
+                                                        };
+                                                        let _ = sender.send(serde_json::to_string(&msg).unwrap());
+                                                    }
+                                                }
+                                            } else {
+                                                let msg = ServerMessage {
+                                                    msg_type: "chat".into(),
+                                                    players: vec![],
+                                                    your_id: String::new(),
+                                                    count: 0,
+                                                    chat: ChatMessage {
+                                                        player_id: player_id.clone(),
+                                                        player_name: player_name.clone(),
+                                                        text: chat_text.clone(),
+                                                    },
+                                                };
+                                                let _ = sender.send(serde_json::to_string(&msg).unwrap());
+                                            }
                                         }
                                     }
                                 }

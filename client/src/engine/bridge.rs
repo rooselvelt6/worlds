@@ -75,4 +75,29 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeSetMeshVisible)]
     pub fn set_mesh_visible(key: &str, visible: bool);
+
+    #[wasm_bindgen(js_name = threeBridgeSetMeshOpacity)]
+    pub fn set_mesh_opacity(key: &str, opacity: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetMeshFrustumCulled)]
+    pub fn set_mesh_frustum_culled(key: &str, value: bool);
+
+    // WebSocket / Multiplayer
+    #[wasm_bindgen(js_name = threeBridgeWsConnect)]
+    pub fn ws_connect(url: &str, seed: u32, on_message: &js_sys::Function);
+
+    #[wasm_bindgen(js_name = threeBridgeWsSendPos)]
+    pub fn ws_send_pos(x: f64, y: f64, z: f64, yaw: f64, pitch: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeWsSendChat)]
+    pub fn ws_send_chat(text: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeWsDisconnect)]
+    pub fn ws_disconnect();
+
+    #[wasm_bindgen(js_name = threeBridgeUpdateRemotePlayer)]
+    pub fn ws_update_remote_player(id: &str, name: &str, x: f64, y: f64, z: f64, yaw: f64, pitch: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeWsRemovePlayer)]
+    pub fn ws_remove_player(id: &str);
 }

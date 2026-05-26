@@ -1,9 +1,13 @@
+pub mod achievements;
 pub mod audio;
 pub mod bridge;
 pub mod camera;
 pub mod chunk;
+pub mod codex;
 pub mod controls;
 pub mod creatures;
+pub mod db;
+pub mod foam;
 pub mod gamepad;
 pub mod inventory;
 pub mod joystick;
@@ -15,28 +19,35 @@ pub mod structures;
 pub mod terrain;
 pub mod tour;
 pub mod vegetation;
+pub mod waterfall;
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
+use achievements::AchievementState;
+use codex::Codex;
+use foam::FoamSystem;
+use particles::BubbleSystem;
 use crate::state::{CameraMode, CharacterPreset, ParticleMode, WorldParams};
 use terrain::{Zone, get_height};
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
 use controls::{Controls, MASK_1, MASK_2, MASK_3, MASK_4, MASK_5, MASK_6, MASK_7, MASK_8, MASK_9,
-    MASK_A, MASK_B, MASK_D, MASK_E, MASK_LCLICK, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+    MASK_A, MASK_B, MASK_D, MASK_E, MASK_G, MASK_LCLICK, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
 use creatures::{generate_creature_mesh, creature_animated_positions};
 use gamepad::poll_gamepad;
 use inventory::Inventory;
 use minerals::generate_mineral_mesh;
 use particles::ParticleSystem;
 use portals::generate_portal_mesh;
-use structures::generate_struct_mesh;
+use structures::{compute_chunk_structures, generate_road_mesh, generate_struct_mesh};
 use tour::TourState;
-use vegetation::generate_veg_mesh;
+use vegetation::{compute_chunk_vegetation, generate_veg_mesh_from_data, VegData, VegType};
+use waterfall::WaterfallSystem;
 
 const ARM_LENGTH: f64 = 5.0;
 const ARM_HEIGHT: f64 = 2.5;
@@ -75,29 +86,97 @@ pub struct HudData {
     pub weather_label: String,
     pub lightning: bool,
     pub craft_message: Option<String>,
+    pub achievement_message: Option<String>,
+    pub codex_biomes: (usize, usize),
+    pub codex_structures: (usize, usize),
+    pub codex_minerals: (usize, usize),
+    pub codex_creatures: (usize, usize),
+}
+
+fn collides_with_veg(x: f64, z: f64, veg_chunks: &std::collections::HashMap<(i32, i32), VegData>) -> bool {
+    let cx = (x / CHUNK_SIZE) as i32;
+    let cz = (z / CHUNK_SIZE) as i32;
+    for dcx in -1..=1 {
+        for dcz in -1..=1 {
+            if let Some(veg) = veg_chunks.get(&(cx + dcx, cz + dcz)) {
+                for inst in &veg.instances {
+                    let radius = match inst.veg_type {
+                        VegType::Tree | VegType::DeadTree => inst.size as f64 * 0.5,
+                        VegType::Cactus => inst.size as f64 * 0.15,
+                        _ => 0.0,
+                    };
+                    if radius <= 0.0 { continue; }
+                    let dx = x - inst.x as f64;
+                    let dz = z - inst.z as f64;
+                    if dx * dx + dz * dz < radius * radius {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn auto_save_full(s: &GameState) {
+    let inventory_json = serde_json::to_string(&s.inventory).ok();
+    let codex_json = serde_json::to_string(&s.codex).ok();
+    let achievements_json = serde_json::to_string(&s.achievements).ok();
+    let placed: Vec<[i32; 4]> = s.placed_blocks.iter().map(|(&(x,y,z), &t)| [x, y, z, t as i32]).collect();
+    let block_inv: Vec<(u8, u32)> = s.block_inventory.iter().map(|(t, c)| (*t, *c)).collect();
+    let discovered = s.discovered_biomes.clone();
+    let mut data = crate::state::SaveData::new(
+        "Auto", &s.params, s.char_pos,
+        s.controls.yaw.get(), s.controls.pitch.get(),
+        &[], &discovered,
+        s.day_time, s.params.fly_mode, false,
+    );
+    data.inventory_json = inventory_json;
+    data.codex_json = codex_json;
+    data.achievements_json = achievements_json;
+    data.placed_blocks = placed;
+    data.block_inventory = block_inv;
+    if let Ok(json) = serde_json::to_string(&data) {
+        db::set_async("worlds_autosave", &json);
+    }
 }
 
 fn save_blocks(blocks: &std::collections::HashMap<(i32,i32,i32), u8>) {
     let data: Vec<[i32; 4]> = blocks.iter().map(|(&(x,y,z), &t)| [x, y, z, t as i32]).collect();
     if let Ok(json) = serde_json::to_string(&data) {
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            let _ = storage.set_item("worlds_blocks", &json);
-        }
+        db::set_async("worlds_blocks", &json);
     }
 }
 
 fn load_blocks() -> std::collections::HashMap<(i32,i32,i32), u8> {
     let mut map = std::collections::HashMap::new();
-    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-        if let Ok(Some(json)) = storage.get_item("worlds_blocks") {
-            if let Ok(data) = serde_json::from_str::<Vec<[i32; 4]>>(&json) {
-                for arr in data {
-                    map.insert((arr[0], arr[1], arr[2]), arr[3] as u8);
-                }
+    if let Some(json) = db::get("worlds_blocks") {
+        if let Ok(data) = serde_json::from_str::<Vec<[i32; 4]>>(&json) {
+            for arr in data {
+                map.insert((arr[0], arr[1], arr[2]), arr[3] as u8);
             }
         }
     }
     map
+}
+
+fn save_mined(mined: &HashSet<(i32,i32,i32)>) {
+    let data: Vec<[i32; 3]> = mined.iter().map(|&(x,y,z)| [x, y, z]).collect();
+    if let Ok(json) = serde_json::to_string(&data) {
+        db::set_async("worlds_mined", &json);
+    }
+}
+
+fn load_mined() -> HashSet<(i32,i32,i32)> {
+    let mut set = HashSet::new();
+    if let Some(json) = db::get("worlds_mined") {
+        if let Ok(data) = serde_json::from_str::<Vec<[i32; 3]>>(&json) {
+            for arr in data {
+                set.insert((arr[0], arr[1], arr[2]));
+            }
+        }
+    }
+    set
 }
 
 fn collides_with_blocks(x: f64, y: f64, z: f64,
@@ -116,6 +195,7 @@ fn collides_with_blocks(x: f64, y: f64, z: f64,
 
 fn raycast_block(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, max_dist: f64,
     placed: &std::collections::HashMap<(i32,i32,i32), u8>,
+    mined: &HashSet<(i32,i32,i32)>,
     params: &WorldParams) -> Option<((i32,i32,i32), bool)>
 {
     let len = (dx*dx + dy*dy + dz*dz).sqrt();
@@ -134,10 +214,17 @@ fn raycast_block(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, max_dist:
         if placed.contains_key(&key) {
             return Some((key, true));
         }
-        let terrain_h = get_height(params, x, z);
+        if mined.contains(&key) {
+            x += sx * step;
+            y += sy * step;
+            z += sz * step;
+            dist += step;
+            continue;
+        }
+        let mut terrain_h = get_height(params, x, z);
+        terrain::zone_effects(params, x, z, &mut terrain_h);
         if y < terrain_h && terrain_h > params.water_level {
-            let adj_key = (bx, terrain_h.floor() as i32, bz);
-            return Some((adj_key, false));
+            return Some((key, false));
         }
         x += sx * step;
         y += sy * step;
@@ -145,6 +232,65 @@ fn raycast_block(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, max_dist:
         dist += step;
     }
     None
+}
+
+struct BreakParticle {
+    key: String,
+    positions: Vec<f64>,
+    velocities: Vec<[f64; 3]>,
+    lifetime: f64,
+    max_lifetime: f64,
+}
+
+impl BreakParticle {
+    fn new(key: String, origin: [f64; 3], count: usize) -> Self {
+        let mut rng: u64 = origin[0] as u64 ^ (origin[1] as u64).wrapping_mul(374761393) ^ (origin[2] as u64).wrapping_mul(668265263);
+        let mut rng_f = || {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng as f64 * 4.6566129e-10
+        };
+        let mut positions = Vec::with_capacity(count * 3);
+        let mut velocities = Vec::with_capacity(count);
+        for _ in 0..count {
+            let theta = rng_f() * std::f64::consts::TAU;
+            let phi = rng_f() * std::f64::consts::PI;
+            let speed = 2.0 + rng_f() * 4.0;
+            positions.push(origin[0]);
+            positions.push(origin[1]);
+            positions.push(origin[2]);
+            velocities.push([theta.cos() * phi.sin() * speed, phi.cos() * speed, theta.sin() * phi.sin() * speed]);
+        }
+        let flat: Vec<f32> = positions.iter().map(|&v| v as f32).collect();
+        let arr = js_sys::Float32Array::from(&flat[..]);
+        bridge::create_particles(&key, count as u32, 1.0, 1.0, 1.0, 0.06);
+        bridge::update_particles(&key, &arr);
+        Self { key, positions, velocities, lifetime: 0.6, max_lifetime: 0.6 }
+    }
+
+    fn update(&mut self, delta: f64) {
+        self.lifetime -= delta;
+        if self.lifetime <= 0.0 { return; }
+        let gray = (self.lifetime / self.max_lifetime) as f32;
+        bridge::set_particles_opacity(&self.key, (gray * 0.8) as f64);
+        for i in 0..self.velocities.len() {
+            let i3 = i * 3;
+            self.positions[i3] += self.velocities[i][0] * delta;
+            self.positions[i3 + 1] += self.velocities[i][1] * delta;
+            self.positions[i3 + 2] += self.velocities[i][2] * delta;
+            self.velocities[i][1] -= 9.8 * delta;
+        }
+        let flat: Vec<f32> = self.positions.iter().map(|&v| v as f32).collect();
+        bridge::update_particles(&self.key, &js_sys::Float32Array::from(&flat[..]));
+    }
+
+    fn remove(&self) {
+        bridge::remove_mesh(&self.key);
+    }
+}
+
+struct RemotePlayerData {
+    name: String,
+    x: f64, y: f64, z: f64,
 }
 
 #[allow(dead_code)]
@@ -182,6 +328,7 @@ struct GameState {
     weather_target: f64,
     weather_timer: f64,
     lightning_flash: f64,
+    veg_chunks: std::collections::HashMap<(i32, i32), VegData>,
     placed_blocks: std::collections::HashMap<(i32, i32, i32), u8>,
     block_inventory: Vec<(u8, u32)>,
     build_prev: bool,
@@ -190,6 +337,24 @@ struct GameState {
     params_dirty: bool,
     char_dirty: bool,
     portal_prev: bool,
+    g_prev: bool,
+    waterfalls: WaterfallSystem,
+    foam: FoamSystem,
+    bubbles: BubbleSystem,
+    codex: codex::Codex,
+    achievements: AchievementState,
+    discovered_biomes: Vec<String>,
+    total_distance: f64,
+    weather_power_idx: u8,
+    weather_cooldown: f64,
+    mined_blocks: HashSet<(i32, i32, i32)>,
+    break_counter: u32,
+    break_particles: Vec<BreakParticle>,
+    ws_connected: bool,
+    ws_player_id: String,
+    ws_send_timer: f64,
+    chat_messages: std::collections::VecDeque<(String, String)>,
+    remote_players: std::collections::HashMap<String, RemotePlayerData>,
 }
 
 pub struct Engine {
@@ -437,29 +602,35 @@ fn regenerate_all(s: &mut GameState) {
         bridge::remove_mesh(&format!("veg_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("crea_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("struct_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("road_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("mineral_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("portal_{},{}", old.cx, old.cz));
     }
+    s.waterfalls.remove_all();
+    s.foam.remove();
+    s.bubbles.remove();
+    s.veg_chunks.clear();
     let mut new_chunks: Vec<ChunkData> = Vec::new();
     for x in (pcx - d)..=(pcx + d) {
         for z in (pcz - d)..=(pcz + d) {
-            let data = chunk::compute_chunk_data(&s.params, x, z);
+            let data = chunk::compute_chunk_data(&s.params, x, z, &s.mined_blocks);
             let key = format!("chunk_{},{}", data.cx, data.cz);
             let pos_arr = js_sys::Float32Array::from(&data.positions[..]);
             let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
             let col_arr = js_sys::Float32Array::from(&data.colors[..]);
-            let idx_arr = js_sys::Uint32Array::from(
-                &data.indices.iter().map(|&i| i as u32).collect::<Vec<_>>()[..],
-            );
+            let idx_arr = js_sys::Uint32Array::from(&data.indices[..]);
             bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr);
-            if let Some((vpos, vnorm, vidx, vcol)) = generate_veg_mesh(&s.params, x, z) {
+            let veg_data = compute_chunk_vegetation(&s.params, x, z);
+            if !veg_data.instances.is_empty() {
                 let vkey = format!("veg_{},{}", x, z);
+                let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, 1);
                 let vp = js_sys::Float32Array::from(&vpos[..]);
                 let vn = js_sys::Float32Array::from(&vnorm[..]);
                 let vi = js_sys::Uint32Array::from(&vidx[..]);
                 let vc = js_sys::Float32Array::from(&vcol[..]);
                 bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
             }
+            s.veg_chunks.insert((x, z), veg_data);
             if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh(&s.params, x, z) {
                 let ckey = format!("crea_{},{}", x, z);
                 let cp = js_sys::Float32Array::from(&cpos[..]);
@@ -492,12 +663,26 @@ fn regenerate_all(s: &mut GameState) {
                 let pc = js_sys::Float32Array::from(&pcol[..]);
                 bridge::upload_mesh(&pkey, &pp, &pn, &pi, &pc);
             }
+            if let Some((rpos, rnorm, ridx, rcol)) = generate_road_mesh(&s.params, x, z) {
+                let rkey = format!("road_{},{}", x, z);
+                let rp = js_sys::Float32Array::from(&rpos[..]);
+                let rn = js_sys::Float32Array::from(&rnorm[..]);
+                let ri = js_sys::Uint32Array::from(&ridx[..]);
+                let rc = js_sys::Float32Array::from(&rcol[..]);
+                bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc);
+            }
             new_chunks.push(data);
         }
     }
     s.chunks = new_chunks;
     s.prev_cx = pcx;
     s.prev_cz = pcz;
+}
+
+fn lod_for_distance(dist: i32) -> u32 {
+    if dist <= 2 { 0 }
+    else if dist <= 4 { 1 }
+    else { 2 }
 }
 
 fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
@@ -523,69 +708,94 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         bridge::remove_mesh(&format!("veg_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("crea_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("struct_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("road_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("mineral_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("portal_{},{}", old.cx, old.cz));
+        s.veg_chunks.remove(&(old.cx, old.cz));
     }
 
     for &(cx, cz) in &to_compute {
-        let data = chunk::compute_chunk_data(&s.params, cx, cz);
+        let dx = (cx - s.prev_cx).abs().max((cz - s.prev_cz).abs());
+        let lod = lod_for_distance(dx);
+
+        // Use LOD chunk generation for distant chunks
+        let data = if lod > 0 {
+            chunk::compute_chunk_data_lod(&s.params, cx, cz, &s.mined_blocks, lod)
+        } else {
+            chunk::compute_chunk_data(&s.params, cx, cz, &s.mined_blocks)
+        };
         let key = format!("chunk_{},{}", data.cx, data.cz);
         let pos_arr = js_sys::Float32Array::from(&data.positions[..]);
         let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
         let col_arr = js_sys::Float32Array::from(&data.colors[..]);
-        let idx_arr = js_sys::Uint32Array::from(
-            &data.indices.iter().map(|&i| i as u32).collect::<Vec<_>>()[..],
-        );
+        let idx_arr = js_sys::Uint32Array::from(&data.indices[..]);
         bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr);
+        bridge::set_mesh_frustum_culled(&key, false);
 
-        // Vegetation mesh for this chunk
-        if let Some((vpos, vnorm, vidx, vcol)) = generate_veg_mesh(&s.params, cx, cz) {
-            let vkey = format!("veg_{},{}", cx, cz);
-            let vp = js_sys::Float32Array::from(&vpos[..]);
-            let vn = js_sys::Float32Array::from(&vnorm[..]);
-            let vi = js_sys::Uint32Array::from(&vidx[..]);
-            let vc = js_sys::Float32Array::from(&vcol[..]);
-            bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
-        }
+        // Skip vegetation/creatures/structures/minerals for far LOD chunks (LOD 2)
+        if lod < 2 {
+            // Vegetation mesh for this chunk
+            let veg_data = compute_chunk_vegetation(&s.params, cx, cz);
+            if !veg_data.instances.is_empty() {
+                let vkey = format!("veg_{},{}", cx, cz);
+                let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, 1);
+                let vp = js_sys::Float32Array::from(&vpos[..]);
+                let vn = js_sys::Float32Array::from(&vnorm[..]);
+                let vi = js_sys::Uint32Array::from(&vidx[..]);
+                let vc = js_sys::Float32Array::from(&vcol[..]);
+                bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
+            }
+            s.veg_chunks.insert((cx, cz), veg_data);
 
-        // Creature mesh for this chunk
-        if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh(&s.params, cx, cz) {
-            let ckey = format!("crea_{},{}", cx, cz);
-            let cp = js_sys::Float32Array::from(&cpos[..]);
-            let cn = js_sys::Float32Array::from(&cnorm[..]);
-            let ci = js_sys::Uint32Array::from(&cidx[..]);
-            let cc = js_sys::Float32Array::from(&ccol[..]);
-            bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
-        }
+            // Creature mesh for this chunk
+            if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh(&s.params, cx, cz) {
+                let ckey = format!("crea_{},{}", cx, cz);
+                let cp = js_sys::Float32Array::from(&cpos[..]);
+                let cn = js_sys::Float32Array::from(&cnorm[..]);
+                let ci = js_sys::Uint32Array::from(&cidx[..]);
+                let cc = js_sys::Float32Array::from(&ccol[..]);
+                bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+            }
 
-        // Structure mesh for this chunk
-        if let Some((spos, snorm, sidx, scol)) = generate_struct_mesh(&s.params, cx, cz) {
-            let skey = format!("struct_{},{}", cx, cz);
-            let sp = js_sys::Float32Array::from(&spos[..]);
-            let sn = js_sys::Float32Array::from(&snorm[..]);
-            let si = js_sys::Uint32Array::from(&sidx[..]);
-            let sc = js_sys::Float32Array::from(&scol[..]);
-            bridge::upload_mesh(&skey, &sp, &sn, &si, &sc);
-        }
+            // Structure mesh for this chunk
+            if let Some((spos, snorm, sidx, scol)) = generate_struct_mesh(&s.params, cx, cz) {
+                let skey = format!("struct_{},{}", cx, cz);
+                let sp = js_sys::Float32Array::from(&spos[..]);
+                let sn = js_sys::Float32Array::from(&snorm[..]);
+                let si = js_sys::Uint32Array::from(&sidx[..]);
+                let sc = js_sys::Float32Array::from(&scol[..]);
+                bridge::upload_mesh(&skey, &sp, &sn, &si, &sc);
+            }
 
-        // Mineral mesh for this chunk
-        if let Some((mpos, mnorm, midx, mcol)) = generate_mineral_mesh(&s.params, cx, cz) {
-            let mkey = format!("mineral_{},{}", cx, cz);
-            let mp = js_sys::Float32Array::from(&mpos[..]);
-            let mn = js_sys::Float32Array::from(&mnorm[..]);
-            let mi = js_sys::Uint32Array::from(&midx[..]);
-            let mc = js_sys::Float32Array::from(&mcol[..]);
-            bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc);
-        }
+            // Mineral mesh for this chunk
+            if let Some((mpos, mnorm, midx, mcol)) = generate_mineral_mesh(&s.params, cx, cz) {
+                let mkey = format!("mineral_{},{}", cx, cz);
+                let mp = js_sys::Float32Array::from(&mpos[..]);
+                let mn = js_sys::Float32Array::from(&mnorm[..]);
+                let mi = js_sys::Uint32Array::from(&midx[..]);
+                let mc = js_sys::Float32Array::from(&mcol[..]);
+                bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc);
+            }
 
-        // Portal mesh for this chunk
-        if let Some((ppos, pnorm, pidx, pcol)) = generate_portal_mesh(&s.params, cx, cz) {
-            let pkey = format!("portal_{},{}", cx, cz);
-            let pp = js_sys::Float32Array::from(&ppos[..]);
-            let pn = js_sys::Float32Array::from(&pnorm[..]);
-            let pi = js_sys::Uint32Array::from(&pidx[..]);
-            let pc = js_sys::Float32Array::from(&pcol[..]);
-            bridge::upload_mesh(&pkey, &pp, &pn, &pi, &pc);
+            // Portal mesh for this chunk
+            if let Some((ppos, pnorm, pidx, pcol)) = generate_portal_mesh(&s.params, cx, cz) {
+                let pkey = format!("portal_{},{}", cx, cz);
+                let pp = js_sys::Float32Array::from(&ppos[..]);
+                let pn = js_sys::Float32Array::from(&pnorm[..]);
+                let pi = js_sys::Uint32Array::from(&pidx[..]);
+                let pc = js_sys::Float32Array::from(&pcol[..]);
+                bridge::upload_mesh(&pkey, &pp, &pn, &pi, &pc);
+            }
+
+            // Road mesh for this chunk
+            if let Some((rpos, rnorm, ridx, rcol)) = generate_road_mesh(&s.params, cx, cz) {
+                let rkey = format!("road_{},{}", cx, cz);
+                let rp = js_sys::Float32Array::from(&rpos[..]);
+                let rn = js_sys::Float32Array::from(&rnorm[..]);
+                let ri = js_sys::Uint32Array::from(&ridx[..]);
+                let rc = js_sys::Float32Array::from(&rcol[..]);
+                bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc);
+            }
         }
 
         new_chunks.push(data);
@@ -595,7 +805,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
 }
 
 fn regenerate_character(s: &mut GameState) {
-    for key in &["char_body", "char_head", "char_arm_l", "char_arm_r", "char_leg_l", "char_leg_r"] {
+    for key in &["char_body", "char_head", "char_arm_l", "char_arm_r", "char_leg_l", "char_leg_r", "char_tent_1", "char_tent_2", "char_tent_3", "char_tent_4"] {
         bridge::remove_mesh(key);
     }
     let scale = s.params.char_scale;
@@ -619,6 +829,21 @@ fn regenerate_character(s: &mut GameState) {
             (0.6, 0.9, 0.3), (0.4, 10, 10, 0.0),
             (0.15, 0.6, 0.15), (0.2, 0.6, 0.2),
             [0.3, 0.5, 0.7], [0.5, 0.7, 0.9],
+        ),
+        CharacterPreset::Teddy => (
+            (0.85, 0.8, 0.6), (0.48, 10, 10, 0.0),
+            (0.22, 0.5, 0.22), (0.28, 0.5, 0.28),
+            [0.55, 0.35, 0.15], [0.75, 0.65, 0.45],
+        ),
+        CharacterPreset::Panda => (
+            (0.9, 0.85, 0.65), (0.52, 10, 10, 0.0),
+            (0.28, 0.55, 0.28), (0.33, 0.55, 0.33),
+            [0.95, 0.95, 0.9], [0.95, 0.95, 0.9],
+        ),
+        CharacterPreset::Kraken => (
+            (0.7, 0.5, 0.7), (0.55, 12, 12, 0.0),
+            (0.15, 0.55, 0.15), (0.12, 0.7, 0.12),
+            [0.35, 0.15, 0.4], [0.2, 0.7, 0.3],
         ),
     };
     let schemes: &[([f32; 3], [f32; 3])] = &[
@@ -662,6 +887,14 @@ fn regenerate_character(s: &mut GameState) {
     let l_col = fill_color(l_pos.len() / 3, body_col[0], body_col[1], body_col[2]);
     upload_part("char_leg_l", &l_pos, &l_norm, &l_idx, &l_col);
     upload_part("char_leg_r", &l_pos, &l_norm, &l_idx, &l_col);
+
+    if s.params.character == CharacterPreset::Kraken {
+        let (t_pos, t_norm, t_idx) = box_pivot_top(0.1 * scale, 0.7 * scale, 0.1 * scale);
+        let t_col = fill_color(t_pos.len() / 3, 0.2, 0.7, 0.3);
+        for i in 1..=4 {
+            upload_part(&format!("char_tent_{}", i), &t_pos, &t_norm, &t_idx, &t_col);
+        }
+    }
 }
 
 impl Engine {
@@ -785,7 +1018,9 @@ impl Engine {
             weather_target: 0.0,
             weather_timer: 0.0,
             lightning_flash: 0.0,
+            veg_chunks: std::collections::HashMap::new(),
             placed_blocks: load_blocks(),
+            mined_blocks: load_mined(),
             block_inventory: vec![(0, 64), (1, 32), (2, 16), (3, 16), (4, 8), (5, 8), (6, 8), (7, 8), (8, 8)],
             build_prev: false,
             slot_prev: 0,
@@ -793,6 +1028,23 @@ impl Engine {
             params_dirty: false,
             char_dirty: false,
             portal_prev: false,
+            g_prev: false,
+            waterfalls: WaterfallSystem::new(),
+            foam: FoamSystem::new(),
+            bubbles: BubbleSystem::new(),
+            codex: Codex::new(),
+            achievements: AchievementState::new(),
+            discovered_biomes: Vec::new(),
+            total_distance: 0.0,
+            weather_power_idx: 0,
+            weather_cooldown: 0.0,
+            break_counter: 0,
+            break_particles: Vec::new(),
+            ws_connected: false,
+            ws_player_id: String::new(),
+            ws_send_timer: 0.0,
+            chat_messages: std::collections::VecDeque::new(),
+            remote_players: std::collections::HashMap::new(),
         }));
 
         {
@@ -957,37 +1209,47 @@ impl Engine {
                     s.vel_z = (s.vel_z / spd) * speed;
                 }
 
-                let new_x = s.char_pos[0] + s.vel_x * delta;
-                let new_z = s.char_pos[2] + s.vel_z * delta;
+                let steps = ((s.vel_x.abs() + s.vel_z.abs()) * delta / 0.8).ceil().max(1.0) as u32;
+                let step_vx = s.vel_x * delta / steps as f64;
+                let step_vz = s.vel_z * delta / steps as f64;
                 let old_x = s.char_pos[0];
                 let old_z = s.char_pos[2];
-                let gh = terrain::get_height(&s.params, s.char_pos[0], s.char_pos[2]);
-                let h_t = terrain::get_height(&s.params, new_x, new_z);
-                let diff = h_t - gh;
-
-                let blocked = diff > s.params.step_height
-                    || collides_with_blocks(new_x, s.char_pos[1], new_z, &s.placed_blocks);
-
-                if !blocked {
-                    s.char_pos[0] = new_x;
-                    s.char_pos[2] = new_z;
+                for _ in 0..steps {
+                    let nx = s.char_pos[0] + step_vx;
+                    let nz = s.char_pos[2] + step_vz;
+                    let gh2 = terrain::get_height(&s.params, s.char_pos[0], s.char_pos[2]);
+                    let h_t2 = terrain::get_height(&s.params, nx, nz);
+                    let diff2 = h_t2 - gh2;
+                    if diff2 <= s.params.step_height
+                        && !collides_with_veg(nx, nz, &s.veg_chunks)
+                    {
+                        s.char_pos[0] = nx;
+                        s.char_pos[2] = nz;
+                    } else {
+                        let h_x = terrain::get_height(&s.params, nx, s.char_pos[2]);
+                        if h_x - gh2 <= s.params.step_height
+                            && !collides_with_veg(nx, s.char_pos[2], &s.veg_chunks)
+                        {
+                            s.char_pos[0] = nx;
+                        }
+                        let h_z = terrain::get_height(&s.params, s.char_pos[0], nz);
+                        if h_z - gh2 <= s.params.step_height
+                            && !collides_with_veg(s.char_pos[0], nz, &s.veg_chunks)
+                        {
+                            s.char_pos[2] = nz;
+                        }
+                        break;
+                    }
+                }
+                if s.char_pos[0] == old_x && s.char_pos[2] == old_z {
+                    s.vel_x = 0.0;
+                    s.vel_z = 0.0;
                 } else {
-                    let h_x = terrain::get_height(&s.params, new_x, s.char_pos[2]);
-                    if h_x - gh <= s.params.step_height
-                        && !collides_with_blocks(new_x, s.char_pos[1], s.char_pos[2], &s.placed_blocks)
-                    {
-                        s.char_pos[0] = new_x;
-                    }
-                    let h_z = terrain::get_height(&s.params, s.char_pos[0], new_z);
-                    if h_z - gh <= s.params.step_height
-                        && !collides_with_blocks(s.char_pos[0], s.char_pos[1], new_z, &s.placed_blocks)
-                    {
-                        s.char_pos[2] = new_z;
-                    }
-                    if s.char_pos[0] == old_x && s.char_pos[2] == old_z {
-                        s.vel_x = 0.0;
-                        s.vel_z = 0.0;
-                    }
+                    let dx = s.char_pos[0] - old_x;
+                    let dz = s.char_pos[2] - old_z;
+                    s.total_distance += (dx * dx + dz * dz).sqrt();
+                    let td = s.total_distance;
+                    s.achievements.check_distance(td);
                 }
 
                 if keys & MASK_Q != 0 {
@@ -1039,7 +1301,7 @@ impl Engine {
                     let rdx = s.char_pos[0] - s.cam_pos[0];
                     let rdy = s.char_pos[1] - s.cam_pos[1];
                     let rdz = s.char_pos[2] - s.cam_pos[2];
-                    if let Some(hit) = raycast_block(s.cam_pos[0], s.cam_pos[1], s.cam_pos[2], rdx, rdy, rdz, 12.0, &s.placed_blocks, &s.params) {
+                    if let Some(hit) = raycast_block(s.cam_pos[0], s.cam_pos[1], s.cam_pos[2], rdx, rdy, rdz, 12.0, &s.placed_blocks, &s.mined_blocks, &s.params) {
                         let (hx, hy, hz) = hit.0;
                         let key = (hx, hy, hz);
                         if keys & MASK_LCLICK != 0 {
@@ -1057,7 +1319,8 @@ impl Engine {
                                         s.placed_blocks.insert(key, sel_slot);
                                         let bkey = format!("b_{}_{}_{}", hx, hy, hz);
                                         let block_colors = [[0.6,0.45,0.3],[0.5,0.5,0.5],[0.55,0.35,0.15],[0.2,0.6,0.2],[0.7,0.4,1.0],[0.8,0.3,0.05],[0.7,0.9,1.0],[0.85,0.75,0.5],[0.3,0.5,0.2]];
-                                        let bcol = block_colors[sel_slot as usize % block_colors.len()];
+                                        let bcol = if sel_slot == 2 { [0.9, 0.6, 0.1] } else { block_colors[sel_slot as usize % block_colors.len()] };
+                                        let is_torch = sel_slot == 2;
                                         let (pos, nrm, idx) = box_mesh(1.0, 1.0, 1.0);
                                         let col = fill_color(24, bcol[0], bcol[1], bcol[2]);
                                         let bp = js_sys::Float32Array::from(&pos[..]);
@@ -1069,14 +1332,59 @@ impl Engine {
                                         if let Some(slot) = s.block_inventory.iter_mut().find(|(t, _)| *t == sel_slot) {
                                             slot.1 -= 1;
                                         }
+                                        s.achievements.blocks_placed += 1;
+                                        let bp = s.achievements.blocks_placed;
+                                        s.achievements.check_build(bp);
                                     }
                                 }
                             }
                         }
                         if keys & MASK_RCLICK != 0 {
-                            if s.placed_blocks.remove(&key).is_some() {
-                                let bkey = format!("b_{}_{}_{}", hx, hy, hz);
-                                bridge::remove_mesh(&bkey);
+                            let broke = if hit.1 {
+                                s.placed_blocks.remove(&key).is_some()
+                            } else {
+                                !s.mined_blocks.contains(&key)
+                            };
+                            if broke {
+                                if hit.1 {
+                                    let bkey = format!("b_{}_{}_{}", hx, hy, hz);
+                                    bridge::remove_mesh(&bkey);
+                                } else {
+                                    let wx = hx as f64 + 0.5;
+                                    let wz = hz as f64 + 0.5;
+                                    let zone = terrain::get_zone(&s.params, wx, wz);
+                                    let mut surface_h = terrain::get_height(&s.params, wx, wz);
+                                    terrain::zone_effects(&s.params, wx, wz, &mut surface_h);
+                                    let bt = terrain::get_block_type(&s.params, wx, hy as f64 + 0.5, wz, surface_h, zone);
+                                    // Drop mineral based on block type
+                                    let mineral = match bt {
+                                        terrain::BLK_STONE | terrain::BLK_DIRT | terrain::BLK_GRAVEL => Some(0),
+                                        terrain::BLK_COAL_ORE => Some(2),
+                                        terrain::BLK_IRON_ORE => Some(0),
+                                        terrain::BLK_GOLD_ORE => Some(4),
+                                        terrain::BLK_DIAMOND_ORE => Some(3),
+                                        terrain::BLK_SAND => Some(7),
+                                        _ => None,
+                                    };
+                                    let dist2 = (s.char_pos[0] - wx).powi(2) + (s.char_pos[1] - (hy as f64 + 0.5)).powi(2) + (s.char_pos[2] - wz).powi(2);
+                                    if dist2 < 6.0 {
+                                        if let Some(mt) = mineral {
+                                            s.inventory.add_mineral(mt, 1);
+                                            s.codex.discover_mineral(mt);
+                                        }
+                                    }
+                                    s.mined_blocks.insert(key);
+                                    s.params_dirty = true;
+                                    s.achievements.try_unlock(achievements::Achievement::FirstMine);
+                                }
+                                // Particle burst
+                                let pkey = format!("break_{}", s.break_counter);
+                                s.break_counter += 1;
+                                s.break_particles.push(BreakParticle::new(
+                                    pkey,
+                                    [hx as f64 + 0.5, hy as f64 + 0.5, hz as f64 + 0.5],
+                                    20,
+                                ));
                             }
                         }
                     }
@@ -1091,6 +1399,27 @@ impl Engine {
                             let dz = d.z as f64 - s.char_pos[2];
                             if dx * dx + dz * dz < 4.0 {
                                 s.inventory.add_mineral(d.mineral_type, 1);
+                                s.codex.discover_mineral(d.mineral_type);
+                                s.achievements.try_unlock(achievements::Achievement::FirstMine);
+                            }
+                        }
+                    }
+                    // Examine nearby creatures
+                    if keys & MASK_RCLICK != 0 {
+                        for c in &s.chunks {
+                            let data = creatures::compute_chunk_creatures(&s.params, c.cx, c.cz);
+                            for cr in &data.creatures {
+                                let dx = cr.x - s.char_pos[0];
+                                let dz = cr.z - s.char_pos[2];
+                                if dx * dx + dz * dz < 9.0 {
+                                    let name = creatures::creature_name(cr.creature_type);
+                                    s.codex.discover_creature(cr.creature_type);
+                                    s.achievements.check_creatures(1);
+                                    let msg = format!("🔍 {} — {}", name, crate::engine::terrain::get_zone(&s.params, cr.x, cr.z).as_str());
+                                    if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
+                                    s.chat_messages.push_back(("Sistema".into(), msg));
+                                    break;
+                                }
                             }
                         }
                     }
@@ -1103,6 +1432,13 @@ impl Engine {
                 part_position("char_arm_r", s.char_pos, 0.45, 1.5, 0.0);
                 part_position("char_leg_l", s.char_pos, -0.2, 0.9, 0.0);
                 part_position("char_leg_r", s.char_pos, 0.2, 0.9, 0.0);
+
+                if s.params.character == CharacterPreset::Kraken {
+                    let tent_offsets = [(-0.35, 0.7, -0.3), (0.35, 0.7, -0.3), (-0.35, 0.7, 0.3), (0.35, 0.7, 0.3)];
+                    for (i, &(ox, oy, oz)) in tent_offsets.iter().enumerate() {
+                        part_position(&format!("char_tent_{}", i + 1), s.char_pos, ox, oy, oz);
+                    }
+                }
 
                 // Walk/run animation
                 if moving {
@@ -1120,6 +1456,15 @@ impl Engine {
                 bridge::set_mesh_rotation("char_leg_r", leg_r, cyaw, 0.0);
                 bridge::set_mesh_rotation("char_arm_l", -leg_r, cyaw, 0.0);
                 bridge::set_mesh_rotation("char_arm_r", -leg_l, cyaw, 0.0);
+
+                if s.params.character == CharacterPreset::Kraken {
+                    let tent_phases = [0.0, 1.57, 3.14, 4.71];
+                    for i in 0..4 {
+                        let sway = (s.time * 2.0 + tent_phases[i]).sin() * 0.3;
+                        bridge::set_mesh_rotation(&format!("char_tent_{}", i + 1), sway, cyaw, 0.0);
+                    }
+                }
+
                 if !moving {
                     s.walk_time *= 0.9;
                 }
@@ -1132,6 +1477,12 @@ impl Engine {
                 bridge::set_mesh_visible("char_arm_r", !fp);
                 bridge::set_mesh_visible("char_leg_l", !fp);
                 bridge::set_mesh_visible("char_leg_r", !fp);
+                if s.params.character == CharacterPreset::Kraken {
+                    bridge::set_mesh_visible("char_tent_1", !fp);
+                    bridge::set_mesh_visible("char_tent_2", !fp);
+                    bridge::set_mesh_visible("char_tent_3", !fp);
+                    bridge::set_mesh_visible("char_tent_4", !fp);
+                }
 
                 if s.char_dirty {
                     s.char_dirty = false;
@@ -1182,10 +1533,13 @@ impl Engine {
                 // Update sky dome position to follow camera
                 bridge::set_mesh_position("sky_dome", s.cam_pos[0], s.cam_pos[1], s.cam_pos[2]);
 
-                // Creature animation (Y-bob every other frame)
+                // Creature AI update (wander + flee) every other frame
                 if s.frame_count & 1 == 0 {
                     for c in &s.chunks {
-                        if let Some(positions) = creature_animated_positions(&s.params, c.cx, c.cz, s.time) {
+                        if let Some((positions, rotations)) = creatures::update_creature_positions(
+                            &s.params, c.cx, c.cz, s.time,
+                            s.char_pos[0], s.char_pos[2],
+                        ) {
                             let key = format!("crea_{},{}", c.cx, c.cz);
                             let arr = js_sys::Float32Array::from(&positions[..]);
                             bridge::update_mesh_positions(&key, &arr);
@@ -1297,7 +1651,12 @@ impl Engine {
                     }
                 }
                 s.weather_power += (s.weather_target - s.weather_power) * delta * 0.5;
-                bridge::set_particles_opacity("particles", 0.5 + (s.weather_power * 0.5).min(1.0));
+                let particle_opacity = if s.params.particle_mode == ParticleMode::Off {
+                    0.0
+                } else {
+                    (0.5 + (s.weather_power * 0.5).min(1.0)).min(1.0)
+                };
+                bridge::set_particles_opacity("particles", particle_opacity);
 
                 // Lightning flashes (Storm zone or high weather)
                 s.lightning_flash *= 0.92; // decay
@@ -1305,7 +1664,26 @@ impl Engine {
                     let strike_chance = (s.weather_power - 0.6) * 0.5 * delta;
                     if ((s.time * 1000.0 + 777.0) as u64).wrapping_mul(1103515245) as f64 / (u64::MAX as f64) < strike_chance {
                         s.lightning_flash = 1.0;
+                        if ((s.time * 1000.0 + 777.0) as u64).wrapping_mul(1103515245) as f64 / (u64::MAX as f64) < 0.3 {
+                            audio::play_effect("thunder");
+                        }
                     }
+                }
+
+                // Update break particles
+                let mut i = 0;
+                while i < s.break_particles.len() {
+                    if s.break_particles[i].lifetime <= 0.0 {
+                        let dead = s.break_particles.remove(i);
+                        dead.remove();
+                    } else {
+                        s.break_particles[i].update(delta);
+                        i += 1;
+                    }
+                }
+                if s.break_particles.len() > 10 {
+                    let dead = s.break_particles.remove(0);
+                    dead.remove();
                 }
 
                 // Weather label for HUD
@@ -1333,6 +1711,30 @@ impl Engine {
                         _ => "Tormenta intensa",
                     }
                 };
+                let power_names = ["☀️", "🌧️", "⛈️", "❄️"];
+                let weather_label_power = format!("{} [{}]", weather_label, power_names[s.weather_power_idx as usize]);
+
+                // Weather powers (G key cycle + activate)
+                s.weather_cooldown = (s.weather_cooldown - delta).max(0.0);
+                let g_pressed = keys & MASK_G != 0;
+                if g_pressed && !s.g_prev && s.weather_cooldown <= 0.0 {
+                    let weather_powers = [0.0, 0.6, 1.0, 0.8];
+                    s.weather_power_idx = (s.weather_power_idx + 1) % 4;
+                    s.weather_target = weather_powers[s.weather_power_idx as usize];
+                    s.weather_cooldown = 8.0;
+                    audio::play_tone(500.0 + s.weather_power_idx as f32 * 100.0, 0.15);
+                }
+                s.g_prev = g_pressed;
+
+                // Send position to multiplayer server
+                if s.ws_connected {
+                    s.ws_send_timer += delta;
+                    if s.ws_send_timer > 0.1 {
+                        s.ws_send_timer = 0.0;
+                        bridge::ws_send_pos(s.char_pos[0], s.char_pos[1], s.char_pos[2],
+                            s.controls.yaw.get(), s.controls.pitch.get());
+                    }
+                }
 
                 // Update particles
                 let zone = terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]);
@@ -1340,7 +1742,7 @@ impl Engine {
                 let (new_count, mode_active) = if mode != ParticleMode::Off {
                     (particles::mode_count(mode), true)
                 } else {
-                    (particles::particle_count(zone), false)
+                    (0, false)
                 };
                 let should_have = new_count > 0;
                 if should_have && s.particles.is_none() {
@@ -1363,18 +1765,52 @@ impl Engine {
                     }
                 }
 
+                // Waterfall particles
+                let wf_params = s.params;
+                let wf_px = s.char_pos[0];
+                let wf_py = s.char_pos[1];
+                let wf_pz = s.char_pos[2];
+                let foam_px = s.char_pos[0];
+                let foam_pz = s.char_pos[2];
+                let foam_wl = wf_params.water_level;
+                let bubble_x = s.char_pos[0];
+                let bubble_y = s.char_pos[1];
+                let bubble_z = s.char_pos[2];
+                let bubble_wl = wf_params.water_level;
+                s.waterfalls.update(delta, &wf_params, wf_px, wf_py, wf_pz);
+                s.foam.update(delta, &wf_params, foam_px, foam_pz, foam_wl);
+                s.bubbles.update(delta, &wf_params, bubble_x, bubble_y, bubble_z, bubble_wl);
+
+                let surface_type = {
+                    let zone = terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]);
+                    if s.char_pos[1] < s.params.water_level - 0.5 { 4 }
+                    else {
+                        match zone {
+                            Zone::Desert => 3,
+                            Zone::Tundra | Zone::Crystal | Zone::Aurora => 5,
+                            Zone::Cave | Zone::Abyss => 1,
+                            Zone::Volcanic | Zone::Lava | Zone::Magma => 1,
+                            Zone::Ocean | Zone::CoralReef | Zone::KelpForest | Zone::RockyReef | Zone::SandyPlain | Zone::DeepOcean => 3,
+                            _ => 2,
+                        }
+                    }
+                };
                 audio::update(
                     terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]),
                     s.params.seed,
                     s.char_pos[1] <= ground_y + 0.5 && keys & (MASK_W | MASK_S | MASK_A | MASK_D) != 0,
                     s.speed,
+                    s.weather_power,
+                    surface_type,
                 );
 
-                // Auto-save placed blocks every 15s
+                // Auto-save placed blocks + mined blocks every 15s
                 s.save_timer += delta;
                 if s.save_timer > 15.0 {
                     s.save_timer = 0.0;
                     save_blocks(&s.placed_blocks);
+                    save_mined(&s.mined_blocks);
+                    auto_save_full(&s);
                 }
 
                 // Portal detection and teleportation
@@ -1388,8 +1824,7 @@ impl Engine {
                         near_portal = Some(p.id.clone());
                         let portal_key = keys & MASK_R != 0;
                         if portal_key && !s.portal_prev {
-                            audio::play_tone(660.0, 0.15);
-                            audio::play_tone(880.0, 0.2);
+                            audio::play_effect("portal_open");
                             s.params.seed = p.target_seed;
                             s.params_dirty = true;
                             s.char_pos = [0.0, terrain::get_height(&s.params, 0.0, 0.0).max(0.0), 0.0];
@@ -1401,6 +1836,53 @@ impl Engine {
                     }
                 }
                 s.portal_prev = keys & MASK_R != 0;
+
+                // Biome discovery
+                let zone_name = zone.as_str().to_string();
+                if !s.discovered_biomes.contains(&zone_name) {
+                    s.discovered_biomes.push(zone_name.clone());
+                    let discovered = s.discovered_biomes.clone();
+                    let all_biome_names: &[&str] = &[];
+                    s.achievements.check_biomes(&discovered, all_biome_names);
+                    s.codex.discover_biome(&zone_name);
+                }
+
+                // Structure discovery: check proximity to structures every few frames
+                if s.frame_count & 15 == 0 {
+                    let pcx = (s.char_pos[0] / CHUNK_SIZE) as i32;
+                    let pcz = (s.char_pos[2] / CHUNK_SIZE) as i32;
+                    for dx in -1..=1 {
+                        for dz in -1..=1 {
+                            let data = structures::compute_chunk_structures(&s.params, pcx + dx, pcz + dz);
+                            for inst in &data.instances {
+                                let ddx = s.char_pos[0] - inst.x as f64;
+                                let ddz = s.char_pos[2] - inst.z as f64;
+                                if ddx * ddx + ddz * ddz < 36.0 {
+                                    let name = match inst.struct_type {
+                                        structures::StructType::Hut => "Hut",
+                                        structures::StructType::Tower => "Tower",
+                                        structures::StructType::Ruins => "Ruins",
+                                        structures::StructType::Arch => "Arch",
+                                        structures::StructType::Pillar => "Pillar",
+                                        structures::StructType::Dome => "Dome",
+                                        structures::StructType::Pyramid => "Pyramid",
+                                        structures::StructType::CrystalSpire => "Crystal Spire",
+                                        structures::StructType::MushroomHut => "Mushroom Hut",
+                                        structures::StructType::Obelisk => "Obelisk",
+                                        structures::StructType::Plaza => "Plaza",
+                                        structures::StructType::Muralla => "Muralla",
+                                        structures::StructType::DungeonEntrance => "Dungeon Entrance",
+                                    };
+                                    s.codex.discover_structure(name);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let achievement_msg = s.achievements.pending.pop().map(|a| {
+                    achievements::achievement_icon(&a).to_string() + " " + achievements::achievement_name(&a) + ": ¡Logro!"
+                });
 
                 bridge::render_frame();
 
@@ -1423,9 +1905,15 @@ impl Engine {
                     inventory: hud_blocks,
                     minerals: s.inventory.items.iter().filter(|i| i.count > 0).map(|i| (i.mineral_type, i.count)).collect(),
                     near_portal,
-                    weather_label: weather_label.to_string(),
+                    weather_label: weather_label_power.clone(),
                     lightning: s.lightning_flash > 0.1,
                     craft_message: None,
+                    achievement_message: achievement_msg.clone(),
+                    achievement_points: s.achievements.unlocked.len() as u32,
+                    codex_biomes: (s.codex.biomes.iter().filter(|e| e.discovered).count(), s.codex.biomes.len()),
+                    codex_structures: (s.codex.structures.iter().filter(|e| e.discovered).count(), s.codex.structures.len()),
+                    codex_minerals: (s.codex.minerals.iter().filter(|e| e.discovered).count(), s.codex.minerals.len()),
+                    codex_creatures: (s.codex.creatures.iter().filter(|e| e.discovered).count(), s.codex.creatures.len()),
                     ..Default::default()
                 };
             }));
@@ -1462,33 +1950,39 @@ impl Engine {
         discovered: &[String]) -> Result<(), String>
     {
         let s = self.state.borrow();
-        let data = crate::state::SaveData::new(
+        let inventory_json = serde_json::to_string(&s.inventory).ok();
+        let codex_json = serde_json::to_string(&s.codex).ok();
+        let achievements_json = serde_json::to_string(&s.achievements).ok();
+        let placed_blocks: Vec<[i32; 4]> = s.placed_blocks.iter().map(|(&(x,y,z), &t)| [x, y, z, t as i32]).collect();
+        let block_inventory: Vec<(u8, u32)> = s.block_inventory.iter().map(|(t, c)| (*t, *c)).collect();
+        let discovered_vec = discovered.to_vec();
+        let mut data = crate::state::SaveData::new(
             name,
             &s.params,
             s.char_pos,
             s.controls.yaw.get(),
             s.controls.pitch.get(),
             waypoints,
-            discovered,
+            &discovered_vec,
             s.day_time,
             s.params.fly_mode,
             false,
         );
+        data.inventory_json = inventory_json;
+        data.codex_json = codex_json;
+        data.achievements_json = achievements_json;
+        data.placed_blocks = placed_blocks;
+        data.block_inventory = block_inventory;
         let json = serde_json::to_string(&data).map_err(|e| e.to_string())?;
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            storage.set_item(&format!("worlds_save_{}", slot), &json)
-                .map_err(|_| "localStorage write failed".to_string())?;
-            Ok(())
-        } else {
-            Err("no localStorage".to_string())
-        }
+        let key = format!("worlds_save_{}", slot);
+        db::set_async(&key, &json);
+        Ok(())
     }
 
     pub fn load_from_slot(slot: u32) -> Option<crate::state::SaveData> {
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            if let Ok(Some(json)) = storage.get_item(&format!("worlds_save_{}", slot)) {
-                return serde_json::from_str(&json).ok();
-            }
+        let key = format!("worlds_save_{}", slot);
+        if let Some(json) = db::get(&key) {
+            return serde_json::from_str(&json).ok();
         }
         None
     }
@@ -1502,16 +1996,48 @@ impl Engine {
         s.day_time = data.time_of_day;
         s.params.fly_mode = data.fly_mode;
         s.params_dirty = true;
-        // Reload placed blocks from auto-save
-        s.placed_blocks = load_blocks();
+
+        // Restore inventory
+        if let Some(ref json) = data.inventory_json {
+            if let Ok(inv) = serde_json::from_str::<crate::engine::inventory::Inventory>(json) {
+                s.inventory = inv;
+            }
+        }
+        // Restore codex
+        if let Some(ref json) = data.codex_json {
+            if let Ok(codex) = serde_json::from_str::<crate::engine::codex::Codex>(json) {
+                s.codex = codex;
+            }
+        }
+        // Restore achievements
+        if let Some(ref json) = data.achievements_json {
+            if let Ok(ach) = serde_json::from_str::<crate::engine::achievements::AchievementState>(json) {
+                s.achievements = ach;
+            }
+        }
+        // Restore placed blocks
+        let mut blocks = std::collections::HashMap::new();
+        for arr in &data.placed_blocks {
+            blocks.insert((arr[0], arr[1], arr[2]), arr[3] as u8);
+        }
+        s.placed_blocks = blocks;
+        // Restore block inventory
+        if !data.block_inventory.is_empty() {
+            s.block_inventory = data.block_inventory.clone();
+        }
+        // Restore discovered biomes (from legacy field or data)
+        if !data.discovered_biomes.is_empty() {
+            s.discovered_biomes = data.discovered_biomes.clone();
+        }
+
         // Respawn blocks in 3D scene
+        let block_colors: [[f32; 3]; 9] = [
+            [0.6,0.45,0.3],[0.5,0.5,0.5],[0.55,0.35,0.15],
+            [0.2,0.6,0.2],[0.7,0.4,1.0],[0.8,0.3,0.05],
+            [0.7,0.9,1.0],[0.85,0.75,0.5],[0.3,0.5,0.2],
+        ];
         for (&(bx, by, bz), &bt) in &s.placed_blocks {
             let bkey = format!("b_{}_{}_{}", bx, by, bz);
-            let block_colors: [[f32; 3]; 9] = [
-                [0.6,0.45,0.3],[0.5,0.5,0.5],[0.55,0.35,0.15],
-                [0.2,0.6,0.2],[0.7,0.4,1.0],[0.8,0.3,0.05],
-                [0.7,0.9,1.0],[0.85,0.75,0.5],[0.3,0.5,0.2],
-            ];
             let bcol = block_colors[bt as usize % block_colors.len()];
             let (pos, nrm, idx) = box_mesh(1.0, 1.0, 1.0);
             let col = fill_color(24, bcol[0], bcol[1], bcol[2]);
@@ -1527,7 +2053,37 @@ impl Engine {
     pub fn craft_recipe(&mut self, recipe_index: usize) -> String {
         let mut s = self.state.borrow_mut();
         if recipe_index < inventory::RECIPES.len() {
-            inventory::perform_craft(&inventory::RECIPES[recipe_index], &mut s.inventory)
+            let result = inventory::perform_craft(&inventory::RECIPES[recipe_index], &mut s.inventory);
+            if !result.is_empty() {
+                s.achievements.items_crafted += 1;
+                let count = s.achievements.items_crafted;
+                s.achievements.check_craft(count);
+                audio::play_effect("craft");
+                // Apply immediate effects for certain items
+                let result_id = inventory::RECIPES[recipe_index].result.1;
+                match result_id {
+                    14 => { // Heal potion
+                        audio::play_effect("heal");
+                        // Green particles burst around player
+                        let pkey = format!("heal_{}", s.break_counter);
+                        s.break_counter += 1;
+                        s.break_particles.push(BreakParticle::new(
+                            pkey,
+                            [s.char_pos[0], s.char_pos[1] + 1.0, s.char_pos[2]],
+                            30,
+                        ));
+                    }
+                    17 => { // Power ring: temp speed boost
+                        audio::play_effect("power_up");
+                        s.speed = s.speed * 2.0;
+                    }
+                    13 => { // Crystal wand: small light
+                        audio::play_tone(880.0, 0.2);
+                    }
+                    _ => {}
+                }
+            }
+            result
         } else {
             String::new()
         }
@@ -1539,24 +2095,107 @@ impl Engine {
     }
 
     pub fn delete_slot(slot: u32) {
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            let _ = storage.remove_item(&format!("worlds_save_{}", slot));
-        }
+        let key = format!("worlds_save_{}", slot);
+        db::delete_async(&key);
     }
 
     pub fn list_slots() -> Vec<(u32, String)> {
         let mut slots = Vec::new();
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            for i in 0..8 {
-                if let Ok(Some(json)) = storage.get_item(&format!("worlds_save_{}", i)) {
-                    if let Ok(data) = serde_json::from_str::<crate::state::SaveData>(&json) {
-                        let label = format!("{} — slot {}", data.slot_name, i);
-                        slots.push((i, label));
+        for key in db::keys_with_prefix("worlds_save_") {
+            if let Some(json) = db::get(&key) {
+                if let Ok(data) = serde_json::from_str::<crate::state::SaveData>(&json) {
+                    if let Some(num_str) = key.strip_prefix("worlds_save_") {
+                        if let Ok(i) = num_str.parse::<u32>() {
+                            let label = format!("{} — slot {}", data.slot_name, i);
+                            slots.push((i, label));
+                        }
                     }
                 }
             }
         }
         slots
+    }
+
+    pub fn load_autosave() -> Option<crate::state::SaveData> {
+        if let Some(json) = db::get("worlds_autosave") {
+            if let Ok(data) = serde_json::from_str::<crate::state::SaveData>(&json) {
+                return Some(data);
+            }
+        }
+        None
+    }
+
+    // ── Multiplayer ──
+    pub fn connect_multiplayer(&mut self, server_url: &str, seed: u32) {
+        self.disconnect_multiplayer();
+        let state = self.state.clone();
+        let cb = Closure::<dyn FnMut(String)>::new(move |json: String| {
+            let mut s = state.borrow_mut();
+            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&json) {
+                let msg_type = msg["type"].as_str().unwrap_or("");
+                match msg_type {
+                    "welcome" => {
+                        if let Some(your_id) = msg["your_id"].as_str() {
+                            s.ws_player_id = your_id.to_string();
+                            s.chat_messages.push_back(("Sistema".into(), format!("Conectado. ID: {}", &your_id[..6])));
+                            if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
+                        }
+                    }
+                    "pos" => {
+                        if let Some(players) = msg["players"].as_array() {
+                            for p in players {
+                                let pid = p["id"].as_str().unwrap_or("");
+                                if pid == s.ws_player_id { continue; }
+                                let name = p["name"].as_str().unwrap_or("Player").to_string();
+                                let x = p["x"].as_f64().unwrap_or(0.0);
+                                let y = p["y"].as_f64().unwrap_or(0.0);
+                                let z = p["z"].as_f64().unwrap_or(0.0);
+                                let yaw = p["yaw"].as_f64().unwrap_or(0.0);
+                                let pitch = p["pitch"].as_f64().unwrap_or(0.0);
+                                s.remote_players.insert(pid.to_string(), RemotePlayerData {
+                                    name: name.clone(), x, y, z,
+                                });
+                                bridge::ws_update_remote_player(pid, &name, x, y, z, yaw, pitch);
+                            }
+                        }
+                    }
+                    "chat" => {
+                        let chat_data = &msg["chat"];
+                        let player_name = chat_data["player_name"].as_str().unwrap_or("?").to_string();
+                        let text = chat_data["text"].as_str().unwrap_or("").to_string();
+                        s.chat_messages.push_back((player_name, text));
+                        if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
+                    }
+                    _ => {}
+                }
+            }
+        });
+        let url_js = js_sys::JsString::from(server_url);
+        let seed_js = js_sys::JsValue::from(seed);
+        bridge::ws_connect(&url_js, seed, cb.as_ref().unchecked_ref());
+        cb.forget();
+        self.state.borrow_mut().ws_connected = true;
+    }
+
+    pub fn disconnect_multiplayer(&mut self) {
+        bridge::ws_disconnect();
+        let mut s = self.state.borrow_mut();
+        s.ws_connected = false;
+        s.ws_player_id.clear();
+        s.remote_players.clear();
+        s.chat_messages.clear();
+    }
+
+    pub fn send_chat(&mut self, text: &str) {
+        bridge::ws_send_chat(text);
+    }
+
+    pub fn chat_messages(&self) -> Vec<(String, String)> {
+        self.state.borrow().chat_messages.iter().cloned().collect()
+    }
+
+    pub fn is_ws_connected(&self) -> bool {
+        self.state.borrow().ws_connected
     }
 }
 
