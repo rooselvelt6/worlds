@@ -97,6 +97,14 @@ pub fn compute_chunk_vegetation(params: &WorldParams, cx: i32, cz: i32, season: 
 }
 
 fn veg_density(zone: Zone) -> f64 {
+    let zone_name = zone.as_str();
+    if let Some(d) = crate::engine::modding::ModContext::with(|ctx| {
+        if let Zone::Custom(id) = zone {
+            ctx.get_custom_biome(id).map(|b| b.vegetation_density)
+        } else {
+            ctx.get_biome_veg_density(zone_name)
+        }
+    }) { return d; }
     match zone {
         Zone::Forest | Zone::Jungle => 0.7,
         Zone::Plains => 0.4,
@@ -115,10 +123,40 @@ fn veg_density(zone: Zone) -> f64 {
         Zone::SandyPlain => 0.4,
         Zone::RockyReef => 0.5,
         Zone::DeepOcean => 0.2,
+        Zone::Custom(_) => 0.5,
     }
 }
 
 fn veg_for_zone(zone: Zone, r: f64) -> VegType {
+    // Check mod context for custom vegetation types
+    let zone_name = zone.as_str();
+    let mod_veg = crate::engine::modding::ModContext::with(|ctx| {
+        let types = if let Zone::Custom(id) = zone {
+            ctx.get_custom_biome(id).map(|b| &b.vegetation_types)
+        } else {
+            ctx.get_biome_veg_types(zone_name)
+        };
+        types.and_then(|tv| {
+            let mut cum = 0.0f64;
+            for t in tv {
+                cum += t.weight;
+                if r < cum {
+                    return crate::engine::modding::biome::veg_type_name_to_id(&t.r#type)
+                        .map(|id| match id {
+                            0 => VegType::Tree, 1 => VegType::Bush, 2 => VegType::Rock,
+                            3 => VegType::Cactus, 4 => VegType::Mushroom, 5 => VegType::Crystal,
+                            6 => VegType::DeadTree, 7 => VegType::Flower, 8 => VegType::Coral,
+                            9 => VegType::Kelp, 10 => VegType::Seaweed, 11 => VegType::Anemone,
+                            12 => VegType::Sponge,
+                            _ => VegType::Rock,
+                        });
+                }
+            }
+            None
+        })
+    });
+    if let Some(vt) = mod_veg { return vt; }
+
     match zone {
         Zone::Forest | Zone::Jungle => {
             if r < 0.4 { VegType::Tree }

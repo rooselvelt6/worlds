@@ -12,6 +12,7 @@ extern "C" {
         normals: &js_sys::Float32Array,
         indices: &js_sys::Uint32Array,
         colors: &js_sys::Float32Array,
+        uvs: &js_sys::Float32Array,
     );
 
     #[wasm_bindgen(js_name = threeBridgeSetMeshPosition)]
@@ -84,6 +85,20 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeSetWind)]
     pub fn set_wind(dir: f64, strength: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeUploadPortalMesh)]
+    pub fn upload_portal_mesh(
+        key: &str,
+        positions: &js_sys::Float32Array,
+        normals: &js_sys::Float32Array,
+        indices: &js_sys::Uint32Array,
+        colors: &js_sys::Float32Array,
+        target_seed: u32,
+        radius: f32,
+    );
+
+    #[wasm_bindgen(js_name = threeBridgeSetFade)]
+    pub fn set_fade(amount: f64);
 
     // WebSocket / Multiplayer
     #[wasm_bindgen(js_name = threeBridgeWsConnect)]

@@ -46,7 +46,6 @@ fn zone_name(zone: &Zone) -> &'static str {
     zone.as_str()
 }
 
-const BTN: &str = "w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]";
 const SLIDER: &str = "w-full h-2 appearance-none bg-white/30 rounded-full outline-none cursor-pointer accent-cyan-400 slider-thumb";
 const PBTN: &str = "px-2 py-1 rounded-lg text-[10px] font-mono bg-white/15 border border-white/20 text-white/80 hover:text-white hover:bg-white/25 transition-all active:scale-85";
 const TBTN_ON: &str = "flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono bg-cyan-500/40 border border-cyan-400/50 text-cyan-200 transition-all active:scale-85";
@@ -91,7 +90,8 @@ pub fn App() -> impl IntoView {
         let engine = engine.clone();
         let mut params = state.params.get();
 
-        // Parse URL params for sharing (?seed=...&formula=...&zone=...)
+        // Parse URL params for sharing (?seed=...&formula=...&zone=...&mod=...)
+        let mut mod_url: Option<String> = None;
         if let Some(search) = web_sys::window().and_then(|w| w.location().search().ok()) {
             if !search.is_empty() {
                 let stripped = search.trim_start_matches('?');
@@ -134,9 +134,76 @@ pub fn App() -> impl IntoView {
                                 params.water_level = w.max(-1.0).min(2.0);
                             }
                         }
+                        "octaves" => {
+                            if let Ok(o) = val.parse::<u32>() {
+                                params.octaves = o.max(1).min(10);
+                            }
+                        }
+                        "canyons" => {
+                            params.canyons = val == "1" || val == "true";
+                        }
+                        "mutation" => {
+                            if let Ok(m) = val.parse::<f64>() {
+                                params.mutation = m.clamp(0.0, 1.0);
+                            }
+                        }
+                        "hue" => {
+                            if let Ok(h) = val.parse::<f64>() {
+                                params.hue_shift = h.clamp(-180.0, 180.0);
+                            }
+                        }
+                        "saturation" => {
+                            if let Ok(s) = val.parse::<f64>() {
+                                params.saturation = s.clamp(0.0, 2.0);
+                            }
+                        }
+                        "char" => {
+                            for (_i, c) in CHAR_PRESETS.iter().enumerate() {
+                                if format!("{:?}", c).to_lowercase() == val.to_lowercase() {
+                                    params.character = *c;
+                                    break;
+                                }
+                            }
+                        }
+                        "particles" => {
+                            match val {
+                                "rain" => params.particle_mode = ParticleMode::Rain,
+                                "snow" => params.particle_mode = ParticleMode::Snow,
+                                _ => params.particle_mode = ParticleMode::Off,
+                            }
+                        }
+                        "mod" => {
+                            if !val.is_empty() {
+                                mod_url = Some(val.to_string());
+                            }
+                        }
                         _ => {}
                     }
                 }
+            }
+        }
+
+        // Auto fullscreen on mobile + quality detection
+        if let Some(win) = web_sys::window() {
+            let is_mobile = web_sys::window().and_then(|w| w.navigator().user_agent().ok())
+                .map(|ua| {
+                    ua.contains("Mobile") || ua.contains("Android") || ua.contains("iPhone")
+                }).unwrap_or(false);
+            if is_mobile {
+                // Lower settings for mobile
+                params.render_distance = 2;
+                params.particle_mode = ParticleMode::Off;
+                // Request fullscreen on tap
+                let canvas_clone = canvas_ref.clone();
+                let fs_cb = Closure::<dyn Fn()>::new(move || {
+                    if let Some(canvas) = canvas_clone.get() {
+                        let el: &web_sys::Element = canvas.as_ref();
+                        let _ = el.request_fullscreen();
+                    }
+                });
+                let doc = win.document().unwrap();
+                doc.add_event_listener_with_callback("click", fs_cb.as_ref().unchecked_ref()).ok();
+                fs_cb.forget();
             }
         }
 
@@ -149,6 +216,11 @@ pub fn App() -> impl IntoView {
             // Inicializar IndexedDB y migrar datos existentes de localStorage
             let _ = crate::engine::db::init_async().await;
             crate::engine::db::migrate_from_local_storage().await;
+
+            // Cargar mod desde URL si se especificó (?mod=...)
+            if let Some(mod_url) = mod_url.clone() {
+                let _ = crate::engine::modding::fetch_and_apply_mod(&mod_url).await;
+            }
 
             let canvas_ref = canvas_ref.clone();
             let engine = engine.clone();
@@ -342,44 +414,44 @@ pub fn App() -> impl IntoView {
 
             <canvas node_ref=canvas_ref
                 class="absolute inset-0 w-full h-full outline-none touch-none"
-                tabindex="0"
+                tabindex="0" role="application" aria-label="WORLDS game canvas"
             />
 
-            <div class="absolute top-0 left-0 right-0 z-10 h-12 bg-gradient-to-b from-black/60 via-black/30 to-transparent flex items-center justify-between px-4">
-                <div class="flex items-center gap-3">
-                    <span class="text-white font-bold text-sm font-mono tabular-nums tracking-wider"
+            <div class="absolute top-0 left-0 right-0 z-10 h-12 bg-gradient-to-b from-black/60 via-black/30 to-transparent flex items-center justify-between px-4 max-sm:px-2 max-sm:h-10">
+                <div class="flex items-center gap-3 max-sm:gap-1">
+                    <span class="text-white font-bold text-sm max-sm:text-[10px] font-mono tabular-nums tracking-wider"
                         style={move || format!("color: rgb({},{},{})", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                         {move || format!("{:04}", hud.get().pos[0])}
                     </span>
                     <span class="text-white/15 text-xs font-mono">/</span>
-                    <span class="text-white font-bold text-sm font-mono tabular-nums tracking-wider"
+                    <span class="text-white font-bold text-sm max-sm:text-[10px] font-mono tabular-nums tracking-wider"
                         style={move || format!("color: rgb({},{},{})", glow_rgb.get().0, glow_rgb.get().1, glow_rgb.get().2)}>
                         {move || format!("{:04}", hud.get().pos[2])}
                     </span>
-                    <span class="text-white/20 text-sm">|</span>
-                    <span class="text-xs font-mono text-white/40">{move || hud.get().biome}</span>
+                    <span class="text-white/20 text-sm max-sm:hidden">|</span>
+                    <span class="text-xs max-sm:text-[9px] font-mono text-white/40 truncate max-w-[100px] max-sm:max-w-[60px]">{move || hud.get().biome}</span>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
-                        title="Escala / Amplitud / Octavas">
+                <div class="flex items-center gap-2 max-sm:gap-1">
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:px-1 max-sm:py-0"
+                        title="Scale/Ampl/Oct">
                         {move || {
                             let p = state.params.get();
                             format!("⚙️{:.3} 📏{:.0} 🔢{}", p.scale, p.amplitude, p.octaves)
                         }}
                     </span>
-                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
-                        title="Nivel de agua">
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:hidden"
+                        title="Water level / Nivel de agua">
                         {move || format!("💧{:.1}", state.params.get().water_level)}
                     </span>
-                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
-                        title="Zona actual">
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:px-1 max-sm:py-0"
+                        title="Zone / Zona">
                         {move || {
                             let z = state.params.get().zone;
                             format!("{}{}", zone_emoji(&z), zone_name(&z))
                         }}
                     </span>
-                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
-                        title="Personaje / Partículas">
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:hidden"
+                        title="Character/Particles / Personaje/Partículas">
                         {move || {
                             let p = state.params.get();
                             let part = match p.particle_mode {
@@ -390,25 +462,31 @@ pub fn App() -> impl IntoView {
                             format!("🧑{:.1}{}", p.char_scale, part)
                         }}
                     </span>
-                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
-                        title="Semilla">
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:px-1 max-sm:py-0"
+                        title="Seed / Semilla">
                         {move || format!("🌱{}", state.params.get().seed)}
                     </span>
-                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
-                        title="Clima">
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:hidden"
+                        title="Weather / Clima">
                         {move || {
                             let h = hud.get();
                             let icon = if h.lightning { "⚡" } else { "" };
                             format!("{}{}", icon, h.weather_label)
                         }}
                     </span>
-                    <span class="text-[10px] font-mono text-white/80">{move || format!("{}fps", hud.get().fps)}</span>
-                    <span class="text-[10px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full"
-                        title="Estación">
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/80">{move || format!("{}fps", hud.get().fps)}</span>
+                    {move || {
+                        if hud.get().mounted {
+                            view! { <span class="text-[10px] max-sm:text-[8px] font-mono text-amber-300 bg-amber-900/40 px-2 py-0.5 rounded-full max-sm:px-1">{String::from("🐎")}</span> }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
+                    <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:hidden"
+                        title="Season / Estación">
                         {move || {
                             let s = hud.get().season;
-                            let name = match s { 0 => "🌸Primavera", 1 => "☀️Verano", 2 => "🍂Otoño", _ => "❄️Invierno" };
-                            name.to_string()
+                            match s { 0 => "🌸Spr", 1 => "☀️Sum", 2 => "🍂Aut", _ => "❄️Win" }
                         }}
                     </span>
                 </div>
@@ -420,39 +498,39 @@ pub fn App() -> impl IntoView {
                 }
             })}
 
-            <div class="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
-                <button on:click=move |_| toggle_menu("seed") class=BTN title="Semilla del mundo">{ "🌱" }</button>
-                <button on:click=move |_| toggle_menu("movement") class=BTN title="Movimiento y física">{ "🏃" }</button>
-                <button on:click=move |_| toggle_menu("camera") class=BTN title="Modo de cámara">{ "🎥" }</button>
-                <button on:click=move |_| toggle_menu("daynight") class=BTN title="Ciclo día/noche">{ "☀️" }</button>
-                <button on:click=move |_| map_open.set(!map_open.get()) class=BTN title="Mapa del mundo">{ "🧭" }</button>
-                <button on:click=move |_| toggle_menu("saves") class=BTN title="Guardar / cargar">{ "💾" }</button>
-                <button on:click=move |_| toggle_menu("crafting") class=BTN title="Crafteo">{ "⚒️" }</button>
-                <button on:click=move |_| toggle_menu("codex") class=BTN title="Codex / Bestiario">{ "📖" }</button>
-                <button on:click=move |_| toggle_menu("multiplayer") class=BTN title="Multijugador">{ "🌐" }</button>
+            <div class="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5 max-sm:gap-1.5 max-sm:left-1.5">
+                <button aria-label="Seed" on:click=move |_| toggle_menu("seed") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Seed">{ "🌱" }</button>
+                <button aria-label="Movement" on:click=move |_| toggle_menu("movement") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Movement">{ "🏃" }</button>
+                <button aria-label="Camera" on:click=move |_| toggle_menu("camera") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Camera">{ "🎥" }</button>
+                <button aria-label="Day and Night" on:click=move |_| toggle_menu("daynight") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Day/Night">{ "☀️" }</button>
+                <button aria-label="Map" on:click=move |_| map_open.set(!map_open.get()) class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Map">{ "🧭" }</button>
+                <button aria-label="Save and Load" on:click=move |_| toggle_menu("saves") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Save/Load">{ "💾" }</button>
+                <button aria-label="Crafting" on:click=move |_| toggle_menu("crafting") class="max-sm:hidden w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Crafting">{ "⚒️" }</button>
+                <button aria-label="Codex" on:click=move |_| toggle_menu("codex") class="max-sm:hidden w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Codex">{ "📖" }</button>
+                <button aria-label="Multiplayer" on:click=move |_| toggle_menu("multiplayer") class="max-sm:hidden w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Multiplayer">{ "🌐" }</button>
             </div>
 
-            <div class="absolute left-[78px] top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
-                <button on:click=move |_| toggle_menu("scale") class=BTN title="Escala del terreno">{ "⚙️" }</button>
-                <button on:click=move |_| toggle_menu("amplitude") class=BTN title="Amplitud del terreno">{ "📏" }</button>
-                <button on:click=move |_| toggle_menu("octaves") class=BTN title="Octavas de ruido">{ "🔢" }</button>
-                <button on:click=move |_| toggle_menu("water") class=BTN title="Nivel del agua">{ "💧" }</button>
-                <button on:click=move |_| toggle_menu("zone") class=BTN title="Zona / preset de terreno">{ "🌍" }</button>
-                <button on:click=move |_| toggle_menu("canyons") class=BTN title="Cañones profundos">{ "🏔️" }</button>
-                <button on:click=move |_| toggle_menu("particles") class=BTN title="Partículas">{ "🌧️" }</button>
+            <div class="absolute left-[78px] top-1/2 -translate-y-1/2 z-20 flex-col gap-2.5 max-sm:hidden max-sm:left-[52px] hidden sm:flex">
+                <button on:click=move |_| toggle_menu("scale") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Scale / Escala">{ "⚙️" }</button>
+                <button on:click=move |_| toggle_menu("amplitude") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Amplitude / Amplitud">{ "📏" }</button>
+                <button on:click=move |_| toggle_menu("octaves") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Octaves / Octavas">{ "🔢" }</button>
+                <button on:click=move |_| toggle_menu("water") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Water / Agua">{ "💧" }</button>
+                <button on:click=move |_| toggle_menu("zone") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Zone / Zona">{ "🌍" }</button>
+                <button on:click=move |_| toggle_menu("canyons") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Canyons / Cañones">{ "🏔️" }</button>
+                <button on:click=move |_| toggle_menu("particles") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Particles / Partículas">{ "🌧️" }</button>
             </div>
 
-            <div class="absolute left-[156px] top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
-                <button on:click=move |_| toggle_menu("character") class=BTN title="Personaje">{ "🧑" }</button>
-                <button on:click=move |_| toggle_menu("color") class=BTN title="Esquema de color">{ "🎨" }</button>
-                <button on:click=move |_| toggle_menu("charscale") class=BTN title="Tamaño del personaje">{ "📐" }</button>
-                <button on:click=move |_| toggle_menu("season") class=BTN title="Estaciones">{ "🍂" }</button>
+            <div class="absolute left-[156px] top-1/2 -translate-y-1/2 z-20 flex-col gap-2.5 max-sm:hidden hidden sm:flex">
+                <button on:click=move |_| toggle_menu("character") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Character / Personaje">{ "🧑" }</button>
+                <button on:click=move |_| toggle_menu("color") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Color / Esquema de color">{ "🎨" }</button>
+                <button on:click=move |_| toggle_menu("charscale") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Char Size / Tamaño">{ "📐" }</button>
+                <button on:click=move |_| toggle_menu("season") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Seasons / Estaciones">{ "🍂" }</button>
             </div>
 
             {move || open_menu.get().map(|_| {
                 view! {
-                    <div class="absolute left-[236px] top-1/2 -translate-y-1/2 z-25">
-                        <div class="bg-black/60 backdrop-blur-xl border border-white/20 rounded-2xl p-4 min-w-[200px] shadow-2xl">
+                    <div class="absolute left-[236px] max-sm:left-3 top-1/2 -translate-y-1/2 z-25 max-sm:max-w-[calc(100vw-16px)]">
+                        <div class="bg-black/60 backdrop-blur-xl border border-white/20 rounded-2xl p-4 min-w-[200px] shadow-2xl max-sm:max-h-[60vh] max-sm:overflow-y-auto">
                             <div class="text-white/80 text-[10px] font-mono mb-3 uppercase tracking-widest">
                                 {move || match open_menu.get() {
                                     Some("seed") => "Semilla",
@@ -488,10 +566,13 @@ pub fn App() -> impl IntoView {
                                     } class=PBTN>"🎲 Aleatorio"</button>
                                     <button on:click=move |_| {
                                         let p = state.params.get_untracked();
-                                        let url = format!("{}?seed={}&zone={}&scale={:.3}&amplitude={:.1}&water={:.1}&fly={}&speed={:.0}",
-                                            web_sys::window().and_then(|w| w.location().href().ok()).unwrap_or_default().split('?').next().unwrap_or("").to_string(),
-                                            p.seed, p.zone.as_str(), p.scale, p.amplitude, p.water_level,
-                                            if p.fly_mode { 1 } else { 0 }, p.speed);
+                                        let base = web_sys::window().and_then(|w| w.location().href().ok()).unwrap_or_default().split('?').next().unwrap_or("").to_string();
+                                        let url = format!("{}?seed={}&zone={}&scale={:.3}&amplitude={:.1}&water={:.1}&octaves={}&canyons={}&mutation={:.2}&speed={:.0}&fly={}&hue={:.0}&saturation={:.2}&char={:?}&particles={}",
+                                            base, p.seed, p.zone.as_str(), p.scale, p.amplitude, p.water_level,
+                                            p.octaves, if p.canyons {1} else {0}, p.mutation, p.speed,
+                                            if p.fly_mode {1} else {0}, p.hue_shift, p.saturation,
+                                            p.character,
+                                            match p.particle_mode { ParticleMode::Rain => "rain", ParticleMode::Snow => "snow", _ => "off" });
                                         let _ = web_sys::window().map(|w| {
                                             w.navigator().clipboard().write_text(&url)
                                         });
@@ -524,11 +605,15 @@ pub fn App() -> impl IntoView {
                             }) } else { None }}
 
                             {move || if open_menu.get() == Some("camera") { Some(view! {
-                                <div class="flex gap-2">
-                                    <button on:click=move |_| state.params.update(|p| p.camera_mode = CameraMode::FirstPerson)
-                                        class={move || if state.params.get().camera_mode == CameraMode::FirstPerson { TBTN_ON } else { TBTN_OFF }}>"1ª Persona"</button>
-                                    <button on:click=move |_| state.params.update(|p| p.camera_mode = CameraMode::ThirdPerson)
-                                        class={move || if state.params.get().camera_mode == CameraMode::ThirdPerson { TBTN_ON } else { TBTN_OFF }}>"3ª Persona"</button>
+                                <div class="flex flex-col gap-2.5" style="min-width:200px">
+                                    <div class="flex gap-2">
+                                        <button on:click=move |_| state.params.update(|p| p.camera_mode = CameraMode::FirstPerson)
+                                            class={move || if state.params.get().camera_mode == CameraMode::FirstPerson { TBTN_ON } else { TBTN_OFF }}>"1ª Persona"</button>
+                                        <button on:click=move |_| state.params.update(|p| p.camera_mode = CameraMode::ThirdPerson)
+                                            class={move || if state.params.get().camera_mode == CameraMode::ThirdPerson { TBTN_ON } else { TBTN_OFF }}>"3ª Persona"</button>
+                                    </div>
+                                    <div><div class="text-white/80 text-[10px] font-mono mb-1">Distancia de renderizado <span class="text-white/60 ml-1">{move || format!("{}", state.params.get().render_distance)}</span></div>
+                                        <input type="range" min="1" max="6" step="1" prop:value={move || format!("{}", state.params.get().render_distance)} on:input=move |ev| { state.params.update(|p| p.render_distance = event_target_value(&ev).parse::<u32>().unwrap_or(4).max(1).min(6)); } class=SLIDER/></div>
                                 </div>
                             }) } else { None }}
 
@@ -789,18 +874,44 @@ pub fn App() -> impl IntoView {
                 }
             })}
 
-            {move || hud.get().near_portal.map(|_name| {
-                view! {
-                    <div class="absolute left-1/2 top-1/3 -translate-x-1/2 z-20 pointer-events-none">
-                        <div class="bg-black/70 backdrop-blur-md border border-cyan-400/30 rounded-2xl px-6 py-3 shadow-2xl shadow-cyan-500/10">
-                            <div class="text-cyan-300 text-sm font-mono text-center">
-                                <span class="text-lg">{"🔮"}</span>
-                                <br/>{"Portal — presiona R para viajar"}
+            {move || {
+                let h = hud.get();
+                h.near_portal.map(|_name| {
+                    let target_seed = h.portal_target_seed.unwrap_or(0);
+                    let hue = ((target_seed as f64 % 200.0) / 200.0) * 0.8;
+                    let border_style = format!("border-color: hsl({}, 80%, 50%)", hue * 360.0);
+                    let text_style = format!("color: hsl({}, 80%, 60%)", hue * 360.0);
+                    let visited = h.visited_seeds;
+                    view! {
+                        <div class="absolute left-1/2 top-1/3 -translate-x-1/2 z-20 pointer-events-none flex flex-col items-center gap-2">
+                            <div class="bg-black/70 backdrop-blur-md rounded-2xl px-6 py-3 shadow-2xl border border-cyan-400/30" style=border_style>
+                                <div class="text-sm font-mono text-center" style=text_style>
+                                    <span class="text-lg">{"🔮"}</span>
+                                    <br/>{"Portal — presiona R para viajar"}
+                                    <br/><span class="text-[10px] text-white/40">{"Destino: mundo #"}{target_seed}</span>
+                                </div>
                             </div>
+                            {(!visited.is_empty()).then(|| view! {
+                                <div class="bg-black/70 backdrop-blur-md rounded-2xl px-4 py-2 shadow-2xl border border-white/10 max-w-[200px]">
+                                    <div class="text-[10px] font-mono text-white/40 text-center mb-1">"🌐 Mundos visitados"</div>
+                                    <div class="flex flex-wrap gap-1 justify-center">
+                                        {visited.iter().rev().take(8).map(|s| {
+                                            let seed = *s;
+                                            let shue = ((seed as f64 % 200.0) / 200.0) * 0.8;
+                                            let scolor = format!("color: hsl({}, 80%, 60%)", shue * 360.0);
+                                            view! {
+                                                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06]" style=scolor>
+                                                    {"#"}{seed}
+                                                </span>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </div>
+                                </div>
+                            })}
                         </div>
-                    </div>
-                }
-            })}
+                    }
+                })
+            }}
 
             {move || hud.get().achievement_message.clone().map(|msg| {
                 view! {

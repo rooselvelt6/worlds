@@ -104,6 +104,14 @@ pub fn compute_chunk_structures(params: &WorldParams, cx: i32, cz: i32) -> Struc
 }
 
 fn struct_density(zone: Zone) -> f64 {
+    let zone_name = zone.as_str();
+    if let Some(d) = crate::engine::modding::ModContext::with(|ctx| {
+        if let Zone::Custom(id) = zone {
+            ctx.get_custom_biome(id).map(|b| b.struct_density)
+        } else {
+            ctx.get_biome_struct_density(zone_name)
+        }
+    }) { return d; }
     match zone {
         Zone::Plains | Zone::Forest => 0.5,
         Zone::Desert | Zone::Tundra => 0.4,
@@ -114,11 +122,39 @@ fn struct_density(zone: Zone) -> f64 {
         Zone::Storm => 0.2,
         Zone::Aurora => 0.2,
         Zone::Abyss => 0.1,
+        Zone::Custom(_) => 0.3,
         _ => 0.0,
     }
 }
 
+fn strut_type_from_name(name: &str) -> Option<StructType> {
+    match name {
+        "hut" => Some(StructType::Hut), "tower" => Some(StructType::Tower),
+        "ruins" => Some(StructType::Ruins), "arch" => Some(StructType::Arch),
+        "pillar" => Some(StructType::Pillar), "dome" => Some(StructType::Dome),
+        "pyramid" => Some(StructType::Pyramid), "crystal_spire" => Some(StructType::CrystalSpire),
+        "mushroom_hut" => Some(StructType::MushroomHut), "obelisk" => Some(StructType::Obelisk),
+        "plaza" => Some(StructType::Plaza), "muralla" => Some(StructType::Muralla),
+        "dungeon_entrance" => Some(StructType::DungeonEntrance),
+        _ => None,
+    }
+}
+
 fn types_for_zone(zone: Zone) -> Vec<StructType> {
+    let zone_name = zone.as_str();
+    let mod_types = crate::engine::modding::ModContext::with(|ctx| {
+        let names: Option<&Vec<String>> = if let Zone::Custom(id) = zone {
+            ctx.get_custom_biome(id).map(|b| &b.struct_types)
+        } else {
+            ctx.get_biome_struct_types(zone_name)
+        };
+        names.and_then(|n| {
+            let types: Vec<StructType> = n.iter().filter_map(|s| strut_type_from_name(s)).collect();
+            if types.is_empty() { None } else { Some(types) }
+        })
+    });
+    if let Some(types) = mod_types { return types; }
+
     match zone {
         Zone::Forest => vec![StructType::Hut, StructType::Ruins, StructType::Tower, StructType::Plaza],
         Zone::Plains => vec![StructType::Hut, StructType::Tower, StructType::Obelisk, StructType::Plaza],
@@ -133,6 +169,7 @@ fn types_for_zone(zone: Zone) -> Vec<StructType> {
         Zone::Storm => vec![StructType::Tower, StructType::Obelisk, StructType::Muralla],
         Zone::Aurora => vec![StructType::CrystalSpire, StructType::Arch, StructType::Plaza],
         Zone::Magma => vec![StructType::Pillar, StructType::Obelisk, StructType::Muralla],
+        Zone::Custom(_) => vec![StructType::Hut, StructType::Tower],
         _ => vec![],
     }
 }
@@ -498,13 +535,79 @@ pub fn generate_road_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(Vec
                 0.04, sup_h2 * 0.5, 0.04,
                 bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx);
         } else {
-            push_road_quad(
-                &mut pos, &mut norms, &mut idx, &mut cols,
-                seg.x1, seg.y1 + 0.1, seg.z1,
-                seg.x2, seg.y2 + 0.1, seg.z2,
-                0.8, road_color[0], road_color[1], road_color[2], &mut base_idx,
-            );
+                    push_road_quad(
+                        &mut pos, &mut norms, &mut idx, &mut cols,
+                        seg.x1, seg.y1 + 0.1, seg.z1,
+                        seg.x2, seg.y2 + 0.1, seg.z2,
+                        0.8, road_color[0], road_color[1], road_color[2], &mut base_idx,
+                    );
+                }
+            }
+            Some((pos, norms, idx, cols))
         }
-    }
-    Some((pos, norms, idx, cols))
+
+pub fn generate_blueprint_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>)> {
+    use crate::engine::modding::ModContext;
+    let has_blueprints = ModContext::with(|ctx| ctx.active && !ctx.blueprints.is_empty());
+    if !has_blueprints { return None; }
+
+    let ox = cx as f64 * crate::engine::chunk::CHUNK_SIZE;
+    let oz = cz as f64 * crate::engine::chunk::CHUNK_SIZE;
+    let seed = params.seed.wrapping_mul(2654435761)
+        .wrapping_add((cx as u32).wrapping_mul(374761393))
+        .wrapping_add((cz as u32).wrapping_mul(668265263));
+    let water = params.water_level;
+
+    let count = if ModContext::with(|ctx| ctx.blueprints.len()) > 0 { 2 } else { 0 };
+    let mut placed = false;
+    let mut pos = Vec::new();
+    let mut norms = Vec::new();
+    let mut idx = Vec::new();
+    let mut cols = Vec::new();
+    let mut base_idx = 0u32;
+    let mut rng = seed;
+
+    ModContext::with(|ctx| {
+        let bp_names: Vec<String> = ctx.blueprints.keys().cloned().collect();
+        if bp_names.is_empty() { return; }
+
+        for _ in 0..count {
+            rng = rng.wrapping_mul(1103515245).wrapping_add(12345);
+            let rx = (rng as f64 / u32::MAX as f64) * crate::engine::chunk::CHUNK_SIZE;
+            rng = rng.wrapping_mul(1103515245).wrapping_add(12345);
+            let rz = (rng as f64 / u32::MAX as f64) * crate::engine::chunk::CHUNK_SIZE;
+
+            let wx = ox + rx;
+            let wz = oz + rz;
+            let h = terrain::get_height(params, wx, wz);
+            if h <= water + 0.5 { continue; }
+
+            let mut flat = true;
+            for dy in -2..=2 {
+                for dx in -2..=2 {
+                    let sh = terrain::get_height(params, wx + dx as f64, wz + dy as f64);
+                    if (sh - h).abs() > 1.0 { flat = false; }
+                }
+            }
+            if !flat { continue; }
+
+            rng = rng.wrapping_mul(1103515245).wrapping_add(12345);
+            let idx2 = (rng as f64 / u32::MAX as f64 * bp_names.len() as f64) as usize;
+            let name = &bp_names[idx2.min(bp_names.len() - 1)];
+            if let Some(bp) = ctx.get_blueprint(name) {
+                for block in &bp.blocks {
+                    push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+                        wx as f32 + block.x,
+                        h as f32 + block.y,
+                        wz as f32 + block.z,
+                        block.w * 0.5, block.h * 0.5, block.d * 0.5,
+                        block.color[0], block.color[1], block.color[2],
+                        &mut base_idx);
+                }
+                placed = true;
+            }
+        }
+    });
+
+    if placed { Some((pos, norms, idx, cols)) } else { None }
 }

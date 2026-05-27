@@ -26,6 +26,7 @@ pub fn particle_color_size(zone: Zone) -> (f64, f64, f64, f64) {
         Zone::Ocean | Zone::CoralReef | Zone::KelpForest | Zone::DeepOcean | Zone::RockyReef | Zone::SandyPlain => (0.5, 0.7, 0.9, 0.15),
         Zone::Cave | Zone::Abyss => (0.4, 0.4, 0.45, 0.08),
         Zone::Fungus => (0.6, 0.3, 0.6, 0.12),
+        Zone::Custom(_) => (0.7, 0.8, 1.0, 0.15),
     }
 }
 
@@ -40,6 +41,7 @@ pub fn particle_count(zone: Zone) -> usize {
         Zone::Ocean | Zone::CoralReef | Zone::KelpForest | Zone::DeepOcean | Zone::RockyReef | Zone::SandyPlain => 200,
         Zone::Cave | Zone::Abyss => 100,
         Zone::Fungus => 150,
+        Zone::Custom(_) => 200,
     }
 }
 

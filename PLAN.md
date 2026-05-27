@@ -83,204 +83,178 @@ Evolucionar WORLDS de un explorador de mundos procedurales a un **ecosistema int
 
 ---
 
-## FASE 5: Persistencia (Save/Load en IndexedDB)
+## FASE 5: Persistencia (Save/Load en IndexedDB) ✅
 **Objetivo:** Guardar y restaurar estado del mundo localmente.
 
-- [ ] Serialización de: posición, waypoints, descubrimientos, seed, parámetros
-- [ ] Almacenamiento en IndexedDB vía `web-sys`
-- [ ] Carga automática al iniciar (con opción de "nuevo mundo")
-- [ ] Ranuras de guardado múltiples (3 slots)
+- [x] Serialización de: posición, waypoints, descubrimientos, seed, parámetros
+- [x] Almacenamiento en IndexedDB vía `web-sys`
+- [x] Carga automática al iniciar (con opción de "nuevo mundo")
+- [x] Ranuras de guardado múltiples (3 slots)
 
 **Archivos:** `app.rs`, `state/mod.rs`, `bridge.rs`, `three_bridge.js`
 
 ---
 
-## FASE 6: Minería & Construcción
+## FASE 6: Minería & Construcción ✅
 **Objetivo:** Interactuar con el mundo: minar minerales y construir.
 
-- [ ] Click izquierdo → minar bloque (voxel si está cerca)
-- [ ] Inventario básico (minerales recolectados)
-- [ ] Click derecho → colocar bloque seleccionado
-- [ ] Sistema de "build mode" toggle
-- [ ] Crafting básico (fusionar minerales)
+- [x] Click izquierdo → minar bloque (voxel si está cerca)
+- [x] Inventario básico (minerales recolectados)
+- [x] Click derecho → colocar bloque seleccionado
+- [x] Sistema de "build mode" toggle
+- [x] Crafting básico (fusionar minerales)
 
 **Archivos:** `controls.rs`, `engine/mod.rs`, `bridge.rs`, `three_bridge.js`, nuevo `engine/inventory.rs`
 
 ---
 
-## FASE 7: Terreno Voxel 3D (Subterráneo Mejorado)
+## FASE 7: Terreno Voxel 3D (Subterráneo Mejorado) ✅
 **Objetivo:** Cuevas y cavernas reales con tallado 3D.
 
-- [ ] Sistema de chunks 3D (altura × ancho × profundidad)
-- [ ] Bloques individuales con caras visibles (face culling)
-- [ ] Iluminación de antorcha para cuevas
-- [ ] Transición suave superficie ↔ subterráneo
-- [ ] Acuíferos subterráneos y lagos de lava
+- [x] Sistema de chunks 3D (altura × ancho × profundidad)
+- [x] Bloques individuales con caras visibles (face culling)
+- [x] Iluminación de antorcha para cuevas
+- [x] Transición suave superficie ↔ subterráneo
+- [x] Acuíferos subterráneos y lagos de lava
 
 **Archivos:** `chunk.rs`, `terrain.rs`, `engine/mod.rs`, `three_bridge.js`
 
 ---
 
-## FASE 8: Ecosistemas Dinámicos
+## FASE 8: Ecosistemas Dinámicos ✅
 **Objetivo:** Flora y clima que evolucionan con el tiempo.
 
-- [ ] Crecimiento de árboles (etapas: semilla → brote → adulto)
-- [ ] Frentes meteorológicos que se desplazan (lluvia → sol → tormenta)
-- [ ] Ciclo de estaciones (4 estaciones, cambio de colores de follaje)
-- [ ] Polinización: flores atraen insectos → árboles frutales
+- [x] Crecimiento de árboles (etapas: semilla → brote → adulto)
+- [x] Frentes meteorológicos que se desplazan (lluvia → sol → tormenta)
+- [x] Ciclo de estaciones (4 estaciones, cambio de colores de follaje)
+- [x] Polinización: flores atraen insectos → árboles frutales
 
 **Archivos:** `vegetation.rs`, `particles.rs`, `audio.rs`, `three_bridge.js`, `engine/mod.rs`
 
 ---
 
-## FASE 9: Criaturas & NPCs
+## FASE 9: Criaturas & NPCs ✅
 **Objetivo:** Vida animal y encuentros.
 
-- [ ] Criaturas por bioma (ciervos, serpientes, luciérnagas, etc.)
-- [ ] Pathfinding simple (grid A* sobre terreno)
-- [ ] Comportamiento: deambular, huir del jugador, alimentarse
-- [ ] Criaturas de rescate ocultas en estructuras (recompensa)
-- [ ] Animación básica con morph targets
+- [x] Criaturas por bioma (ciervos, serpientes, luciérnagas, etc.)
+- [x] Pathfinding simple (grid A* sobre terreno)
+- [x] Comportamiento: deambular, huir del jugador, alimentarse
+- [x] Criaturas de rescate ocultas en estructuras (recompensa)
+- [x] Animación básica con morph targets
 
 **Archivos:** nuevo `engine/creatures.rs`, `engine/mod.rs`, `three_bridge.js`
 
 ---
 
-## FASE 10: Revolución de Audio 3D
+## FASE 10: Revolución de Audio 3D ✅
 **Objetivo:** Audio inmersivo espacial.
 
-- [ ] Web Audio API con `PannerNode` para audio 3D posicional
-- [ ] Transiciones suaves entre paisajes sonoros de biomas (crossfade)
-- [ ] Sistema musical dinámico (responde a altura, velocidad, hora)
-- [ ] Pasos con distinto sonido según superficie
-- [ ] Eco en cuevas con `ConvolverNode`
+- [x] Web Audio API con `PannerNode` para audio 3D posicional
+- [x] Transiciones suaves entre paisajes sonoros de biomas (crossfade)
+- [x] Sistema musical dinámico (responde a altura, velocidad, hora)
+- [x] Pasos con distinto sonido según superficie
+- [x] Eco en cuevas con `ConvolverNode`
 
 **Archivos:** `audio.rs`, `three_bridge.js`
 
 ---
 
-## FASE 11: Sistema de Portales
+## FASE 11: Sistema de Portales ✅
 **Objetivo:** Viajar entre mundos/semillas.
 
-- [ ] Portales visuales (shader de distorsión anular)
-- [ ] Al atravesar: cambia la seed, generando un nuevo mundo
-- [ ] Historial de mundos visitados (portal hub)
-- [ ] Efecto de transición con distorsión + fade
+- [x] Portales visuales (shader de distorsión anular)
+- [x] Al atravesar: cambia la seed, generando un nuevo mundo
+- [x] Historial de mundos visitados (portal hub)
+- [x] Efecto de transición con distorsión + fade
 
 **Archivos:** `engine/mod.rs`, `three_bridge.js`, `app.rs`, `bridge.rs`
 
 ---
 
-## FASE 12: Logros & Sistema de Progresión
+## FASE 12: Logros & Sistema de Progresión ✅
 **Objetivo:** Metas de exploración y recompensas.
 
-- [ ] Logros: "Visita todos los biomas", "Descubre 10 estructuras", "Camina 10km"
-- [ ] Recompensas: paletas de color, fórmulas secretas, modos visuales
-- [ ] Notificaciones elegantes con glifo del logro
-- [ ] Seguimiento persistente en IndexedDB
+- [x] Logros: "Visita todos los biomas", "Descubre 10 estructuras", "Camina 10km"
+- [x] Recompensas: paletas de color, fórmulas secretas, modos visuales
+- [x] Notificaciones elegantes con glifo del logro
+- [x] Seguimiento persistente en IndexedDB
 
 **Archivos:** nuevo `engine/achievements.rs`, `app.rs`, `state/mod.rs`
 
 ---
 
-## FASE 13: Hidrología Avanzada
+## FASE 13: Hidrología Avanzada ✅
 **Objetivo:** Agua dinámica con ríos, cascadas, oleaje.
 
-- [ ] Ríos que fluyen cuesta abajo desde altura > water_level
-- [ ] Cascadas con partículas de espuma y sonido 3D posicional
-- [ ] Oleaje en la costa (vertex displacement en shader de agua)
-- [ ] Flora acuática subacuática (algas, corales)
-- [ ] Burbujas bajo el agua
+- [x] Ríos que fluyen cuesta abajo desde altura > water_level
+- [x] Cascadas con partículas de espuma y sonido 3D posicional
+- [x] Oleaje en la costa (vertex displacement en shader de agua)
+- [x] Flora acuática subacuática (algas, corales)
+- [x] Burbujas bajo el agua
 
 **Archivos:** `terrain.rs`, `chunk.rs`, `three_bridge.js`, `particles.rs`, `audio.rs`
 
 ---
 
-## FASE 14: Poderes Climáticos
+## FASE 14: Poderes Climáticos ✅
 **Objetivo:** El jugador puede influir en el clima.
 
-- [ ] HUD de "poderes": invocar lluvia, despejar niebla, acelerar el día, llamar un rayo
-- [ ] Enfriamiento por uso (cooldown con animación de anillo)
-- [ ] Sinergia con biomas: lluvia en desierto → florecimiento temporal
-- [ ] Efectos visuales y de audio para cada poder
+- [x] HUD de "poderes": invocar lluvia, despejar niebla, acelerar el día, llamar un rayo
+- [x] Enfriamiento por uso (cooldown con animación de anillo)
+- [x] Sinergia con biomas: lluvia en desierto → florecimiento temporal
+- [x] Efectos visuales y de audio para cada poder
 
 **Archivos:** `app.rs`, `audio.rs`, `engine/mod.rs`, `three_bridge.js`
 
 ---
 
-## FASE 15: Características Sociales
-**Objetivo:** Conectar jugadores (requiere F4).
-
-- [ ] Código de amigo para agregar contactos
-- [ ] Visitar el mundo de otro jugador (teletransporte)
-- [ ] Chat básico con burbujas sobre los jugadores
-- [ ] Sistema de "favoritos": marcar mundos de amigos
-- [ ] Co-op: chunks compartidos en tiempo real
-
-**Archivos:** `engine/mod.rs`, `app.rs`, `three_bridge.js`, `server/src/ws/`
-
----
-
-## FASE 16: Codex / Bestiario
+## FASE 15: Codex / Bestiario ✅
 **Objetivo:** Enciclopedia viva del mundo.
 
-- [ ] Codex visual con pestañas: Biomas, Fórmulas, Estructuras, Minerales, Criaturas
-- [ ] Cada entrada se desbloquea al descubrir/ver por primera vez
-- [ ] Ilustraciones generadas proceduralmente (captura de cámara)
-- [ ] Estadísticas de exploración
+- [x] Codex visual con pestañas: Biomas, Fórmulas, Estructuras, Minerales, Criaturas
+- [x] Cada entrada se desbloquea al descubrir/ver por primera vez
+- [x] Ilustraciones generadas proceduralmente (captura de cámara)
+- [x] Estadísticas de exploración
 
 **Archivos:** nuevo `engine/codex.rs`, `app.rs`, `state/mod.rs`
 
 ---
 
-## FASE 17: Arquitectura & Civilización Procedural
+## FASE 16: Arquitectura & Civilización Procedural ✅
 **Objetivo:** Ciudades en ruinas, caminos, puentes.
 
-- [ ] Algoritmo de caminos que conectan estructuras cercanas
-- [ ] Plazas, puentes sobre agua, murallas alrededor de núcleos
-- [ ] Variedad arquitectónica por bioma (estilo, material, color)
-- [ ] Dungeons subterráneos debajo de estructuras grandes
+- [x] Algoritmo de caminos que conectan estructuras cercanas
+- [x] Plazas, puentes sobre agua, murallas alrededor de núcleos
+- [x] Variedad arquitectónica por bioma (estilo, material, color)
+- [x] Dungeons subterráneos debajo de estructuras grandes
 
 **Archivos:** `structures.rs`, `terrain.rs`, `three_bridge.js`, nuevo `engine/architecture.rs`
 
 ---
 
-## FASE 18: Realidad Virtual (WebXR)
-**Objetivo:** Exploración inmersiva en VR.
-
-- [ ] Sesión WebXR con `THREE.WebXRManager`
-- [ ] Movimiento por teleportación + joystick analógico
-- [ ] Interacción con manos (recoger minerales, saludar criaturas)
-- [ ] Escalado de UI para cascos VR (interfaz flotante)
-- [ ] 72fps optimizado para VR
-
-**Archivos:** `three_bridge.js`, `controls.rs`, `camera.rs`, `app.rs`
-
----
-
-## FASE 19: Modding API & Contenido Generado por el Usuario
+## FASE 17: Modding API & Contenido Generado por el Usuario ✅
 **Objetivo:** La comunidad puede extender el juego.
 
-- [ ] Definiciones de biomas en TOML/JSON
-- [ ] Plugins de fórmulas matemáticas (expresiones evaluadas en runtime)
-- [ ] Blueprints de estructuras en formato declarativo
-- [ ] Paletas de color personalizadas (subidas como JSON)
-- [ ] Compartir mods via URL: `worlds.app/?mod=https://.../biome.toml`
+- [x] Definiciones de biomas en TOML/JSON
+- [x] Plugins de fórmulas matemáticas (expresiones evaluadas en runtime)
+- [x] Blueprints de estructuras en formato declarativo
+- [x] Paletas de color personalizadas (subidas como JSON)
+- [x] Compartir mods via URL: `worlds.app/?mod=https://.../biome.toml`
 
 **Archivos:** nuevo `modding/`, `engine/mod.rs`, `app.rs`, `three_bridge.js`, `Cargo.toml`
 
 ---
 
-## FASE 20: Optimización & Pulido General
+## FASE 18: Optimización & Pulido General ✅
 **Objetivo:** Rendimiento, accesibilidad y distribución.
 
-- [ ] LOD (Level of Detail): chunks lejanos con menos vértices
-- [ ] Frustum culling: no renderizar chunks fuera de la vista
-- [ ] Web Workers: generación de chunks en worker separado
-- [ ] Mobile PWA: manifest.json, service worker, fullscreen táctil
-- [ ] Accesibilidad: soporte de lector de pantalla, contraste, tamaño de fuente
-- [ ] Internacionalización (i18n): JSON de traducciones (EN/ES/FR/DE/JA)
-- [ ] URL Sharing: `worlds.app/?seed=12345&formula=Voronoi`
+- [x] LOD (Level of Detail): chunks lejanos con menos vértices
+- [x] Frustum culling: no renderizar chunks fuera de la vista
+- [ ] Web Workers: generación de chunks en worker separado (pendiente)
+- [x] Mobile PWA: manifest.json, service worker, fullscreen táctil
+- [x] Accesibilidad: soporte de lector de pantalla, contraste, tamaño de fuente
+- [x] Internacionalización (i18n): JSON de traducciones (EN/ES/FR/DE/JA)
+- [x] URL Sharing: `worlds.app/?seed=12345&formula=Voronoi`
 
 **Archivos:** múltiples — optimizaciones en engine, three_bridge, index.html, server
 
@@ -294,23 +268,87 @@ Evolucionar WORLDS de un explorador de mundos procedurales a un **ecosistema int
 | 2 | Gamepad API ✅ | Media | ⭐⭐⭐ | — |
 | 3 | DoF + LUT ✅ | Alta | ⭐⭐⭐⭐⭐ | — |
 | 4 | Multijugador WS ✅ | Muy Alta | ⭐⭐⭐⭐⭐ | — |
-| 5 | Persistencia | Media | ⭐⭐⭐⭐ | — |
-| 6 | Minería/Construcción | Alta | ⭐⭐⭐⭐⭐ | F5 |
-| 7 | Voxel 3D | Muy Alta | ⭐⭐⭐⭐⭐ | F6 |
-| 8 | Ecosistemas | Alta | ⭐⭐⭐⭐ | F1 |
-| 9 | Criaturas | Alta | ⭐⭐⭐⭐⭐ | F7, F8 |
-| 10 | Audio 3D | Alta | ⭐⭐⭐⭐ | — |
-| 11 | Portales | Media | ⭐⭐⭐⭐ | F5 |
-| 12 | Logros | Baja | ⭐⭐⭐ | F5 |
-| 13 | Hidrología | Alta | ⭐⭐⭐⭐ | F7 |
-| 14 | Poderes Climáticos | Media | ⭐⭐⭐ | — |
-| 15 | Social | Alta | ⭐⭐⭐⭐⭐ | F4 |
-| 16 | Codex | Media | ⭐⭐⭐ | F9 |
-| 17 | Arquitectura | Alta | ⭐⭐⭐⭐ | — |
-| 18 | VR (WebXR) | Muy Alta | ⭐⭐⭐⭐⭐ | F3 |
-| 19 | Modding API | Muy Alta | ⭐⭐⭐⭐⭐ | F20 |
-| 20 | Optimización/Pulido | Media | ⭐⭐⭐⭐⭐ | Todas |
+| 5 | Persistencia ✅ | Media | ⭐⭐⭐⭐ | — |
+| 6 | Minería/Construcción ✅ | Alta | ⭐⭐⭐⭐⭐ | F5 |
+| 7 | Voxel 3D ✅ | Muy Alta | ⭐⭐⭐⭐⭐ | F6 |
+| 8 | Ecosistemas ✅ | Alta | ⭐⭐⭐⭐ | F1 |
+| 9 | Criaturas ✅ | Alta | ⭐⭐⭐⭐⭐ | F7, F8 |
+| 10 | Audio 3D ✅ | Alta | ⭐⭐⭐⭐ | — |
+| 11 | Portales ✅ | Media | ⭐⭐⭐⭐ | F5 |
+| 12 | Logros ✅ | Baja | ⭐⭐⭐ | F5 |
+| 13 | Hidrología ✅ | Alta | ⭐⭐⭐⭐ | F7 |
+| 14 | Poderes Climáticos ✅ | Media | ⭐⭐⭐ | — |
+| 15 | Codex ✅ | Media | ⭐⭐⭐ | F9 |
+| 16 | Arquitectura ✅ | Alta | ⭐⭐⭐⭐ | — |
+| 17 | Modding API ✅ | Muy Alta | ⭐⭐⭐⭐⭐ | F20 |
+| 18 | Optimización/Pulido ✅ | Media | ⭐⭐⭐⭐⭐ | Todas |
 
 ---
 
-*Plan generado el 19 de Mayo 2026 — WORLDS Project*
+---
+
+# 🚀 Fases Post-Plan (Nuevo Contenido)
+
+---
+
+## FASE 19: Web Workers & Optimización Profunda
+**Objetivo:** Descargar generación de chunks a workers para evitar tirones.
+
+- [ ] Worker dedicado para generación de chunks (WASM en worker)
+- [ ] Cola de prioridad: chunks cercanos primero
+- [ ] Streaming: chunks generados en segundo plano mientras el jugador se mueve
+- [ ] Profiling: panel FPS/draw calls/memoria en HUD
+
+**Archivos:** `worker.js`, `engine/mod.rs`, `chunk.rs`, `three_bridge.js`
+
+---
+
+## FASE 20: Mejoras Mobile y Táctiles
+**Objetivo:** Experiencia pulida en dispositivos móviles.
+
+- [ ] Joystick táctil: área de movimiento redimensionable
+- [ ] Gestos: tap para interactuar, swipe para cambiar cámara
+- [ ] HUD táctil: botones adaptados al pulgar
+- [ ] Fullscreen al iniciar en móvil
+- [ ] Reducir sombras/partículas automáticamente en móvil
+
+**Archivos:** `joystick.rs`, `controls.rs`, `app.rs`, `index.html`, `three_bridge.js`
+
+---
+
+## FASE 21: Sistema de Jefes (Bosses)
+**Objetivo:** Enemigos únicos en mazmorras con recompensas especiales.
+
+- [ ] 3 tipos de boss: Golem de piedra, Kraken de lava, Guardián de cristal
+- [ ] Salas de boss en dungeons profundas
+- [ ] IA de boss: fases de ataque, patrones, debilidad
+- [ ] Barra de vida visible en HUD
+- [ ] Botín exclusivo al derrotar (herramientas, llaves, reliquias)
+
+**Archivos:** `creatures.rs`, `structures.rs`, `chunk.rs`, `engine/mod.rs`, `three_bridge.js`, `app.rs`
+
+---
+
+## FASE 22: Misiones y Narrativa Procedural
+**Objetivo:** Dar propósito a la exploración con desafíos generados.
+
+- [ ] Sistema de misiones: "Encuentra X en zona Y", "Recolecta Z recursos"
+- [ ] NPCs con diálogo simple en estructuras (chozas, torres)
+- [ ] Marcadores de misión en el mapa
+- [ ] Recompensas: paletas exclusivas, cosméticos, acceso a zonas secretas
+- [ ] Misiones de historia: secuencia de 5 misiones por mundo
+
+**Archivos:** `engine/missions.rs`, `engine/npcs.rs`, `app.rs`, `state/mod.rs`, `three_bridge.js`
+
+---
+
+## Resumen Post-Plan
+
+| # | Fase | Dif. | Impacto |
+|---|------|------|---------|
+| 19 | Web Workers | Muy Alta | ⭐⭐⭐⭐⭐ |
+| 20 | Mejoras Mobile | Media | ⭐⭐⭐⭐ |
+| 21 | Bosses | Alta | ⭐⭐⭐⭐⭐ |
+| 22 | Misiones Narrativa | Alta | ⭐⭐⭐⭐⭐ |
+
+*Plan extendido — WORLDS Project*

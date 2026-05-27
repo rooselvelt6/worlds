@@ -12,6 +12,23 @@ WORLDS genera mundos 3D infinitos con terreno procedural FBM, zonas temáticas, 
 
 ---
 
+## Estado del Desarrollo
+
+| Fase | Estado |
+|------|--------|
+| ✅ F5 — Persistencia (IndexedDB) | Completado |
+| ✅ F7 — Terreno Voxel 3D (Cuevas) | Completado |
+| ✅ F8 — Ecosistemas Dinámicos | Completado |
+| ✅ F9 — Criaturas con IA (animación, rescate, montura) | Completado |
+| ✅ F10 — Audio 3D Inmersivo (PannerNode, reverb, música dinámica) | Completado |
+| ✅ F13 — Hidrología (ríos, burbujas, sonido cascadas) | Completado |
+| ✅ F17 — Arquitectura (plazas, puentes, murallas, dungeons) | Completado |
+| ✅ F11 — Portales (shader, fade, hub, partículas) | Completado |
+| ⏳ F15 — Social & Multijugador | Pendiente |
+| ⏳ F18 — Realidad Virtual (WebXR) | Pendiente |
+| ⏳ F19 — Modding API | Pendiente |
+| ⏳ F20 — Optimización & Pulido | Pendiente |
+
 ## Tech Stack
 
 | Capa | Tecnología |
@@ -136,11 +153,15 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 - **Natación**: flotabilidad y gravedad reducida bajo agua
 - **Vuelo**: sin gravedad, Space/Shift sube/baja
 
-### 🔊 Audio 100% Sintetizado
+### 🔊 Audio 3D Inmersivo
 
-- Paisajes sonoros por zona
-- Sonidos de pasos
-- Clima dinámico
+- **Audio posicional 3D** con `PannerNode`: sonidos de criaturas, portales y eventos siguen la posición del oyente
+- **Paisajes sonoros por zona**: ambiente base con frecuencia y volumen según bioma
+- **Sistema musical dinámico**: capas de bajo (triangle) y pad (sine) con notas musicales por bioma, moduladas por altura, velocidad y hora del día
+- **Eco en cuevas** con `ConvolverNode` + impulso procedural (reverberación en Cave/Abyss)
+- Sonidos de pasos según superficie (tierra, piedra, pasto, arena, agua, nieve)
+- Clima dinámico: lluvia graduada por intensidad, truenos
+- Efectos: portales, curaciones, crafteo, rescate de criaturas
 
 ### 🌲 Vegetación 3D
 
@@ -154,7 +175,10 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 - Asignadas por bioma (terrestres, acuáticas, voladoras)
 - IA con estados: idle, wander, flee, follow, eat
 - Pathfinding A* sobre grid del terreno
+- **Animaciones**: marcha de 4 patas en cuadrúpedos, aleteo en insectos/aves, pulso en elementales, nado en peces, vaivén en medusas
 - **Alimentar y domar**: clic derecho con fruta → domesticación
+- **Rescate**: criaturas ocultas en mazmorras, al rescatarlas se vuelven dóciles y dan minerales
+- **Montura**: criaturas domadas tipo ciervo y oso son montables con tecla F, control WASD
 - Criaturas domadas siguen al jugador
 - Movimiento sinusoidal + huida del jugador
 - Descubrimiento vía Codex con clic derecho
@@ -162,7 +186,10 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 ### 🏛️ Estructuras Arquitectónicas
 
 - Plazas, Murallas, Entradas de mazmorra, Torres, Ruinas, Arcos, Pilares, Cúpulas, Pirámides, Espirales de cristal, Cabañas de hongo, Obeliscos
-- Variedad por bioma
+- Variedad por bioma: tipos, tamaño y color según zona
+- **Puentes**: generados automáticamente sobre ríos entre caminos de estructuras
+- **Murallas**: perímetros defensivos con almenas
+- **Dungeons subterráneos**: salas de 7x3x7 bajo estructuras grandes (Plaza, Pirámide, Torre, Cúpula) con tesoro central y hongos luminosos
 
 ### 🎮 Multijugador
 
@@ -189,8 +216,10 @@ El terreno usa **FBM (Fractional Brownian Motion)** como función de ruido únic
 
 ### 🌊 Hidrología
 
-- **Cascadas**: efecto visual con partículas en acantilados
+- **Ríos**: cauces naturales tallados con noise sinusoidal, rellenos de agua superficial (bloques BLK_WATER) en canales
+- **Cascadas**: efecto visual con partículas en acantilados + sonido espacial 3D
 - **Espuma**: foam en la línea de costa
+- **Burbujas**: partículas ascendentes bajo el agua
 - **Flora acuática**: algas, corales, kelp en zonas marinas
 - **Oleaje**: vertex displacement en el agua
 
@@ -213,6 +242,8 @@ Interfaz de 3 columnas con botones de acción directa. Cada botón abre un panel
 | ESPACIO | Saltar / Subir (vuelo/natación) |
 | SHIFT | Bajar (vuelo/natación) |
 | Q/E | Rotar cámara |
+| F | Montar/desmontar criatura domada |
+| R | Teletransportarse por portal cercano |
 | G | Ciclar clima |
 | T | Activar/desactivar vuelo |
 | B | Modo construcción |

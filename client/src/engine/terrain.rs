@@ -40,6 +40,13 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
         Zone::Storm => h = h * 1.8 + 1.0,
         Zone::Aurora => h = h * 0.5 + 0.5,
         Zone::Magma => h = h * 2.0 + 3.0 + (wx * 0.2).sin().abs() * 2.0,
+        Zone::Custom(id) => {
+            crate::engine::modding::ModContext::with(|ctx| {
+                if let Some(biome) = ctx.get_custom_biome(id) {
+                    h = h * biome.height_multiplier + biome.height_offset;
+                }
+            });
+        }
         _ => {}
     }
 
@@ -184,6 +191,10 @@ fn deep_block_type(zone: Zone, depth: f64, seed: f64) -> u8 {
 
 pub fn get_block_type(params: &WorldParams, wx: f64, wy: f64, wz: f64, surface_h: f64, zone: Zone) -> u8 {
     if wy > surface_h {
+        // River surface water: fill carved channels with shallow water
+        if is_river(params, wx, wz) && wy < surface_h + 1.5 {
+            return BLK_WATER;
+        }
         return BLK_AIR;
     }
 
@@ -261,10 +272,30 @@ pub fn get_block_type(params: &WorldParams, wx: f64, wy: f64, wz: f64, surface_h
     deep_block_type(zone, depth, seed)
 }
 
+fn block_name_for_type(block_type: u8) -> &'static str {
+    match block_type {
+        1 => "grass", 2 => "dirt", 3 => "stone", 4 => "sand", 5 => "snow",
+        6 => "coal_ore", 7 => "iron_ore", 8 => "gold_ore", 9 => "diamond_ore",
+        10 => "gravel", 11 => "clay", 12 => "water", 13 => "lava",
+        20 => "packed_ice", 21 => "obsidian", 22 => "moss", 23 => "glow_shroom",
+        24 => "magma_block", 25 => "soul_sand", 26 => "basalt",
+        _ => "stone",
+    }
+}
+
 pub fn block_color(block_type: u8, _params: &WorldParams, wx: f64, wy: f64, wz: f64, zone: Zone, surface_h: f64, max_h: f64) -> [f32; 3] {
     let depth = (surface_h - wy) as f32;
     // Darken with depth but with a higher floor (min 0.25 brightness so caves aren't totally black)
     let darken = (1.0 - (depth / 20.0).clamp(0.0, 0.75)).max(0.25);
+
+    let block_name = block_name_for_type(block_type);
+    let palette_color = crate::engine::modding::ModContext::with(|ctx| ctx.get_palette_color(block_name));
+    if let Some(pc) = palette_color {
+        return if block_emits_light(block_type) { pc } else {
+            let d = darken.max(0.5);
+            [pc[0] * d, pc[1] * d, pc[2] * d]
+        };
+    }
 
     let base = match block_type {
         BLK_GRASS => get_zone_terrain_color(zone, surface_h, max_h, 0.8, wx, wz),
@@ -388,6 +419,7 @@ pub enum Zone {
     Volcanic, Ocean, Crystal, Cave, Lava,
     Fungus, Abyss, Storm, Aurora, Magma,
     CoralReef, KelpForest, SandyPlain, RockyReef, DeepOcean,
+    Custom(u32),
 }
 
 impl Zone {
@@ -420,6 +452,19 @@ impl Zone {
             Zone::CoralReef => "coral_reef", Zone::KelpForest => "kelp_forest",
             Zone::SandyPlain => "sandy_plain", Zone::RockyReef => "rocky_reef",
             Zone::DeepOcean => "deep_ocean",
+            Zone::Custom(_) => "custom",
+        }
+    }
+
+    pub fn name_for_hud(&self) -> String {
+        match self {
+            Zone::Custom(id) => {
+                crate::engine::modding::ModContext::with(|ctx| {
+                    ctx.get_custom_biome(*id).map(|b| b.display_name.clone())
+                        .unwrap_or_else(|| format!("custom_{}", id))
+                })
+            }
+            _ => self.as_str().to_string(),
         }
     }
 }
@@ -460,6 +505,20 @@ pub fn get_zone(params: &WorldParams, wx: f64, wz: f64) -> Zone {
 }
 
 pub fn get_zone_color(zone: Zone) -> [f32; 3] {
+    if let Zone::Custom(id) = zone {
+        return crate::engine::modding::ModContext::with(|ctx| {
+            ctx.get_custom_biome(id)
+                .map(|b| b.color)
+                .unwrap_or([0.5, 0.5, 0.5])
+        });
+    }
+    // Check mod overrides for built-in biomes
+    let zone_name = zone.as_str();
+    if let Some(override_color) = crate::engine::modding::ModContext::with(|ctx| {
+        ctx.get_biome_color(zone_name)
+    }) {
+        return override_color;
+    }
     match zone {
         Zone::Forest => [0.176, 0.353, 0.153],
         Zone::Plains => [0.486, 0.702, 0.259],
@@ -481,6 +540,7 @@ pub fn get_zone_color(zone: Zone) -> [f32; 3] {
         Zone::SandyPlain => [0.700, 0.600, 0.400],
         Zone::RockyReef => [0.400, 0.350, 0.300],
         Zone::DeepOcean => [0.020, 0.050, 0.150],
+        Zone::Custom(_) => unreachable!(),
     }
 }
 
@@ -517,6 +577,7 @@ fn zone_stops(zone: Zone) -> &'static [[f32; 3]] {
         Zone::KelpForest => &[[0.02,0.05,0.12],[0.05,0.20,0.15],[0.08,0.35,0.12],[0.12,0.40,0.15],[0.20,0.40,0.20],[0.30,0.45,0.25],[0.40,0.50,0.30]],
         Zone::SandyPlain => &[[0.02,0.05,0.12],[0.15,0.30,0.20],[0.30,0.42,0.22],[0.45,0.50,0.25],[0.55,0.55,0.30],[0.60,0.58,0.35],[0.65,0.60,0.40]],
         Zone::RockyReef => &[[0.02,0.05,0.12],[0.10,0.20,0.18],[0.18,0.30,0.22],[0.25,0.35,0.25],[0.30,0.38,0.28],[0.35,0.40,0.30],[0.40,0.42,0.35]],
+        Zone::Custom(_) => &[[0.05,0.10,0.25],[0.08,0.30,0.18],[0.12,0.42,0.10],[0.20,0.48,0.14],[0.38,0.42,0.22],[0.65,0.60,0.48],[1.0,1.0,1.0]],
     }
 }
 
@@ -536,11 +597,32 @@ pub fn zone_rock_color(zone: Zone) -> [f32; 3] {
 
 pub fn get_zone_terrain_color(zone: Zone, h: f64, max_h: f64, slope: f32, wx: f64, wz: f64) -> [f32; 3] {
     let t = (h / max_h.max(0.1)).clamp(0.0, 1.0) as f32;
-    let stops = zone_stops(zone);
+
+    let zone_name = zone.as_str();
+    let mod_stops = crate::engine::modding::ModContext::with(|ctx| {
+        if let Zone::Custom(id) = zone {
+            ctx.get_custom_biome(id).map(|b| b.gradient_stops.clone())
+        } else {
+            ctx.get_biome_gradient(zone_name).cloned()
+        }
+    });
+    let stops: &[[f32; 3]] = if let Some(ref s) = mod_stops {
+        // We can't return a reference to Vec's data easily; use heap
+        let boxed: Box<[[f32; 3]]> = s.clone().into_boxed_slice();
+        // Leak it to get a static ref (small, ok for mod loading)
+        Box::leak(boxed)
+    } else {
+        zone_stops(zone)
+    };
     let mut color = gradient(stops, t);
 
-    // Slope-based rock blending: steep areas expose rock
-    let rock = zone_rock_color(zone);
+    let rock = crate::engine::modding::ModContext::with(|ctx| {
+        if let Zone::Custom(id) = zone {
+            ctx.get_custom_biome(id).map(|b| b.rock_color)
+        } else {
+            ctx.get_biome_rock_color(zone_name)
+        }
+    }).unwrap_or_else(|| zone_rock_color(zone));
     let slope_factor = (1.0 - slope).clamp(0.0, 0.6); // 0=flat, 0.6=max rock blend
     color = mix_color(color, rock, slope_factor);
 
@@ -604,6 +686,7 @@ pub fn zone_effects(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {
                 *h += 2.0;
             }
         }
+        Zone::Custom(_) => {}
         _ => {}
     }
 }

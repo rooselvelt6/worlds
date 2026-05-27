@@ -74,7 +74,7 @@ fn push_box(
     *base_idx = nv + 24;
 }
 
-pub fn generate_portal_mesh(params: &crate::state::WorldParams, cx: i32, cz: i32) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>)> {
+pub fn generate_portal_mesh(params: &crate::state::WorldParams, cx: i32, cz: i32) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>, u32, f32)> {
     let data = compute_portals(params);
     let chunk_ox = cx as f64 * 24.0;
     let chunk_oz = cz as f64 * 24.0;
@@ -82,6 +82,8 @@ pub fn generate_portal_mesh(params: &crate::state::WorldParams, cx: i32, cz: i32
         p.x >= chunk_ox && p.x < chunk_ox + 24.0 && p.z >= chunk_oz && p.z < chunk_oz + 24.0
     }).collect();
     if in_chunk.is_empty() { return None; }
+    let target_seed = in_chunk[0].target_seed;
+    let radius = in_chunk[0].radius as f32;
     let mut pos = Vec::new();
     let mut norms = Vec::new();
     let mut idx = Vec::new();
@@ -102,5 +104,5 @@ pub fn generate_portal_mesh(params: &crate::state::WorldParams, cx: i32, cz: i32
         // Inner glow
         push_box(&mut pos, &mut norms, &mut idx, &mut cols, p.x as f32, p.y as f32 + 1.5, p.z as f32, r * 0.15, 0.5, r * 0.15, 0.6, 0.8, 1.0, &mut base_idx);
     }
-    Some((pos, norms, idx, cols))
+    Some((pos, norms, idx, cols, target_seed, radius))
 }

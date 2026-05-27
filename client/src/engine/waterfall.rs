@@ -15,18 +15,22 @@ pub struct WaterfallSystem {
     scan_timer: f64,
 }
 
-struct WaterfallLoc {
-    x: f64, y: f64, z: f64,
-    key: String,
-    px: Vec<f64>,
-    py: Vec<f64>,
-    pz: Vec<f64>,
-    vy: Vec<f64>,
-    lt: Vec<f64>,
-    max_lt: Vec<f64>,
+pub struct WaterfallLoc {
+    pub x: f64, pub y: f64, pub z: f64,
+    pub key: String,
+    pub px: Vec<f64>,
+    pub py: Vec<f64>,
+    pub pz: Vec<f64>,
+    pub vy: Vec<f64>,
+    pub lt: Vec<f64>,
+    pub max_lt: Vec<f64>,
 }
 
 impl WaterfallSystem {
+    pub fn locations(&self) -> &[WaterfallLoc] {
+        &self.locations
+    }
+
     pub fn new() -> Self {
         Self {
             locations: Vec::new(),

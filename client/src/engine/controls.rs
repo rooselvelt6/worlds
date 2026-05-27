@@ -49,6 +49,7 @@ pub const MASK_6: u32 = 1 << 24;
 pub const MASK_7: u32 = 1 << 25;
 pub const MASK_8: u32 = 1 << 26;
 pub const MASK_9: u32 = 1 << 27;
+pub const MASK_F: u32 = 1 << 28;
 
 impl Controls {
     pub fn new(yaw: Rc<Cell<f64>>, pitch: Rc<Cell<f64>>) -> Self {
@@ -94,6 +95,7 @@ impl Controls {
                 "b" | "B" => k |= MASK_B,
                 "n" | "N" => k |= MASK_N,
                 "r" | "R" => k |= MASK_R,
+                "f" | "F" => k |= MASK_F,
                 "1" => k |= MASK_1, "2" => k |= MASK_2, "3" => k |= MASK_3,
                 "4" => k |= MASK_4, "5" => k |= MASK_5, "6" => k |= MASK_6,
                 "7" => k |= MASK_7, "8" => k |= MASK_8, "9" => k |= MASK_9,
@@ -125,6 +127,7 @@ impl Controls {
                 "b" | "B" => k &= !MASK_B,
                 "n" | "N" => k &= !MASK_N,
                 "r" | "R" => k &= !MASK_R,
+                "f" | "F" => k &= !MASK_F,
                 "1" => k &= !MASK_1, "2" => k &= !MASK_2, "3" => k &= !MASK_3,
                 "4" => k &= !MASK_4, "5" => k &= !MASK_5, "6" => k &= !MASK_6,
                 "7" => k &= !MASK_7, "8" => k &= !MASK_8, "9" => k &= !MASK_9,

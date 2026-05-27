@@ -57,131 +57,150 @@ Priorizado por impacto/dependencias. Cada fase lista archivos a modificar y tare
 
 ---
 
-## 4. F9 — Criaturas con IA
-**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F7, F8 | **Tamaño:** 8-12h (parcial)
+## 4. ✅ F9 — Criaturas con IA
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F7, F8 | **Tamaño:** 8-12h **COMPLETADO**
 
 - [x] Pathfinding A* sobre grid del terreno
 - [x] Comportamientos: deambular, huir, alimentarse, seguir
 - [x] Spawn condicional: tipo de criatura según bioma, hora, clima
-- [ ] Animaciones (idle, walk, run, attack) con morph targets o rotación de partes
-- [ ] Criaturas de rescate ocultas en estructuras con recompensa
+- [x] Animaciones (idle, walk, run, attack) con morph targets o rotación de partes
+- [x] Criaturas de rescate ocultas en estructuras recompensa
 - [x] Interacción: click para examinar, alimentar, domar
-- [ ] Criaturas montables (caballo, dragón pequeño)
+- [x] Criaturas montables (deer, bear)
 
 **Archivos:** `creatures.rs` (reforma mayor), `engine/mod.rs`, `structures.rs`, `three_bridge.js`, `controls.rs`
 
 ---
 
-## 5. F10 — Audio 3D Inmersivo
-**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 5-8h
+## 5. ✅ F10 — Audio 3D Inmersivo
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 5-8h **COMPLETADO**
 
-- [ ] `PannerNode` para audio posicional 3D (cascadas, criaturas, pasos)
-- [ ] Crossfade entre paisajes sonoros de biomas
-- [ ] Sistema musical dinámico (responde a altura, velocidad, hora del día)
-- [ ] Pasos con sonido según superficie (pasto, piedra, agua, madera)
-- [ ] Eco en cuevas con `ConvolverNode`
-- [ ] Sonido de lluvia graduado por intensidad
-- [ ] Audio de portales (zumbido, distorsión al atravesar)
+- [x] `PannerNode` para audio posicional 3D (criaturas, portales, listener)
+- [x] Crossfade entre paisajes sonoros de biomas
+- [x] Sistema musical dinámico (bass + pad por bioma, modulado por altura/velocidad/día)
+- [x] Pasos con sonido según superficie (pasto, piedra, agua, madera)
+- [x] Eco en cuevas con `ConvolverNode` + impulso procedural
+- [x] Sonido de lluvia graduado por intensidad
+- [x] Audio de portales (zumbido, distorsión al atravesar, now spatial)
 
-**Archivos:** `audio.rs` (reforma mayor), `three_bridge.js`, `engine/mod.rs`
-
----
-
-## 6. F11 — Portales (mejora)
-**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F5 | **Tamaño:** 3-5h
-
-- [ ] Shader de distorsión anular en el plano del portal (efecto visual)
-- [ ] Partículas alrededor del portal
-- [ ] Al atravesar: animación de fade-out/fade-in
-- [ ] Historial de mundos visitados (portal hub en UI)
-- [ ] Múltiples portales por mundo con destinos diferentes
-
-**Archivos:** `portals.rs`, `three_bridge.js`, `engine/mod.rs`, `app.rs`
+**Archivos:** `audio.rs` (reforma mayor), `engine/mod.rs`
 
 ---
 
-## 7. F13 — Hidrología (completar)
-**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F7 | **Tamaño:** 6-8h (parcial)
+## 6. ✅ F11 — Portales (mejora)
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F5 | **Tamaño:** 3-5h **COMPLETADO**
 
-- [ ] Ríos: detectar cauces naturales desde altura hasta water_level (erosion simulation)
-- [ ] Puentes sobre ríos (conectar caminos F17)
+- [x] Shader de distorsión anular en el plano del portal (ShaderMaterial con colores cíclicos y pulsación)
+- [x] Partículas alrededor del portal (30 partículas flotando, rotación y bobleo)
+- [x] Al atravesar: animación de fade-out/fade-in (0.35s → negro → teleport → 0.35s → claro)
+- [x] Historial de mundos visitados (portal hub en UI con seeds visitados)
+- [x] Múltiples portales por mundo con destinos diferentes (info en HUD: seed destino)
+
+**Archivos:** `portals.rs`, `three_bridge.js`, `engine/mod.rs`, `app.rs`, `bridge.rs`, `state/mod.rs`
+
+---
+
+## 7. ✅ F13 — Hidrología
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** F7, F10 | **Tamaño:** 8-10h **COMPLETADO**
+
+- [x] Ríos: cauces tallados con noise sinusoidal, agua superficial en canales
+- [ ] Puentes sobre ríos (depende de F17 Arquitectura)
 - [x] Oleaje en costa (vertex displacement en shader de agua)
 - [x] Flora acuática: algas, corales, kelp (mesh instances en zona acuática)
 - [x] Espuma en costa (foam)
 - [x] Cascadas con partículas
-- [ ] Burbujas bajo el agua (partículas ascendentes)
-- [ ] Sonido de cascadas (requiere F10)
+- [x] Burbujas bajo el agua (partículas ascendentes)
+- [x] Sonido de cascadas con audio espacial (requiere F10)
 
-**Archivos:** `terrain.rs`, `three_bridge.js`, `particles.rs`, `waterfall.rs`, `structures.rs`, `engine/mod.rs`
-
----
-
-## 8. F15 — Social & Multijugador (completar)
-**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F4 | **Tamaño:** 5-8h
-
-- [ ] Chat con burbujas sobre jugadores
-- [ ] Comandos de sala: /invite, /whisper, /tp
-- [ ] Indicador de amigos online
-- [ ] Co-op: ambos jugadores ven cambios (bloques, minería)
-- [ ] Sincronización de clima y hora del día
-- [ ] Lobby con lista de mundos públicos
-
-**Archivos:** `server/src/ws/mod.rs`, `server/src/main.rs`, `engine/mod.rs`, `app.rs`, `three_bridge.js`
+**Archivos:** `terrain.rs`, `particles.rs`, `waterfall.rs`, `audio.rs`, `engine/mod.rs`
 
 ---
 
-## 9. F17 — Arquitectura (completar)
-**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 4-6h
+## 8. ✅ F17 — Arquitectura
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 4-6h **COMPLETADO**
 
-- [ ] Plazas: áreas despejadas rodeadas de estructuras
-- [ ] Puentes sobre agua entre caminos
-- [ ] Murallas/perímetros defensivos alrededor de núcleos
-- [ ] Variedad arquitectónica por bioma (estilo, material, color mejorado)
-- [ ] Dungeons subterráneos debajo de estructuras grandes (requiere F7)
+- [x] Plazas: áreas despejadas rodeadas de estructuras
+- [x] Puentes sobre agua entre caminos
+- [x] Murallas/perímetros defensivos alrededor de núcleos
+- [x] Variedad arquitectónica por bioma (estilo, material, color)
+- [x] Dungeons subterráneos debajo de estructuras grandes (Plaza, Pyramid, Tower, Dome)
 
-**Archivos:** `structures.rs` (reforma mayor), `terrain.rs`, `three_bridge.js`, nuevo `engine/architecture.rs`
-
----
-
-## 10. F18 — Realidad Virtual (WebXR)
-**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F3 | **Tamaño:** 10-15h
-
-- [ ] Sesión WebXR inmersiva con `THREE.WebXRManager`
-- [ ] Movimiento por teleportación + joystick
-- [ ] Interacción con manos (recoger, construir, saludar)
-- [ ] UI flotante adaptada a VR
-- [ ] Optimización 72fps
-
-**Archivos:** `three_bridge.js` (reforma mayor), `controls.rs`, `camera.rs`, `app.rs`, `index.html`
+**Archivos:** `structures.rs`, `chunk.rs`
 
 ---
 
-## 11. F19 — Modding API
-**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F20 | **Tamaño:** 8-10h
+## 9. ✅ F19 — Modding API
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 8-10h **COMPLETADO**
 
-- [ ] Definiciones de biomas en TOML/JSON (cargar desde URL o archivo)
-- [ ] Plugins de fórmulas matemáticas (eval en runtime vía expresión)
-- [ ] Blueprints de estructuras en formato declarativo
-- [ ] Paletas de color personalizadas (JSON)
-- [ ] Compartir mods via URL: `?mod=https://.../biome.toml`
+- [x] Definiciones de biomas en JSON (cargar desde URL vía `?mod=`)
+- [x] Plugins de fórmulas matemáticas (eval en runtime vía expresión: sin, cos, sqrt, clamp, etc.)
+- [x] Blueprints de estructuras en formato declarativo (bloques con posición, tamaño, color)
+- [x] Paletas de color personalizadas (JSON, sobreescriben colores de bloques por nombre)
+- [x] Compartir mods via URL: `?mod=https://.../biome.json`
+- [x] Biome `Custom(u32)` para biomas completamente nuevos (con altura, vegetación, estructuras)
+- [x] Overrides para biomas existentes (colores, densidad vegetación/estructuras, gradientes)
 
-**Archivos:** nuevo `modding/`, `engine/mod.rs`, `app.rs`, `three_bridge.js`, `Cargo.toml`
+**Archivos:** nuevo `engine/modding/mod.rs`, `engine/modding/formula.rs`, `engine/modding/biome.rs`, `engine/modding/blueprint.rs`, `engine/terrain.rs`, `engine/structures.rs`, `engine/vegetation.rs`, `engine/mod.rs`, `app.rs`, `audio.rs`, `particles.rs`, `Cargo.toml`
 
 ---
 
-## 12. F20 — Optimización & Pulido
-**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** Todas | **Tamaño:** continuo
+## 10. ✅ F20 — Optimización & Pulido
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** Todas | **Tamaño:** continuo **COMPLETADO**
 
-- [ ] LOD: chunks lejanos con menos vértices
-- [ ] Frustum culling (GPU: no enviar chunks fuera de la vista)
-- [ ] Web Workers: generación de chunks en worker separado
-- [ ] PWA: manifest.json, service worker, instalable
-- [ ] Responsive: UI adaptada a móvil
-- [ ] i18n: ES/EN/FR/DE/JA en JSON de traducciones
-- [ ] URL Sharing: `?seed=12345&formula=Voronoi`
-- [ ] Accesibilidad: contraste, foco, lector de pantalla
+- [x] LOD: chunks lejanos con menos vértices (3 niveles, sample step 1/2/4)
+- [x] LOD: render_distance aumentado de 2→4 (9×9 chunks) con LOD progresivo
+- [x] Frustum culling (GPU: no enviar chunks fuera de la vista) — habilitado + bounding spheres
+- [ ] Web Workers: generación de chunks en worker separado (→ F19)
+- [x] PWA: manifest.json + icon.svg + favicon + service worker
+- [x] Responsive: UI adaptada a móvil (botones más pequeños en <sm, columnas ocultas)
+- [x] i18n: ES/EN/FR/DE/JA en JSON de traducciones + módulo de carga
+- [x] URL Sharing: `?seed=&zone=&scale=&amplitude=&water=&octaves=&canyons=&mutation=&speed=&fly=&hue=&saturation=&char=&particles=`
+- [x] Accesibilidad: aria-labels en botones, focus ring, role="application" en canvas
 
 **Archivos:** múltiples
+
+---
+
+## 11. 🚀 F19 — Web Workers & Optimización Profunda
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 8-12h
+
+- [ ] Worker dedicado para generación de chunks (WASM en worker)
+- [ ] Cola de prioridad: chunks cercanos primero
+- [ ] Streaming: chunks generados en segundo plano
+- [ ] Profiling: panel FPS/draw calls/memoria en HUD
+
+---
+
+## 12. 🚀 F20 — Mejoras Mobile
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** 4-6h
+
+- [ ] Joystick táctil redimensionable
+- [ ] Gestos: tap para interactuar, swipe para cámara
+- [ ] HUD adaptado al pulgar
+- [ ] Fullscreen automático en móvil
+- [ ] Degradado automático de calidad en móvil
+
+---
+
+## 13. 🚀 F21 — Sistema de Bosses
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F7, F9 | **Tamaño:** 6-10h
+
+- [ ] 3 bosses: Golem de piedra, Kraken de lava, Guardián de cristal
+- [ ] Salas de boss en dungeons
+- [ ] IA con fases de ataque y patrones
+- [ ] Barra de vida en HUD
+- [ ] Botín exclusivo
+
+---
+
+## 14. 🚀 F22 — Misiones y Narrativa Procedural
+**Impacto:** ⭐⭐⭐⭐⭐ | **Depende de:** F15, F21 | **Tamaño:** 8-12h
+
+- [ ] Sistema de misiones procedurales
+- [ ] NPCs con diálogo en estructuras
+- [ ] Marcadores en mapa
+- [ ] Recompensas: paletas, cosméticos, zonas secretas
+- [ ] Secuencia de historia de 5 misiones por mundo
 
 ---
 
@@ -192,12 +211,14 @@ Priorizado por impacto/dependencias. Cada fase lista archivos a modificar y tare
 | **1** | ✅ F5 Persistencia | Hecho | IndexedDB auto-save |
 | **2** | ✅ F7 Voxel 3D | Hecho | 32 capas, cuevas, dungeons |
 | **3** | ✅ F8 Ecosistemas | Hecho | Estaciones, crecimiento, frutos, clima |
-| **4** | F9 Criaturas IA | 4-6h | Pathfinding A*, alimentar/domar, seguir |
-| **5** | F10 Audio 3D | 5-8h | PannerNode, eco, música dinámica |
-| **6** | F13 Hidrología | 4-6h | Cascadas, foam, flora acuática, oleaje |
-| **7** | F11 Portales | 3-5h | Shader distorsión, fade, hub |
-| **8** | F15 Social | 5-8h | Chat burbujas, comandos, co-op |
-| **9** | F17 Arq. | 4-6h | Plazas, puentes, variedad por bioma |
-| **10** | F18 VR | 10-15h | WebXR, manos, 72fps |
-| **11** | F19 Modding | 8-10h | Biomas TOML, plugins, blueprints |
-| **12** | F20 Optimizar | continuo | LOD, workers, PWA, i18n |
+| **1** | ✅ F9 Criaturas IA | Hecho | Animaciones, rescate, montura |
+| **2** | ✅ F10 Audio 3D | Hecho | PannerNode, reverb, música dinámica |
+| **3** | ✅ F13 Hidrología | Hecho | Ríos, burbujas, sonido cascadas |
+| **4** | ✅ F11 Portales | Hecho | Shader distorsión, fade, hub, partículas |
+| **5** | ✅ F17 Arq. | Hecho | Plazas, puentes, murallas, dungeons |
+| **6** | ✅ F19 Modding | Hecho | Biomas JSON, fórmulas, blueprints, paletas |
+| **7** | ✅ F20 Optimizar | Hecho | LOD, frustum, PWA, i18n, responsive |
+| **8** | 🚀 F19 Web Workers | 8-12h | Rendimiento: chunks en worker |
+| **9** | 🚀 F20 Mobile | 4-6h | Experiencia táctil pulida |
+| **10** | 🚀 F21 Bosses | 6-10h | Jefes en mazmorras |
+| **11** | 🚀 F22 Misiones | 8-12h | Narrativa procedural |

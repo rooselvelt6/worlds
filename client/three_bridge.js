@@ -8,8 +8,169 @@ let camera = null;
 let renderer = null;
 let composer = null;
 const meshes = new Map();
+let textureAtlas = null;
+
+function generateTextureAtlas() {
+    const cols = 6, rows = 4, tileSize = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = cols * tileSize;
+    canvas.height = rows * tileSize;
+    const ctx = canvas.getContext('2d');
+
+    function tile(u, v) { return { x: u * tileSize, y: v * tileSize, w: tileSize, h: tileSize }; }
+
+    function fillRect(t, r, g, b) {
+        ctx.fillStyle = `rgb(${r*255|0},${g*255|0},${b*255|0})`;
+        ctx.fillRect(t.x, t.y, t.w, t.h);
+    }
+
+    function hash2(x, y) {
+        return (Math.sin(x*127.1 + y*311.7)*43758.5453) & 0xffff;
+    }
+
+    function fbm(x, y, octaves) {
+        let v = 0, a = 1, t = 0;
+        for (let i = 0; i < octaves; i++) {
+            const h = (Math.sin(x*12.9898 + y*78.233)*43758.5453);
+            v += (h - Math.floor(h)) * a;
+            t += a; x *= 2.1; y *= 2.1; a *= 0.5;
+        }
+        return v / t;
+    }
+
+    function addNoiseDetail(t, r, g, b, strength) {
+        const img = ctx.getImageData(t.x, t.y, t.w, t.h);
+        for (let y = 0; y < t.h; y++) {
+            for (let x = 0; x < t.w; x++) {
+                const i = (y * t.w + x) * 4;
+                const nx = (t.x + x) * 0.05, ny = (t.y + y) * 0.05;
+                const n = fbm(nx, ny, 4) * 2 - 1;
+                img.data[i] = Math.max(0, Math.min(255, img.data[i] + n * strength * 255));
+                img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n * strength * 255));
+                img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + n * strength * 255));
+            }
+        }
+        ctx.putImageData(img, t.x, t.y);
+    }
+
+    function addDetailNoise(t, strength) {
+        const img = ctx.getImageData(t.x, t.y, t.w, t.h);
+        for (let y = 0; y < t.h; y++) {
+            for (let x = 0; x < t.w; x++) {
+                const i = (y * t.w + x) * 4;
+                const n = (Math.sin((t.x+x)*(t.y+y)*0.001 + 1.0)*43758.5453 -
+                           Math.floor(Math.sin((t.x+x)*(t.y+y)*0.001 + 1.0)*43758.5453)) * 2 - 1;
+                img.data[i] = Math.max(0, Math.min(255, img.data[i] + n * strength * 255));
+                img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + n * strength * 255));
+                img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + n * strength * 255));
+            }
+        }
+        ctx.putImageData(img, t.x, t.y);
+    }
+
+    function addStripes(t, r, g, b, dx, dy, spacing, width) {
+        const img = ctx.getImageData(t.x, t.y, t.w, t.h);
+        for (let y = 0; y < t.h; y++) {
+            for (let x = 0; x < t.w; x++) {
+                const v = (x*dx + y*dy) % spacing;
+                if (v < spacing * width) {
+                    const i = (y * t.w + x) * 4;
+                    const f = 1 - v / (spacing * width);
+                    img.data[i] = Math.max(0, Math.min(255, img.data[i] + r * f * 80));
+                    img.data[i+1] = Math.max(0, Math.min(255, img.data[i+1] + g * f * 80));
+                    img.data[i+2] = Math.max(0, Math.min(255, img.data[i+2] + b * f * 80));
+                }
+            }
+        }
+        ctx.putImageData(img, t.x, t.y);
+    }
+
+    // Tile 0: Grass - green with fine detail
+    let t = tile(0,0); fillRect(t, 0.22, 0.5, 0.12); addNoiseDetail(t, 0.1, 0.3, 0.05, 0.2); addDetailNoise(t, 0.05);
+    // Tile 1: Dirt
+    t = tile(1,0); fillRect(t, 0.42, 0.28, 0.13); addNoiseDetail(t, 0, 0, 0, 0.15); addDetailNoise(t, 0.08);
+    // Tile 2: Stone - gray with cracks
+    t = tile(2,0); fillRect(t, 0.48, 0.45, 0.42); addNoiseDetail(t, 0, 0, 0, 0.1); addStripes(t, 0.6, 0.58, 0.55, 1, 2, 10, 0.25); addDetailNoise(t, 0.04);
+    // Tile 3: Sand
+    t = tile(3,0); fillRect(t, 0.75, 0.68, 0.42); addNoiseDetail(t, 0, 0, 0, 0.08); addDetailNoise(t, 0.12);
+    // Tile 4: Snow
+    t = tile(4,0); fillRect(t, 0.88, 0.9, 0.93); addNoiseDetail(t, 0, 0, 0, 0.05); addDetailNoise(t, 0.03);
+    // Tile 5: Gravel
+    t = tile(5,0); fillRect(t, 0.48, 0.43, 0.38); addNoiseDetail(t, 0, 0, 0, 0.2); addDetailNoise(t, 0.15);
+    // Tile 6: Clay
+    t = tile(0,1); fillRect(t, 0.52, 0.48, 0.4); addNoiseDetail(t, 0, 0, 0, 0.08); addDetailNoise(t, 0.06);
+    // Tile 7: Coal Ore
+    t = tile(1,1); fillRect(t, 0.25, 0.25, 0.25); addNoiseDetail(t, 0, 0, 0, 0.15); addDetailNoise(t, 0.18);
+    // Tile 8: Iron Ore
+    t = tile(2,1); fillRect(t, 0.55, 0.5, 0.45); addNoiseDetail(t, 0, 0, 0, 0.1); addStripes(t, 0.8, 0.6, 0.4, 3, 1, 7, 0.3); addDetailNoise(t, 0.05);
+    // Tile 9: Gold Ore
+    t = tile(3,1); fillRect(t, 0.65, 0.55, 0.3); addNoiseDetail(t, 0, 0, 0, 0.08); addStripes(t, 1.0, 0.8, 0.2, 2, 3, 6, 0.25); addDetailNoise(t, 0.04);
+    // Tile 10: Diamond Ore
+    t = tile(4,1); fillRect(t, 0.35, 0.55, 0.65); addNoiseDetail(t, 0.1, 0, 0, 0.08); addStripes(t, 0.6, 0.9, 1.0, 1, 1, 5, 0.3); addDetailNoise(t, 0.04);
+    // Tile 11: Lava
+    t = tile(5,1); fillRect(t, 0.75, 0.18, 0.04); addNoiseDetail(t, 0.2, 0, 0, 0.15); addDetailNoise(t, 0.1);
+    // Tile 12: Packed Ice
+    t = tile(0,2); fillRect(t, 0.5, 0.6, 0.78); addNoiseDetail(t, 0, 0, 0, 0.05); addDetailNoise(t, 0.03);
+    // Tile 13: Obsidian
+    t = tile(1,2); fillRect(t, 0.06, 0.05, 0.1); addNoiseDetail(t, 0, 0, 0, 0.12); addDetailNoise(t, 0.08);
+    // Tile 14: Moss
+    t = tile(2,2); fillRect(t, 0.22, 0.38, 0.18); addNoiseDetail(t, 0.1, 0.2, 0.05, 0.15); addDetailNoise(t, 0.08);
+    // Tile 15: Glow Shroom
+    t = tile(3,2); fillRect(t, 0.35, 0.55, 0.22); addNoiseDetail(t, 0.2, 0.3, 0.1, 0.12); addStripes(t, 0.6, 0.9, 0.4, 1, 2, 6, 0.2); addDetailNoise(t, 0.05);
+    // Tile 16: Magma
+    t = tile(4,2); fillRect(t, 0.55, 0.12, 0.04); addNoiseDetail(t, 0.3, 0, 0, 0.15); addDetailNoise(t, 0.1);
+    // Tile 17: Soul Sand
+    t = tile(5,2); fillRect(t, 0.22, 0.18, 0.13); addNoiseDetail(t, 0, 0, 0, 0.1); addDetailNoise(t, 0.12);
+    // Tile 18: Basalt
+    t = tile(0,3); fillRect(t, 0.15, 0.15, 0.18); addNoiseDetail(t, 0, 0, 0, 0.08); addStripes(t, 0.25, 0.25, 0.28, 1, 1, 4, 0.2); addDetailNoise(t, 0.05);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    textureAtlas = tex;
+
+    // Normal map from height
+    const nCanvas = document.createElement('canvas');
+    nCanvas.width = canvas.width;
+    nCanvas.height = canvas.height;
+    const nCtx = nCanvas.getContext('2d');
+    nCtx.drawImage(canvas, 0, 0);
+    const srcData = nCtx.getImageData(0, 0, nCanvas.width, nCanvas.height);
+    const nData = new Uint8Array(nCanvas.width * nCanvas.height * 4);
+    for (let y = 1; y < nCanvas.height-1; y++) {
+        for (let x = 1; x < nCanvas.width-1; x++) {
+            const i = (y*nCanvas.width + x)*4;
+            const l = (y*nCanvas.width + (x-1))*4;
+            const r = (y*nCanvas.width + (x+1))*4;
+            const d = ((y+1)*nCanvas.width + x)*4;
+            const u = ((y-1)*nCanvas.width + x)*4;
+            const hl = srcData.data[l]*0.3 + srcData.data[l+1]*0.59 + srcData.data[l+2]*0.11;
+            const hr = srcData.data[r]*0.3 + srcData.data[r+1]*0.59 + srcData.data[r+2]*0.11;
+            const hd = srcData.data[d]*0.3 + srcData.data[d+1]*0.59 + srcData.data[d+2]*0.11;
+            const hu = srcData.data[u]*0.3 + srcData.data[u+1]*0.59 + srcData.data[u+2]*0.11;
+            const dx2 = (hl - hr) / 255;
+            const dy2 = (hd - hu) / 255;
+            nData[i] = Math.round((dx2*0.5+0.5)*255);
+            nData[i+1] = Math.round((dy2*0.5+0.5)*255);
+            nData[i+2] = 255;
+            nData[i+3] = 255;
+        }
+    }
+    const nTex = new THREE.DataTexture(nData, nCanvas.width, nCanvas.height, THREE.RGBAFormat);
+    nTex.wrapS = nTex.wrapT = THREE.ClampToEdgeWrapping;
+    nTex.magFilter = THREE.LinearFilter;
+    nTex.minFilter = THREE.LinearMipmapLinearFilter;
+    nTex.generateMipmaps = true;
+    nTex.needsUpdate = true;
+    textureAtlas.userData = textureAtlas.userData || {};
+    textureAtlas.userData.normalMap = nTex;
+}
 
 window.threeBridgeInit = function (canvas) {
+    if (!textureAtlas) generateTextureAtlas();
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
 
@@ -41,28 +202,67 @@ window.threeBridgeInit = function (canvas) {
         camera.updateProjectionMatrix();
     }).observe(canvas);
 
-    const ambient = new THREE.AmbientLight(0x404060, 1.0);
+    const ambient = new THREE.AmbientLight(0x404060, 0.6);
     scene.add(ambient);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+    const hemi = new THREE.HemisphereLight(0x87ceeb, 0x3a2a1a, 0.8);
+    scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight(0xffeedd, 2.5);
     sun.position.set(50, 80, 50);
     sun.castShadow = true;
-    sun.shadow.mapSize.width = 1024;
-    sun.shadow.mapSize.height = 1024;
-    sun.shadow.camera.left = -60;
-    sun.shadow.camera.right = 60;
-    sun.shadow.camera.top = 60;
-    sun.shadow.camera.bottom = -60;
+    sun.shadow.mapSize.width = 2048;
+    sun.shadow.mapSize.height = 2048;
+    sun.shadow.camera.left = -80;
+    sun.shadow.camera.right = 80;
+    sun.shadow.camera.top = 80;
+    sun.shadow.camera.bottom = -80;
     sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 200;
+    sun.shadow.camera.far = 250;
+    sun.shadow.bias = -0.001;
     scene.add(sun);
 
-    const fill = new THREE.DirectionalLight(0x4488ff, 0.5);
+    const fill = new THREE.DirectionalLight(0x4488ff, 0.4);
     fill.position.set(-30, 10, -30);
     scene.add(fill);
 };
 
-window.threeBridgeUploadMesh = function (key, positions, normals, indices, colors) {
+window.threeBridgeUploadMesh = function (key, positions, normals, indices, colors, uvs) {
+    if (meshes.has(key)) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setIndex(new THREE.BufferAttribute(indices, 1));
+    if (colors && colors.length > 0) {
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    }
+    if (uvs && uvs.length > 0) {
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    }
+    geo.computeBoundingSphere();
+    const hasUVs = uvs && uvs.length > 0;
+    const hasColors = colors && colors.length > 0;
+    const isTerrain = key.startsWith('chunk_');
+    const mat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: hasColors,
+        map: hasUVs ? textureAtlas : undefined,
+        normalMap: hasUVs && textureAtlas && textureAtlas.userData ? textureAtlas.userData.normalMap : undefined,
+        roughness: isTerrain ? 0.8 : 0.6,
+        metalness: isTerrain ? 0.05 : 0.0,
+        envMapIntensity: 0.3,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    meshes.set(key, mesh);
+};
+
+// ── Portal Shared ──
+const portalTime = { value: 0 };
+
+window.threeBridgeUploadPortalMesh = function (key, positions, normals, indices, colors, targetSeed, radius) {
     if (meshes.has(key)) return;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -71,17 +271,84 @@ window.threeBridgeUploadMesh = function (key, positions, normals, indices, color
     if (colors) {
         geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     }
-    const mat = new THREE.MeshStandardMaterial({
-        color: colors ? 0xffffff : 0xff3333,
-        vertexColors: !!colors,
-        roughness: 0.6,
-        metalness: 0.0,
+    const hue = ((targetSeed % 200) / 200) * 0.8;
+    const c1 = new THREE.Color().setHSL(hue, 0.8, 0.5);
+    const c2 = new THREE.Color().setHSL((hue + 0.5) % 1.0, 1.0, 0.7);
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            uTime: portalTime,
+            uColor1: { value: c1 },
+            uColor2: { value: c2 },
+        },
+        vertexShader: `
+            uniform float uTime;
+            varying vec3 vPos;
+            void main() {
+                vec3 p = position;
+                float pulse = sin(length(p.xz) * 3.0 - uTime * 2.0) * 0.04;
+                p.y += pulse;
+                vPos = p;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 uColor1;
+            uniform vec3 uColor2;
+            uniform float uTime;
+            varying vec3 vPos;
+            void main() {
+                float t = sin(vPos.x * 5.0 + vPos.z * 5.0 + uTime * 2.5) * 0.5 + 0.5;
+                vec3 col = mix(uColor1, uColor2, t);
+                float glow = 0.6 + 0.4 * sin(uTime * 2.0 + length(vPos.xz) * 6.0);
+                col *= glow;
+                gl_FragColor = vec4(col, 1.0);
+            }
+        `,
+        side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.renderOrder = 2;
     scene.add(mesh);
     meshes.set(key, mesh);
+
+    // Floating particles around portal
+    const pCount = 30;
+    const pGeo = new THREE.BufferGeometry();
+    const pPos = new Float32Array(pCount * 3);
+    const r = radius * 0.8;
+    for (let i = 0; i < pCount; i++) {
+        const theta = (i / pCount) * Math.PI * 2 + Math.random() * 0.3;
+        const pr = r * (0.5 + Math.random() * 0.5);
+        pPos[i * 3] = Math.cos(theta) * pr;
+        pPos[i * 3 + 1] = (Math.random() - 0.5) * 0.8;
+        pPos[i * 3 + 2] = Math.sin(theta) * pr;
+    }
+    pGeo.setAttribute('position', new THREE.Float32BufferAttribute(pPos, 3));
+    const pMat = new THREE.PointsMaterial({
+        color: new THREE.Color().setHSL(hue, 1.0, 0.7),
+        size: 0.08,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        sizeAttenuation: true,
+    });
+    const particles = new THREE.Points(pGeo, pMat);
+    particles.userData.isPortalParticles = true;
+    scene.add(particles);
+    meshes.set(key + "_p", particles);
+};
+
+// ── Fade overlay ──
+let fadeOverlay = null;
+window.threeBridgeSetFade = function (amount) {
+    const val = Math.max(0, Math.min(1, amount));
+    if (!fadeOverlay) {
+        fadeOverlay = document.createElement('div');
+        fadeOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;pointer-events:none;background:#000;opacity:0';
+        document.body.appendChild(fadeOverlay);
+    }
+    fadeOverlay.style.opacity = val;
 };
 
 window.threeBridgeSetMeshFrustumCulled = function (key, value) {
@@ -110,12 +377,32 @@ window.threeBridgeUpdateMeshPositions = function (key, positions) {
     mesh.geometry.computeVertexNormals();
 };
 
+function disposeObject(obj) {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+        else obj.material.dispose();
+    }
+    if (obj.children) {
+        for (let i = obj.children.length - 1; i >= 0; i--) {
+            disposeObject(obj.children[i]);
+        }
+    }
+}
+
 window.threeBridgeRemoveMesh = function (key) {
-    const mesh = meshes.get(key);
-    if (!mesh) return;
-    scene.remove(mesh);
-    mesh.geometry.dispose();
-    mesh.material.dispose();
+    // Also remove associated particles
+    const pKey = key + "_p";
+    const pMesh = meshes.get(pKey);
+    if (pMesh) {
+        scene.remove(pMesh);
+        disposeObject(pMesh);
+        meshes.delete(pKey);
+    }
+    const obj = meshes.get(key);
+    if (!obj) return;
+    scene.remove(obj);
+    disposeObject(obj);
     meshes.delete(key);
 };
 
@@ -172,10 +459,14 @@ window.threeBridgeUploadWaterMesh = function (key, positions, normals, indices) 
     const mat = new THREE.MeshPhysicalMaterial({
         color: 0x0077aa,
         transparent: true,
-        opacity: 0.35,
-        roughness: 0.2,
-        metalness: 0.1,
+        opacity: 0.3,
+        roughness: 0.15,
+        metalness: 0.3,
+        envMapIntensity: 0.5,
+        clearcoat: 0.1,
+        clearcoatRoughness: 0.3,
         side: THREE.DoubleSide,
+        depthWrite: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = 1;
@@ -265,8 +556,31 @@ window.threeBridgeSetMeshOpacity = function (key, opacity) {
     }
 };
 
+let lastFrameTime = 0;
 window.threeBridgeRenderFrame = function () {
     if (!composer || !scene || !camera) return;
+    const now = performance.now();
+    const dt = lastFrameTime ? (now - lastFrameTime) / 1000 : 0.016;
+    lastFrameTime = now;
+    portalTime.value += dt;
+
+    // Animate portal particles
+    for (const [key, obj] of meshes) {
+        if (obj.userData && obj.userData.isPortalParticles) {
+            const pos = obj.geometry.attributes.position.array;
+            for (let i = 0; i < pos.length / 3; i++) {
+                const i3 = i * 3;
+                const angle = dt * 0.6;
+                const x = pos[i3];
+                const z = pos[i3 + 2];
+                pos[i3] = x * Math.cos(angle) - z * Math.sin(angle);
+                pos[i3 + 2] = x * Math.sin(angle) + z * Math.cos(angle);
+                pos[i3 + 1] += Math.sin(now * 0.002 + i * 1.7) * dt * 0.15;
+            }
+            obj.geometry.attributes.position.needsUpdate = true;
+        }
+    }
+
     composer.render();
 };
 

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use crate::engine::terrain;
-use crate::engine::terrain::{Zone, BLK_AIR};
+use crate::engine::terrain::{Zone, BLK_AIR, BLK_DIRT, BLK_SNOW, BLK_STONE};
+use crate::engine::structures;
 use crate::math::{hsl_to_rgb, rgb_to_hsl};
 use crate::state::WorldParams;
 
@@ -10,6 +11,9 @@ const BLOCK_SIZE: f64 = CHUNK_SIZE / BLOCK_RES as f64;
 const BLOCK_HALF: f32 = (BLOCK_SIZE * 0.5) as f32;
 const UNDERGROUND_LAYERS: i32 = 32;
 
+pub const ATLAS_COLS: u32 = 6;
+pub const ATLAS_ROWS: u32 = 4;
+
 #[derive(Clone)]
 pub struct ChunkData {
     pub cx: i32,
@@ -17,7 +21,60 @@ pub struct ChunkData {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
     pub colors: Vec<f32>,
+    pub uvs: Vec<f32>,
     pub indices: Vec<u32>,
+    pub block_types: Vec<u8>,
+}
+
+pub fn block_atlas_tile(block_type: u8) -> u32 {
+    match block_type {
+        terrain::BLK_GRASS => 0,
+        terrain::BLK_DIRT => 1,
+        terrain::BLK_STONE => 2,
+        terrain::BLK_SAND => 3,
+        terrain::BLK_SNOW => 4,
+        terrain::BLK_GRAVEL => 5,
+        terrain::BLK_CLAY => 6,
+        terrain::BLK_COAL_ORE => 7,
+        terrain::BLK_IRON_ORE => 8,
+        terrain::BLK_GOLD_ORE => 9,
+        terrain::BLK_DIAMOND_ORE => 10,
+        terrain::BLK_LAVA => 11,
+        terrain::BLK_PACKED_ICE => 12,
+        terrain::BLK_OBSIDIAN => 13,
+        terrain::BLK_MOSS => 14,
+        terrain::BLK_GLOW_SHROOM => 15,
+        terrain::BLK_MAGMA_BLOCK => 16,
+        terrain::BLK_SOUL_SAND => 17,
+        terrain::BLK_BASALT => 18,
+        _ => 0,
+    }
+}
+
+fn tile_uv(tile: u32) -> (f32, f32, f32, f32) {
+    let cols = ATLAS_COLS as f32;
+    let rows = ATLAS_ROWS as f32;
+    let tx = (tile % ATLAS_COLS) as f32;
+    let ty = (tile / ATLAS_COLS) as f32;
+    (tx / cols, ty / rows, (tx + 1.0) / cols, (ty + 1.0) / rows)
+}
+
+fn height_bilerp(heights: &[f64], n: usize, fx: f64, fz: f64) -> f64 {
+    let ix = fx.floor() as i32;
+    let iz = fz.floor() as i32;
+    let tx = (fx - ix as f64).clamp(0.0, 1.0);
+    let tz = (fz - iz as f64).clamp(0.0, 1.0);
+    let ix0 = ix.max(0).min(n as i32 - 1) as usize;
+    let ix1 = (ix + 1).max(0).min(n as i32 - 1) as usize;
+    let iz0 = iz.max(0).min(n as i32 - 1) as usize;
+    let iz1 = (iz + 1).max(0).min(n as i32 - 1) as usize;
+    let h00 = heights[iz0 * n + ix0];
+    let h10 = heights[iz0 * n + ix1];
+    let h01 = heights[iz1 * n + ix0];
+    let h11 = heights[iz1 * n + ix1];
+    let h0 = h00 * (1.0 - tx) + h10 * tx;
+    let h1 = h01 * (1.0 - tx) + h11 * tx;
+    h0 * (1.0 - tz) + h1 * tz
 }
 
 impl ChunkData {
@@ -62,25 +119,38 @@ fn get_height_map(params: &WorldParams, cx: i32, cz: i32) -> Vec<f64> {
 
 
 fn push_face(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>, uvs: &mut Vec<f32>,
     v: [[f32; 3]; 4], nx: f32, ny: f32, nz: f32,
     r: f32, g: f32, b: f32,
+    uv_rect: (f32, f32, f32, f32),
 ) {
     let nv = (pos.len() / 3) as u32;
-    for &vert in &v {
+    let (u0, v0, u1, v1) = uv_rect;
+    let uv_verts = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    for (i, &vert) in v.iter().enumerate() {
         pos.push(vert[0]); pos.push(vert[1]); pos.push(vert[2]);
         norms.push(nx); norms.push(ny); norms.push(nz);
         cols.push(r); cols.push(g); cols.push(b);
+        uvs.push(uv_verts[i][0]); uvs.push(uv_verts[i][1]);
     }
     idx.push(nv); idx.push(nv + 1); idx.push(nv + 2);
     idx.push(nv); idx.push(nv + 2); idx.push(nv + 3);
 }
 
 fn emit_face(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
-    wx: f32, wy: f32, wz: f32, dir: u8, r: f32, g: f32, b: f32,
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>, uvs: &mut Vec<f32>,
+    wx: f32, wy: f32, wz: f32, dir: u8, r: f32, g: f32, b: f32, block_type: u8,
+    heights: Option<&[f64]>, n: usize,
 ) {
     let hs = BLOCK_HALF;
+    let tile = block_atlas_tile(block_type);
+    let uv_rect = if dir == 2 && block_type == terrain::BLK_GRASS {
+        tile_uv(0)
+    } else if dir == 3 {
+        tile_uv(block_atlas_tile(terrain::BLK_DIRT))
+    } else {
+        tile_uv(tile)
+    };
     let verts = match dir {
         // +X
         0 => [[wx + hs, wy - hs, wz - hs], [wx + hs, wy + hs, wz - hs],
@@ -88,9 +158,26 @@ fn emit_face(
         // -X
         1 => [[wx - hs, wy - hs, wz + hs], [wx - hs, wy + hs, wz + hs],
               [wx - hs, wy + hs, wz - hs], [wx - hs, wy - hs, wz - hs]],
-        // +Y (top)
-        2 => [[wx - hs, wy + hs, wz - hs], [wx + hs, wy + hs, wz - hs],
-              [wx + hs, wy + hs, wz + hs], [wx - hs, wy + hs, wz + hs]],
+        // +Y (top) — smooth surface
+        2 => {
+            if let Some(h) = heights {
+                let nf = n as f64;
+                let fx = (wx as f64 / BLOCK_SIZE).fract().abs() * nf;
+                let fz = (wz as f64 / BLOCK_SIZE).fract().abs() * nf;
+                let h00 = height_bilerp(h, n, fx - 0.5, fz - 0.5) as f32;
+                let h10 = height_bilerp(h, n, fx + 0.5, fz - 0.5) as f32;
+                let h11 = height_bilerp(h, n, fx + 0.5, fz + 0.5) as f32;
+                let h01 = height_bilerp(h, n, fx - 0.5, fz + 0.5) as f32;
+                let top = wy + hs;
+                [[wx - hs, top + (h00 - top).clamp(-hs, hs), wz - hs],
+                 [wx + hs, top + (h10 - top).clamp(-hs, hs), wz - hs],
+                 [wx + hs, top + (h11 - top).clamp(-hs, hs), wz + hs],
+                 [wx - hs, top + (h01 - top).clamp(-hs, hs), wz + hs]]
+            } else {
+                [[wx - hs, wy + hs, wz - hs], [wx + hs, wy + hs, wz - hs],
+                 [wx + hs, wy + hs, wz + hs], [wx - hs, wy + hs, wz + hs]]
+            }
+        },
         // -Y (bottom)
         3 => [[wx - hs, wy - hs, wz + hs], [wx + hs, wy - hs, wz + hs],
               [wx + hs, wy - hs, wz - hs], [wx - hs, wy - hs, wz - hs]],
@@ -111,7 +198,7 @@ fn emit_face(
         5 => (0.0, 0.0, -1.0),
         _ => (0.0, 0.0, 0.0),
     };
-    push_face(pos, norms, idx, cols, verts, norm.0, norm.1, norm.2, r, g, b);
+    push_face(pos, norms, idx, cols, uvs, verts, norm.0, norm.1, norm.2, r, g, b, uv_rect);
 }
 
 fn is_air(params: &WorldParams, wx: f64, wy: f64, wz: f64) -> bool {
@@ -292,6 +379,69 @@ fn apply_underground_features(
                     }
                 }
             }
+
+            // ── Structure dungeons: rooms below large structures (Plaza, Pyramid, Tower, Dome) ──
+            {
+                use structures::StructType;
+                let struct_data = structures::compute_chunk_structures(params, cx, cz);
+                for inst in &struct_data.instances {
+                    let is_large = matches!(inst.struct_type,
+                        StructType::Plaza | StructType::Pyramid |
+                        StructType::Tower | StructType::Dome
+                    );
+                    if !is_large { continue; }
+                    let sx = ((inst.x - ox as f32) / BLOCK_SIZE as f32) as isize;
+                    let sz = ((inst.z - oz as f32) / BLOCK_SIZE as f32) as isize;
+                    if sx < 0 || sx >= n as isize || sz < 0 || sz >= n as isize { continue; }
+                    let room_iy_floor = ((inst.y as f64) - 10.0 - wy_min) as usize;
+                    let room_iy_ceil = ((inst.y as f64) - 4.0 - wy_min) as usize;
+                    if room_iy_ceil >= grid_ny { continue; }
+                    let rs = 3_usize;
+                    let sx_min = (sx as usize).max(rs) - rs;
+                    let sx_max = (sx as usize + rs).min(n - 1);
+                    let sz_min = (sz as usize).max(rs) - rs;
+                    let sz_max = (sz as usize + rs).min(n - 1);
+                    for dz in sz_min..=sz_max {
+                        for dx in sx_min..=sx_max {
+                            let is_wall = dx == sx_min || dx == sx_max || dz == sz_min || dz == sz_max;
+                            for iy in room_iy_floor..=room_iy_ceil {
+                                if iy >= grid_ny { continue; }
+                                let idx2 = iy * n * n + dz * n + dx;
+                                let wy2 = wy_min + iy as f64 + BLOCK_SIZE * 0.5;
+                                if wy2 > surface_h - 0.5 { continue; }
+                                if is_wall || iy == room_iy_floor || iy == room_iy_ceil {
+                                    if blocks[idx2] == terrain::BLK_STONE || blocks[idx2] == terrain::BLK_DIRT {
+                                        let moss_seed = feature_hash(cx, cz, seed.wrapping_add(0x123), (iy * n * n + dz * n + dx) as u32);
+                                        blocks[idx2] = if moss_seed > 0.94 { terrain::BLK_MOSS } else { terrain::BLK_STONE };
+                                    }
+                                } else {
+                                    blocks[idx2] = terrain::BLK_AIR;
+                                    // Glow shrooms on walls
+                                    if is_wall {
+                                        let shroom_seed = feature_hash(cx, cz, seed.wrapping_add(0x456), (iy * n * n + dz * n + dx) as u32);
+                                        if shroom_seed > 0.97 {
+                                            blocks[idx2] = terrain::BLK_GLOW_SHROOM;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Treasure at center
+                    let cx_idx = room_iy_floor + 1;
+                    let cz_idx = sz_min + (sz_max - sz_min) / 2;
+                    let ci_idx = sx_min + (sx_max - sx_min) / 2;
+                    if cx_idx < grid_ny {
+                        let center_idx = cx_idx * n * n + cz_idx * n + ci_idx;
+                        let center_seed = feature_hash(cx, cz, seed ^ 0x789, (cx_idx * n * n + cz_idx * n + ci_idx) as u32);
+                        if center_idx < blocks.len() {
+                            blocks[center_idx] = if center_seed > 0.998 { terrain::BLK_DIAMOND_ORE }
+                                else if center_seed > 0.99 { terrain::BLK_GOLD_ORE }
+                                else { terrain::BLK_IRON_ORE };
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -419,9 +569,24 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
         apply_underground_features(p, cx, cz, &heights, &zones, &mut blocks, n, grid_ny, wy_min);
     }
 
+    // Find surface block index for each column (topmost non-air block)
+    let mut surface_iy = vec![0usize; n * n];
+    for iz in 0..n {
+        for ix in 0..n {
+            let col_offset = iz * n + ix;
+            for iy in (0..grid_ny).rev() {
+                if blocks[iy * n * n + col_offset] != BLK_AIR {
+                    surface_iy[col_offset] = iy;
+                    break;
+                }
+            }
+        }
+    }
+
     let mut positions = Vec::new();
     let mut normals = Vec::new();
     let mut colors = Vec::new();
+    let mut uvs = Vec::new();
     let mut indices = Vec::new();
 
     let sample_step = match lod {
@@ -430,7 +595,7 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
         _ => 4,
     };
 
-    // Second pass: mesh visible faces with face culling and LOD sampling
+    // Second pass: mesh visible block faces (sides + bottom only, top handled by surface mesh)
     let mut iz: usize = 0;
     while iz < n {
         let mut ix: usize = 0;
@@ -456,11 +621,9 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                     )
                 };
 
-                // Torch/emissive lighting
                 let light = if terrain::block_emits_light(blocks[idx]) {
                     1.0_f32
                 } else if sample_step > 1 {
-                    // Skip detailed lighting for LOD chunks
                     0.7_f32
                 } else if lod == 0 {
                     block_light_level(wx, wy, wz, surface_h, &blocks, n, grid_ny, wy_min, ox, oz, placed, cx, cz)
@@ -474,50 +637,51 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 let wx_f = wx as f32;
                 let wy_f = wy as f32;
                 let wz_f = wz as f32;
+                let bt = blocks[idx];
 
                 // +X
                 if ix + sample_step < n {
                     if blocks[iy * n * n + iz * n + (ix + sample_step)] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 0, rl, gl, bl);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 0, rl, gl, bl, bt, None, 0);
                     }
                 } else if is_air(p, wx + BLOCK_SIZE * sample_step as f64, wy, wz) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 0, rl, gl, bl);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 0, rl, gl, bl, bt, None, 0);
                 }
                 // -X
                 if ix >= sample_step {
                     if blocks[iy * n * n + iz * n + (ix - sample_step)] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 1, rl, gl, bl);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 1, rl, gl, bl, bt, None, 0);
                     }
                 } else if is_air(p, wx - BLOCK_SIZE * sample_step as f64, wy, wz) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 1, rl, gl, bl);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 1, rl, gl, bl, bt, None, 0);
                 }
-                // +Y (top)
-                if iy + sample_step < grid_ny {
+                // +Y (top) — only emit for underground blocks (not surface)
+                if iy != surface_iy[iz * n + ix] && iy + sample_step < grid_ny {
                     if blocks[(iy + sample_step) * n * n + iz * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 2, rl, gl, bl);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 2, rl, gl, bl, bt, None, 0);
                     }
                 }
                 // -Y (bottom)
                 if iy >= sample_step {
                     if blocks[(iy - sample_step) * n * n + iz * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 3, rl, gl, bl);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 3, rl, gl, bl, bt, None, 0);
                     }
                 }
                 // +Z
                 if iz + sample_step < n {
                     if blocks[iy * n * n + (iz + sample_step) * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 4, rl, gl, bl);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 4, rl, gl, bl, bt, None, 0);
                     }
                 } else if is_air(p, wx, wy, wz + BLOCK_SIZE * sample_step as f64) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 4, rl, gl, bl);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 4, rl, gl, bl, bt, None, 0);
                 }
                 // -Z
                 if iz >= sample_step {
                     if blocks[iy * n * n + (iz - sample_step) * n + ix] == 0 {
-                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 5, rl, gl, bl);
+                        emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 5, rl, gl, bl, bt, None, 0);
                     }
                 } else if is_air(p, wx, wy, wz - BLOCK_SIZE * sample_step as f64) {
-                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, wx_f, wy_f, wz_f, 5, rl, gl, bl);
+                    emit_face(&mut positions, &mut normals, &mut indices, &mut colors, &mut uvs, wx_f, wy_f, wz_f, 5, rl, gl, bl, bt, None, 0);
                 }
 
                 iy += sample_step;
@@ -527,5 +691,132 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
         iz += sample_step;
     }
 
-    ChunkData { cx, cz, positions, normals, colors, indices }
+    // Generate smooth terrain surface mesh from heightmap
+    {
+        let cn = n + 1;
+        let mut corner_heights = vec![0.0_f64; cn * cn];
+        for iz in 0..=n {
+            for ix in 0..=n {
+                let wx = ox + ix as f64 * step;
+                let wz = oz + iz as f64 * step;
+                let mut h = terrain::get_height(p, wx, wz);
+                terrain::zone_effects(p, wx, wz, &mut h);
+                corner_heights[iz * cn + ix] = h;
+            }
+        }
+
+        for iz in 0..n {
+            for ix in 0..n {
+                let col_offset = iz * n + ix;
+                let s_iy = surface_iy[col_offset];
+                let bt = blocks[s_iy * n * n + col_offset];
+
+                let wz_center = oz + iz as f64 * step + BLOCK_SIZE * 0.5;
+                let wx_center = ox + ix as f64 * step + BLOCK_SIZE * 0.5;
+                let zone = zones[col_offset];
+                let surface_h = heights[col_offset];
+
+                let h00 = corner_heights[iz * cn + ix] as f32;
+                let h10 = corner_heights[iz * cn + (ix + 1)] as f32;
+                let h01 = corner_heights[(iz + 1) * cn + ix] as f32;
+                let h11 = corner_heights[(iz + 1) * cn + (ix + 1)] as f32;
+
+                // Compute slope from corner heights (tan of inclination angle)
+                let dzdx = ((h10 - h00) + (h11 - h01)) / (2.0 * step as f32);
+                let dzdy = ((h01 - h00) + (h11 - h10)) / (2.0 * step as f32);
+                let slope = (dzdx * dzdx + dzdy * dzdy).sqrt();
+
+                // Select effective surface type based on slope, zone, and height
+                let effective_bt = if surface_h > max_h * 0.85 && !matches!(zone, Zone::Desert | Zone::Tundra) {
+                    BLK_SNOW
+                } else if slope > 0.6 {
+                    BLK_STONE
+                } else if slope > 0.3 && !matches!(zone, Zone::Desert | Zone::SandyPlain) {
+                    BLK_DIRT
+                } else {
+                    bt
+                };
+
+                let tile = block_atlas_tile(effective_bt);
+                let (u0, v0, u1, v1) = tile_uv(tile);
+
+                let c = terrain::block_color(effective_bt, p, wx_center, surface_h, wz_center, zone, surface_h, max_h);
+                let (r, g, b) = {
+                    let (h, s, l) = rgb_to_hsl(c[0], c[1], c[2]);
+                    hsl_to_rgb(
+                        (h + params.hue_shift as f32 / 360.0) % 1.0,
+                        (s * params.saturation as f32).clamp(0.0, 1.0),
+                        (l * params.lightness as f32).clamp(0.0, 1.0),
+                    )
+                };
+
+                let light = if terrain::block_emits_light(effective_bt) {
+                    1.0_f32
+                } else if lod == 0 {
+                    block_light_level(wx_center, surface_h, wz_center, surface_h, &blocks, n, grid_ny, wy_min, ox, oz, placed, cx, cz)
+                } else {
+                    0.7_f32
+                };
+                let rl = (r * light).clamp(0.0, 1.0);
+                let gl = (g * light).clamp(0.0, 1.0);
+                let bl = (b * light).clamp(0.0, 1.0);
+
+                let x0 = (ox + ix as f64 * step) as f32;
+                let z0 = (oz + iz as f64 * step) as f32;
+                let x1 = (ox + (ix + 1) as f64 * step) as f32;
+                let z1 = (oz + (iz + 1) as f64 * step) as f32;
+
+                let nv = (positions.len() / 3) as u32;
+
+                // Triangle 1: (0,0)-(1,1)-(1,0) — CCW from above
+                let p0 = [x0, h00, z0];
+                let p1 = [x1, h11, z1];
+                let p2 = [x1, h10, z0];
+                // Triangle 2: (0,0)-(0,1)-(1,1) — CCW from above
+                let p3 = [x0, h01, z1];
+
+                // Compute normal for tri1
+                let e1x = p1[0] - p0[0]; let e1y = p1[1] - p0[1]; let e1z = p1[2] - p0[2];
+                let e2x = p2[0] - p0[0]; let e2y = p2[1] - p0[1]; let e2z = p2[2] - p0[2];
+                let nx1 = e1y * e2z - e1z * e2y;
+                let ny1 = e1z * e2x - e1x * e2z;
+                let nz1 = e1x * e2y - e1y * e2x;
+                let len1 = (nx1 * nx1 + ny1 * ny1 + nz1 * nz1).sqrt().max(0.001);
+                let (nx1, ny1, nz1) = (nx1 / len1, ny1 / len1, nz1 / len1);
+
+                // Compute normal for tri2
+                let e3x = p3[0] - p0[0]; let e3y = p3[1] - p0[1]; let e3z = p3[2] - p0[2];
+                let e4x = p1[0] - p0[0]; let e4y = p1[1] - p0[1]; let e4z = p1[2] - p0[2];
+                let nx2 = e3y * e4z - e3z * e4y;
+                let ny2 = e3z * e4x - e3x * e4z;
+                let nz2 = e3x * e4y - e3y * e4x;
+                let len2 = (nx2 * nx2 + ny2 * ny2 + nz2 * nz2).sqrt().max(0.001);
+                let (nx2, ny2, nz2) = (nx2 / len2, ny2 / len2, nz2 / len2);
+
+                // Push tri1: p0, p1, p2
+                for &(v, n) in &[(p0, (nx1, ny1, nz1)), (p1, (nx1, ny1, nz1)), (p2, (nx1, ny1, nz1))] {
+                    positions.push(v[0]); positions.push(v[1]); positions.push(v[2]);
+                    normals.push(n.0); normals.push(n.1); normals.push(n.2);
+                    colors.push(rl); colors.push(gl); colors.push(bl);
+                }
+                uvs.push(u0); uvs.push(v0);
+                uvs.push(u1); uvs.push(v1);
+                uvs.push(u1); uvs.push(v0);
+                indices.push(nv); indices.push(nv + 1); indices.push(nv + 2);
+
+                // Push tri2: p0, p3, p1
+                for &(v, n) in &[(p0, (nx2, ny2, nz2)), (p3, (nx2, ny2, nz2)), (p1, (nx2, ny2, nz2))] {
+                    positions.push(v[0]); positions.push(v[1]); positions.push(v[2]);
+                    normals.push(n.0); normals.push(n.1); normals.push(n.2);
+                    colors.push(rl); colors.push(gl); colors.push(bl);
+                }
+                uvs.push(u0); uvs.push(v0);
+                uvs.push(u0); uvs.push(v1);
+                uvs.push(u1); uvs.push(v1);
+                indices.push(nv + 3); indices.push(nv + 4); indices.push(nv + 5);
+            }
+        }
+    }
+
+    ChunkData { cx, cz, positions, normals, colors, uvs, indices, block_types: vec![] }
 }

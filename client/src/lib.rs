@@ -1,5 +1,6 @@
 pub mod app;
 pub mod engine;
+pub mod i18n;
 pub mod math;
 pub mod state;
 
@@ -8,6 +9,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
+    i18n::init();
 
     #[cfg(feature = "parallel")]
     {

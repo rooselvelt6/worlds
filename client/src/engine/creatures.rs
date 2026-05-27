@@ -8,6 +8,11 @@ pub const STATE_FLEE: u8 = 2;
 pub const STATE_FOLLOW: u8 = 3;
 pub const STATE_EAT: u8 = 4;
 
+pub const ANIM_IDLE: u8 = 0;
+pub const ANIM_WALK: u8 = 1;
+pub const ANIM_RUN: u8 = 2;
+pub const ANIM_ATTACK: u8 = 3;
+
 #[derive(Clone)]
 pub struct CreatureInstance {
     pub id: String,
@@ -25,6 +30,10 @@ pub struct CreatureInstance {
     pub hunger: f64,
     pub wander_target: Option<(f64, f64)>,
     pub wander_timer: f64,
+    pub anim_state: u8,
+    pub anim_time: f64,
+    pub mounted: bool,
+    pub rescue_reward: u8,
 }
 
 #[derive(Clone)]
@@ -91,6 +100,7 @@ pub fn compute_chunk_creatures_with_time(params: &crate::state::WorldParams, cx:
             h
         };
         let speed = 1.0 + (rng & 3) as f64;
+        let rescue = if ct == 0 || ct == 6 || ct == 8 { ((rng >> 8) & 0xFF) as u8 } else { 0 };
         creatures.push(CreatureInstance {
             id: format!("c{}_{}_{}", cx, cz, i),
             x: wx, y: y_pos,
@@ -102,6 +112,9 @@ pub fn compute_chunk_creatures_with_time(params: &crate::state::WorldParams, cx:
             tamed: false,
             hunger: 80.0 + ((rng >> 16) & 0x1F) as f64,
             wander_target: None, wander_timer: 0.0,
+            anim_state: ANIM_IDLE, anim_time: 0.0,
+            mounted: false,
+            rescue_reward: rescue,
         });
     }
     CreatureData { cx, cz, creatures }
@@ -257,11 +270,21 @@ fn emit_creature(
     };
     // Body
     push_box(pos, norms, idx, cols, x, y + body_h, z, body_w, body_h, body_d, color[0], color[1], color[2], base_idx);
-    // Head (most creatures)
+    // Head and legs (most creatures)
     match ct {
         0 | 1 | 2 | 3 | 4 | 7 | 8 | 9 => {
             let hh = s * 0.3;
             push_box(pos, norms, idx, cols, x, y + body_h * 2.0 + hh, z, hh, hh, hh, color[0], color[1], color[2], base_idx);
+            // Four legs
+            let lw = body_w * 0.3;
+            let lh = body_h * 0.6;
+            let ld = body_d * 0.3;
+            let ly = y + lh;
+            let leg_color = [color[0] * 0.85, color[1] * 0.85, color[2] * 0.85];
+            push_box(pos, norms, idx, cols, x - body_w * 0.55, ly, z + body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
+            push_box(pos, norms, idx, cols, x + body_w * 0.55, ly, z + body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
+            push_box(pos, norms, idx, cols, x - body_w * 0.55, ly, z - body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
+            push_box(pos, norms, idx, cols, x + body_w * 0.55, ly, z - body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
         }
         5 => {
             // Fire elemental: brighter core
@@ -331,35 +354,46 @@ fn push_box_positions(
 fn emit_creature_positions(
     ct: u8, x: f32, y: f32, z: f32,
     pos: &mut Vec<f32>,
+    anim_state: u8, anim_time: f32,
 ) {
     let (_color, size) = creature_color_size(ct);
     let s = size * 0.5;
+
+    let (leg_amp, leg_speed) = match anim_state {
+        ANIM_RUN => (0.15, 8.0),
+        ANIM_WALK => (0.08, 4.5),
+        ANIM_ATTACK => (0.04, 2.0),
+        _ => (0.01, 0.5),
+    };
+    let t = anim_time * leg_speed;
+    let body_sway = t.sin() * leg_amp * 0.3;
+
     match ct {
         13 => {
-            // Butterfly wings
             let ws = size * 0.5;
             let wt = 0.015;
-            for _ in 0..4 {
-                push_box_positions(pos, x, y + size * 0.15, z + wt, size * 0.25, ws, wt);
-                push_box_positions(pos, x, y + size * 0.15, z - wt, size * 0.25, ws, wt);
-                push_box_positions(pos, x + wt, y + size * 0.15, z, wt, ws, size * 0.25);
-                push_box_positions(pos, x - wt, y + size * 0.15, z, wt, ws, size * 0.25);
-            }
+            let wing_angle = t.sin() * 0.2;
+            push_box_positions(pos, x + wing_angle, y + size * 0.15, z + wt, size * 0.25, ws, wt);
+            push_box_positions(pos, x - wing_angle, y + size * 0.15, z - wt, size * 0.25, ws, wt);
+            push_box_positions(pos, x + wt, y + size * 0.15, z + wing_angle, wt, ws, size * 0.25);
+            push_box_positions(pos, x - wt, y + size * 0.15, z - wing_angle, wt, ws, size * 0.25);
             push_box_positions(pos, x, y + size * 0.1, z, 0.02, 0.04, 0.06);
             return;
         }
         14 => {
             let ws = size * 0.3;
             let wt = 0.03;
+            let wing_flap = t.sin() * 0.06;
             push_box_positions(pos, x, y + size * 0.2, z, 0.05, 0.06, 0.1);
-            push_box_positions(pos, x - ws * 0.4, y + size * 0.25, z, ws * 0.6, wt, 0.06);
-            push_box_positions(pos, x + ws * 0.4, y + size * 0.25, z, ws * 0.6, wt, 0.06);
+            push_box_positions(pos, x - ws * 0.4 - wing_flap, y + size * 0.25, z, ws * 0.6, wt, 0.06);
+            push_box_positions(pos, x + ws * 0.4 + wing_flap, y + size * 0.25, z, ws * 0.6, wt, 0.06);
             return;
         }
         15 => {
             let gs = 0.04;
-            push_box_positions(pos, x, y + gs, z, gs, gs * 0.5, gs);
-            push_box_positions(pos, x, y + gs, z, gs * 0.4, gs * 0.4, gs * 0.4);
+            let glow = t.sin() * 0.01;
+            push_box_positions(pos, x, y + gs + glow, z, gs, gs * 0.5, gs);
+            push_box_positions(pos, x, y + gs + glow, z, gs * 0.4, gs * 0.4, gs * 0.4);
             return;
         }
         _ => {}
@@ -387,27 +421,46 @@ fn emit_creature_positions(
         _ => size * 0.18,
     };
 
+    let body_y = y + body_h + body_sway;
+
     // Body
-    push_box_positions(pos, x, y + body_h, z, body_w, body_h, body_d);
+    push_box_positions(pos, x, body_y, z, body_w, body_h, body_d);
     // Head or extras
     match ct {
         0 | 1 | 2 | 3 | 4 | 7 | 8 | 9 => {
             let hh = s * 0.3;
-            push_box_positions(pos, x, y + body_h * 2.0 + hh, z, hh, hh, hh);
+            let head_nod = t.sin() * 0.03 * leg_amp * 5.0;
+            push_box_positions(pos, x + head_nod, y + body_h * 2.0 + hh, z, hh, hh, hh);
+            // Four legs with trot animation
+            let lw = body_w * 0.3;
+            let lh = body_h * 0.6;
+            let ld = body_d * 0.3;
+            let ly = y + lh;
+            let fl_z = body_d * 0.55 + t.sin() * leg_amp;
+            let fr_z = body_d * 0.55 - t.sin() * leg_amp;
+            let bl_z = -body_d * 0.55 - t.sin() * leg_amp;
+            let br_z = -body_d * 0.55 + t.sin() * leg_amp;
+            push_box_positions(pos, x - body_w * 0.55, ly, z + fl_z, lw, lh, ld);
+            push_box_positions(pos, x + body_w * 0.55, ly, z + fr_z, lw, lh, ld);
+            push_box_positions(pos, x - body_w * 0.55, ly, z + bl_z, lw, lh, ld);
+            push_box_positions(pos, x + body_w * 0.55, ly, z + br_z, lw, lh, ld);
         }
         5 => {
-            push_box_positions(pos, x, y + body_h, z, body_w * 0.6, body_h * 0.8, body_w * 0.6);
+            let pulse = t.sin() * 0.03;
+            push_box_positions(pos, x, y + body_h + pulse, z, body_w * 0.6, body_h * 0.8, body_w * 0.6);
         }
         10 => {
+            let swim = t.sin() * 0.05;
             let th = s * 0.2;
-            push_box_positions(pos, x, y + body_h * 0.5, z - body_d - th, th * 0.5, th, th * 0.5);
+            push_box_positions(pos, x + swim * 0.3, y + body_h * 0.5, z - body_d - th, th * 0.5, th, th * 0.5);
         }
         12 => {
             for ti in 0..3 {
                 let tx = x + (ti as f32 - 1.0) * s * 0.2;
                 let tz = z;
                 let th = s * 0.3;
-                push_box_positions(pos, tx, y + th * 0.3, tz, 0.02, th, 0.02);
+                let tentacle_sway = (t + ti as f32 * 1.5).sin() * 0.04;
+                push_box_positions(pos, tx + tentacle_sway, y + th * 0.3, tz, 0.02, th, 0.02);
             }
         }
         _ => {}
@@ -422,7 +475,7 @@ pub fn creature_animated_positions(params: &crate::state::WorldParams, cx: i32, 
         let phase = (cx.wrapping_mul(739).wrapping_add(cz.wrapping_mul(431)) as f64 * 0.1 + i as f64 * 1.7).fract() * std::f64::consts::TAU;
         let bob = (time * 1.8 + phase).sin() * 0.04;
         let y = c.y as f32 + bob as f32;
-        emit_creature_positions(c.creature_type, c.x as f32, y, c.z as f32, &mut pos);
+        emit_creature_positions(c.creature_type, c.x as f32, y, c.z as f32, &mut pos, ANIM_IDLE, time as f32);
     }
     Some(pos)
 }
@@ -575,8 +628,17 @@ pub fn update_creature_ai(
     let mut positions = Vec::new();
 
     for creature in &mut data.creatures {
+        // Mounted creatures skip AI and animation
+        if creature.mounted {
+            let h = crate::engine::terrain::get_height(params, creature.x, creature.z);
+            creature.y = h;
+            emit_creature_positions(creature.creature_type, creature.x as f32, creature.y as f32, creature.z as f32, &mut positions, ANIM_IDLE, 0.0);
+            continue;
+        }
+
         creature.hunger = (creature.hunger - delta * 0.3).max(0.0);
         creature.state_timer -= delta;
+        creature.anim_time += delta;
 
         let dx = creature.x - player_x;
         let dz = creature.z - player_z;
@@ -588,12 +650,18 @@ pub fn update_creature_ai(
             creature.state_timer = 1.5;
         }
 
+        // Set animation state based on behavior state
+        creature.anim_state = match creature.state {
+            STATE_IDLE | STATE_EAT => ANIM_IDLE,
+            STATE_WANDER => ANIM_WALK,
+            STATE_FLEE => ANIM_RUN,
+            STATE_FOLLOW => ANIM_RUN,
+            _ => ANIM_IDLE,
+        };
+
         match creature.state {
             STATE_IDLE => {
-                let _bob_amp = 0.02;
-                let _phase = creature_phase(&creature.id);
                 if creature.state_timer <= 0.0 {
-                    // Pick wander target
                     let ph = creature_phase(&creature.id);
                     let angle = ph + time * 0.1;
                     let radius = 3.0 + (ph * 7.0).fract() * 5.0;
@@ -604,7 +672,6 @@ pub fn update_creature_ai(
                     creature.state = STATE_WANDER;
                     creature.state_timer = 4.0 + (ph * 3.0).fract() * 4.0;
                 }
-                // Keep current position with slight bob
             }
             STATE_WANDER => {
                 if creature.path_index < creature.path.len() {
@@ -695,7 +762,6 @@ pub fn update_creature_ai(
         };
         creature.y = y_pos;
 
-        // Bob animation by state
         let phase = creature_phase(&creature.id);
         let (bob_amp, bob_speed) = match creature.state {
             STATE_FLEE => (0.10, 4.5),
@@ -706,7 +772,7 @@ pub fn update_creature_ai(
         };
         let bob = (time * bob_speed + phase * std::f64::consts::TAU).sin() * bob_amp;
         let emit_y = creature.y as f32 + bob as f32;
-        emit_creature_positions(creature.creature_type, creature.x as f32, emit_y, creature.z as f32, &mut positions);
+        emit_creature_positions(creature.creature_type, creature.x as f32, emit_y, creature.z as f32, &mut positions, creature.anim_state, creature.anim_time as f32);
     }
 
     if positions.is_empty() { None } else { Some(positions) }

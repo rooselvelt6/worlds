@@ -1,4 +1,5 @@
 pub mod achievements;
+pub mod modding;
 pub mod audio;
 pub mod bridge;
 pub mod camera;
@@ -44,7 +45,7 @@ use inventory::Inventory;
 use minerals::generate_mineral_mesh;
 use particles::ParticleSystem;
 use portals::generate_portal_mesh;
-use structures::{generate_road_mesh, generate_struct_mesh};
+use structures::{generate_road_mesh, generate_struct_mesh, generate_blueprint_mesh};
 use tour::TourState;
 use vegetation::{compute_chunk_vegetation, generate_veg_mesh_from_data, VegData, VegType};
 use waterfall::WaterfallSystem;
@@ -74,6 +75,9 @@ pub struct HudData {
     pub discovered_biomes: Vec<String>,
     pub discovery_message: Option<String>,
     pub near_portal: Option<String>,
+    pub portal_target_seed: Option<u32>,
+    pub portal_pos: [f64; 3],
+    pub visited_seeds: Vec<u32>,
     pub build_mode: bool,
     pub inventory: Vec<(u8, u32)>,
     pub minerals: Vec<(u8, u32)>,
@@ -91,6 +95,7 @@ pub struct HudData {
     pub codex_structures: (usize, usize),
     pub codex_minerals: (usize, usize),
     pub codex_creatures: (usize, usize),
+    pub mounted: bool,
 }
 
 pub(crate) fn collides_with_veg(x: f64, z: f64, veg_chunks: &std::collections::HashMap<(i32, i32), VegData>) -> bool {
@@ -136,6 +141,7 @@ fn auto_save_full(s: &GameState) {
     data.achievements_json = achievements_json;
     data.placed_blocks = placed;
     data.block_inventory = block_inv;
+    data.visited_seeds = s.visited_seeds.clone();
     if let Ok(json) = serde_json::to_string(&data) {
         db::set_async("worlds_autosave", &json);
     }
@@ -347,6 +353,8 @@ struct GameState {
     char_dirty: bool,
     portal_prev: bool,
     g_prev: bool,
+    f_prev: bool,
+    mounted_creature_id: Option<String>,
     waterfalls: WaterfallSystem,
     foam: FoamSystem,
     bubbles: BubbleSystem,
@@ -365,6 +373,9 @@ struct GameState {
     ws_send_timer: f64,
     chat_messages: std::collections::VecDeque<(String, String)>,
     remote_players: std::collections::HashMap<String, RemotePlayerData>,
+    fade_timer: f64,
+    pending_portal: Option<u32>,
+    visited_seeds: Vec<u32>,
 }
 
 pub struct Engine {
@@ -591,12 +602,17 @@ fn fill_color(n: usize, r: f32, g: f32, b: f32) -> Vec<f32> {
     v
 }
 
+fn empty_uv_arr() -> js_sys::Float32Array {
+    js_sys::Float32Array::new_with_length(0)
+}
+
 fn upload_part(key: &str, pos: &[f32], norm: &[f32], idx: &[u32], col: &[f32]) {
     let p_arr = js_sys::Float32Array::from(pos);
     let n_arr = js_sys::Float32Array::from(norm);
     let i_arr = js_sys::Uint32Array::from(idx);
     let c_arr = js_sys::Float32Array::from(col);
-    bridge::upload_mesh(key, &p_arr, &n_arr, &i_arr, &c_arr);
+    let u_arr = empty_uv_arr();
+    bridge::upload_mesh(key, &p_arr, &n_arr, &i_arr, &c_arr, &u_arr);
 }
 
 fn part_position(part_key: &str, char_pos: [f64; 3], ox: f64, oy: f64, oz: f64) {
@@ -615,6 +631,7 @@ fn regenerate_all(s: &mut GameState) {
         bridge::remove_mesh(&format!("road_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("mineral_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("portal_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("bp_{},{}", old.cx, old.cz));
     }
     s.creature_persistent.clear();
     s.waterfalls.remove_all();
@@ -630,7 +647,8 @@ fn regenerate_all(s: &mut GameState) {
             let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
             let col_arr = js_sys::Float32Array::from(&data.colors[..]);
             let idx_arr = js_sys::Uint32Array::from(&data.indices[..]);
-            bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr);
+            let uv_arr = js_sys::Float32Array::from(&data.uvs[..]);
+            bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr, &uv_arr);
             let veg_data = compute_chunk_vegetation(&s.params, x, z, s.params.season);
             if !veg_data.instances.is_empty() {
                 let vkey = format!("veg_{},{}", x, z);
@@ -639,7 +657,8 @@ fn regenerate_all(s: &mut GameState) {
                 let vn = js_sys::Float32Array::from(&vnorm[..]);
                 let vi = js_sys::Uint32Array::from(&vidx[..]);
                 let vc = js_sys::Float32Array::from(&vcol[..]);
-                bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
+                let vu = empty_uv_arr();
+                bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc, &vu);
             }
             s.veg_chunks.insert((x, z), veg_data);
             {
@@ -651,7 +670,8 @@ fn regenerate_all(s: &mut GameState) {
                         let cn = js_sys::Float32Array::from(&cnorm[..]);
                         let ci = js_sys::Uint32Array::from(&cidx[..]);
                         let cc = js_sys::Float32Array::from(&ccol[..]);
-                        bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+                        let cu = empty_uv_arr();
+                        bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc, &cu);
                     }
                     s.creature_persistent.insert((x, z), creature_data);
                 }
@@ -662,7 +682,8 @@ fn regenerate_all(s: &mut GameState) {
                 let sn = js_sys::Float32Array::from(&snorm[..]);
                 let si = js_sys::Uint32Array::from(&sidx[..]);
                 let sc = js_sys::Float32Array::from(&scol[..]);
-                bridge::upload_mesh(&skey, &sp, &sn, &si, &sc);
+                let su = empty_uv_arr();
+                bridge::upload_mesh(&skey, &sp, &sn, &si, &sc, &su);
             }
             if let Some((mpos, mnorm, midx, mcol)) = generate_mineral_mesh(&s.params, x, z) {
                 let mkey = format!("mineral_{},{}", x, z);
@@ -670,15 +691,16 @@ fn regenerate_all(s: &mut GameState) {
                 let mn = js_sys::Float32Array::from(&mnorm[..]);
                 let mi = js_sys::Uint32Array::from(&midx[..]);
                 let mc = js_sys::Float32Array::from(&mcol[..]);
-                bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc);
+                let mu = empty_uv_arr();
+                bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc, &mu);
             }
-            if let Some((ppos, pnorm, pidx, pcol)) = generate_portal_mesh(&s.params, x, z) {
+            if let Some((ppos, pnorm, pidx, pcol, pseed, pradius)) = generate_portal_mesh(&s.params, x, z) {
                 let pkey = format!("portal_{},{}", x, z);
                 let pp = js_sys::Float32Array::from(&ppos[..]);
                 let pn = js_sys::Float32Array::from(&pnorm[..]);
                 let pi = js_sys::Uint32Array::from(&pidx[..]);
                 let pc = js_sys::Float32Array::from(&pcol[..]);
-                bridge::upload_mesh(&pkey, &pp, &pn, &pi, &pc);
+                bridge::upload_portal_mesh(&pkey, &pp, &pn, &pi, &pc, pseed, pradius);
             }
             if let Some((rpos, rnorm, ridx, rcol)) = generate_road_mesh(&s.params, x, z) {
                 let rkey = format!("road_{},{}", x, z);
@@ -686,7 +708,18 @@ fn regenerate_all(s: &mut GameState) {
                 let rn = js_sys::Float32Array::from(&rnorm[..]);
                 let ri = js_sys::Uint32Array::from(&ridx[..]);
                 let rc = js_sys::Float32Array::from(&rcol[..]);
-                bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc);
+                let ru = empty_uv_arr();
+                bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc, &ru);
+            }
+            // Blueprint meshes from mods
+            if let Some((bppos, bpnorms, bpidx, bpcols)) = generate_blueprint_mesh(&s.params, x, z) {
+                let bkey = format!("bp_{},{}", x, z);
+                let bpp = js_sys::Float32Array::from(&bppos[..]);
+                let bpn = js_sys::Float32Array::from(&bpnorms[..]);
+                let bpi = js_sys::Uint32Array::from(&bpidx[..]);
+                let bpc = js_sys::Float32Array::from(&bpcols[..]);
+                let bpu = empty_uv_arr();
+                bridge::upload_mesh(&bkey, &bpp, &bpn, &bpi, &bpc, &bpu);
             }
             new_chunks.push(data);
         }
@@ -697,8 +730,8 @@ fn regenerate_all(s: &mut GameState) {
 }
 
 fn lod_for_distance(dist: i32) -> u32 {
-    if dist <= 2 { 0 }
-    else if dist <= 4 { 1 }
+    if dist <= 1 { 0 }
+    else if dist <= 3 { 1 }
     else { 2 }
 }
 
@@ -728,6 +761,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         bridge::remove_mesh(&format!("road_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("mineral_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("portal_{},{}", old.cx, old.cz));
+        bridge::remove_mesh(&format!("bp_{},{}", old.cx, old.cz));
         s.veg_chunks.remove(&(old.cx, old.cz));
         s.creature_persistent.remove(&(old.cx, old.cz));
     }
@@ -747,8 +781,9 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
         let col_arr = js_sys::Float32Array::from(&data.colors[..]);
         let idx_arr = js_sys::Uint32Array::from(&data.indices[..]);
-        bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr);
-        bridge::set_mesh_frustum_culled(&key, false);
+        let uv_arr = js_sys::Float32Array::from(&data.uvs[..]);
+        bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr, &uv_arr);
+        bridge::set_mesh_frustum_culled(&key, true);
 
         // Skip vegetation/creatures/structures/minerals for far LOD chunks (LOD 2)
         if lod < 2 {
@@ -761,7 +796,8 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
                 let vn = js_sys::Float32Array::from(&vnorm[..]);
                 let vi = js_sys::Uint32Array::from(&vidx[..]);
                 let vc = js_sys::Float32Array::from(&vcol[..]);
-                bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
+                let vu = empty_uv_arr();
+                bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc, &vu);
             }
             s.veg_chunks.insert((cx, cz), veg_data);
 
@@ -775,7 +811,8 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
                         let cn = js_sys::Float32Array::from(&cnorm[..]);
                         let ci = js_sys::Uint32Array::from(&cidx[..]);
                         let cc = js_sys::Float32Array::from(&ccol[..]);
-                        bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc);
+                        let cu = empty_uv_arr();
+                        bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc, &cu);
                     }
                     s.creature_persistent.insert((cx, cz), creature_data);
                 }
@@ -788,7 +825,8 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
                 let sn = js_sys::Float32Array::from(&snorm[..]);
                 let si = js_sys::Uint32Array::from(&sidx[..]);
                 let sc = js_sys::Float32Array::from(&scol[..]);
-                bridge::upload_mesh(&skey, &sp, &sn, &si, &sc);
+                let su = empty_uv_arr();
+                bridge::upload_mesh(&skey, &sp, &sn, &si, &sc, &su);
             }
 
             // Mineral mesh for this chunk
@@ -798,17 +836,18 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
                 let mn = js_sys::Float32Array::from(&mnorm[..]);
                 let mi = js_sys::Uint32Array::from(&midx[..]);
                 let mc = js_sys::Float32Array::from(&mcol[..]);
-                bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc);
+                let mu = empty_uv_arr();
+                bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc, &mu);
             }
 
             // Portal mesh for this chunk
-            if let Some((ppos, pnorm, pidx, pcol)) = generate_portal_mesh(&s.params, cx, cz) {
+            if let Some((ppos, pnorm, pidx, pcol, pseed, pradius)) = generate_portal_mesh(&s.params, cx, cz) {
                 let pkey = format!("portal_{},{}", cx, cz);
                 let pp = js_sys::Float32Array::from(&ppos[..]);
                 let pn = js_sys::Float32Array::from(&pnorm[..]);
                 let pi = js_sys::Uint32Array::from(&pidx[..]);
                 let pc = js_sys::Float32Array::from(&pcol[..]);
-                bridge::upload_mesh(&pkey, &pp, &pn, &pi, &pc);
+                bridge::upload_portal_mesh(&pkey, &pp, &pn, &pi, &pc, pseed, pradius);
             }
 
             // Road mesh for this chunk
@@ -818,7 +857,19 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
                 let rn = js_sys::Float32Array::from(&rnorm[..]);
                 let ri = js_sys::Uint32Array::from(&ridx[..]);
                 let rc = js_sys::Float32Array::from(&rcol[..]);
-                bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc);
+                let ru = empty_uv_arr();
+                bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc, &ru);
+            }
+
+            // Blueprint meshes from mods
+            if let Some((bppos, bpnorms, bpidx, bpcols)) = generate_blueprint_mesh(&s.params, cx, cz) {
+                let bkey = format!("bp_{},{}", cx, cz);
+                let bpp = js_sys::Float32Array::from(&bppos[..]);
+                let bpn = js_sys::Float32Array::from(&bpnorms[..]);
+                let bpi = js_sys::Uint32Array::from(&bpidx[..]);
+                let bpc = js_sys::Float32Array::from(&bpcols[..]);
+                let bpu = empty_uv_arr();
+                bridge::upload_mesh(&bkey, &bpp, &bpn, &bpi, &bpc, &bpu);
             }
         }
 
@@ -1061,6 +1112,8 @@ impl Engine {
             char_dirty: false,
             portal_prev: false,
             g_prev: false,
+            f_prev: false,
+            mounted_creature_id: None,
             waterfalls: WaterfallSystem::new(),
             foam: FoamSystem::new(),
             bubbles: BubbleSystem::new(),
@@ -1078,6 +1131,9 @@ impl Engine {
             ws_send_timer: 0.0,
             chat_messages: std::collections::VecDeque::new(),
             remote_players: std::collections::HashMap::new(),
+            fade_timer: 0.0,
+            pending_portal: None,
+            visited_seeds: Vec::new(),
         }));
 
         {
@@ -1360,7 +1416,8 @@ impl Engine {
                                         let bn = js_sys::Float32Array::from(&nrm[..]);
                                         let bi = js_sys::Uint32Array::from(&idx[..]);
                                         let bc_arr = js_sys::Float32Array::from(&col[..]);
-                                        bridge::upload_mesh(&bkey, &bp, &bn, &bi, &bc_arr);
+                                        let bu_arr = empty_uv_arr();
+                                        bridge::upload_mesh(&bkey, &bp, &bn, &bi, &bc_arr, &bu_arr);
                                         bridge::set_mesh_position(&bkey, hx as f64 + 0.5, hy as f64 + 0.5, hz as f64 + 0.5);
                                         if let Some(slot) = s.block_inventory.iter_mut().find(|(t, _)| *t == sel_slot) {
                                             slot.1 -= 1;
@@ -1871,7 +1928,8 @@ impl Engine {
                             let vn = js_sys::Float32Array::from(&vnorm[..]);
                             let vi = js_sys::Uint32Array::from(&vidx[..]);
                             let vc = js_sys::Float32Array::from(&vcol[..]);
-                            bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc);
+                            let vu = empty_uv_arr();
+                            bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc, &vu);
                         }
                     }
                 }
@@ -1952,6 +2010,8 @@ impl Engine {
                     s.speed,
                     s.weather_power,
                     surface_type,
+                    s.char_pos[1] as f32,
+                    s.day_time as f32,
                 );
 
                 // Auto-save placed blocks + mined blocks every 15s
@@ -1963,8 +2023,40 @@ impl Engine {
                     auto_save_full(&s);
                 }
 
+                // Fade transition for portal teleport
+                if s.fade_timer > 0.0 {
+                    s.fade_timer += delta;
+                    if s.fade_timer < 0.35 {
+                        bridge::set_fade((s.fade_timer / 0.35).min(1.0));
+                    } else if s.fade_timer < 0.45 {
+                        if let Some(target_seed) = s.pending_portal.take() {
+                            let old_seed = s.params.seed;
+                            if !s.visited_seeds.contains(&old_seed) {
+                                s.visited_seeds.push(old_seed);
+                                if s.visited_seeds.len() > 30 { s.visited_seeds.remove(0); }
+                            }
+                            s.params.seed = target_seed;
+                            s.params_dirty = true;
+                            s.char_pos = [0.0, terrain::get_height(&s.params, 0.0, 0.0).max(0.0), 0.0];
+                            s.vel_x = 0.0;
+                            s.vel_z = 0.0;
+                            s.vel_y = 0.0;
+                        }
+                        s.fade_timer = 0.45;
+                    } else if s.fade_timer < 0.8 {
+                        let t = (s.fade_timer - 0.45) / 0.35;
+                        bridge::set_fade(1.0 - t.min(1.0));
+                    } else {
+                        s.fade_timer = 0.0;
+                        bridge::set_fade(0.0);
+                    }
+                }
+
                 // Portal detection and teleportation
                 let mut near_portal = None;
+                let mut portal_target_seed = None;
+                let mut portal_x = 0.0f64;
+                let mut portal_z = 0.0f64;
                 let portal_data = portals::compute_portals(&s.params);
                 for p in &portal_data.portals {
                     let dx = s.char_pos[0] - p.x;
@@ -1972,15 +2064,14 @@ impl Engine {
                     let dist = (dx * dx + dz * dz).sqrt();
                     if dist < p.radius {
                         near_portal = Some(p.id.clone());
+                        portal_target_seed = Some(p.target_seed);
+                        portal_x = p.x;
+                        portal_z = p.z;
                         let portal_key = keys & MASK_R != 0;
-                        if portal_key && !s.portal_prev {
+                        if portal_key && !s.portal_prev && s.fade_timer <= 0.0 {
+                            s.fade_timer = 0.001;
+                            s.pending_portal = Some(p.target_seed);
                             audio::play_effect("portal_open");
-                            s.params.seed = p.target_seed;
-                            s.params_dirty = true;
-                            s.char_pos = [0.0, terrain::get_height(&s.params, 0.0, 0.0).max(0.0), 0.0];
-                            s.vel_x = 0.0;
-                            s.vel_z = 0.0;
-                            s.vel_y = 0.0;
                         }
                         break;
                     }
@@ -2044,7 +2135,7 @@ impl Engine {
                 let hud_blocks = s.block_inventory.clone();
                 *hud.borrow_mut() = HudData {
                     pos: s.char_pos,
-                    biome: zone.as_str().to_string(),
+                    biome: zone.name_for_hud(),
                     height: ground_y,
                     fps: s.fps,
                     chunks: s.chunks.len(),
@@ -2055,6 +2146,9 @@ impl Engine {
                     inventory: hud_blocks,
                     minerals: s.inventory.items.iter().filter(|i| i.count > 0).map(|i| (i.mineral_type, i.count)).collect(),
                     near_portal,
+                    portal_target_seed,
+                    portal_pos: [portal_x, 0.0, portal_z],
+                    visited_seeds: s.visited_seeds.clone(),
                     weather_label: weather_label_power.clone(),
                     lightning: s.lightning_flash > 0.1,
                     craft_message: None,
@@ -2064,6 +2158,7 @@ impl Engine {
                     codex_structures: (s.codex.structures.iter().filter(|e| e.discovered).count(), s.codex.structures.len()),
                     codex_minerals: (s.codex.minerals.iter().filter(|e| e.discovered).count(), s.codex.minerals.len()),
                     codex_creatures: (s.codex.creatures.iter().filter(|e| e.discovered).count(), s.codex.creatures.len()),
+                    mounted: s.mounted_creature_id.is_some(),
                     ..Default::default()
                 };
             }));
@@ -2123,6 +2218,7 @@ impl Engine {
         data.achievements_json = achievements_json;
         data.placed_blocks = placed_blocks;
         data.block_inventory = block_inventory;
+        data.visited_seeds = s.visited_seeds.clone();
         let json = serde_json::to_string(&data).map_err(|e| e.to_string())?;
         let key = format!("worlds_save_{}", slot);
         db::set_async(&key, &json);
@@ -2179,6 +2275,10 @@ impl Engine {
         if !data.discovered_biomes.is_empty() {
             s.discovered_biomes = data.discovered_biomes.clone();
         }
+        // Restore visited seeds
+        if !data.visited_seeds.is_empty() {
+            s.visited_seeds = data.visited_seeds.clone();
+        }
 
         // Respawn blocks in 3D scene
         let block_colors: [[f32; 3]; 9] = [
@@ -2195,7 +2295,8 @@ impl Engine {
             let bn = js_sys::Float32Array::from(&nrm[..]);
             let bi = js_sys::Uint32Array::from(&idx[..]);
             let bc_arr = js_sys::Float32Array::from(&col[..]);
-            bridge::upload_mesh(&bkey, &bp, &bn, &bi, &bc_arr);
+            let bu_arr = empty_uv_arr();
+            bridge::upload_mesh(&bkey, &bp, &bn, &bi, &bc_arr, &bu_arr);
             bridge::set_mesh_position(&bkey, bx as f64 + 0.5, by as f64 + 0.5, bz as f64 + 0.5);
         }
     }
@@ -2345,6 +2446,10 @@ impl Engine {
 
     pub fn is_ws_connected(&self) -> bool {
         self.state.borrow().ws_connected
+    }
+
+    pub fn visited_seeds(&self) -> Vec<u32> {
+        self.state.borrow().visited_seeds.clone()
     }
 }
 

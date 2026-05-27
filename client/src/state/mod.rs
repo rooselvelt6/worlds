@@ -78,7 +78,7 @@ impl Default for WorldParams {
             octaves: 5,
             amplitude: 4.0,
             water_level: 0.0,
-            render_distance: 2,
+            render_distance: 4,
             zone: crate::engine::terrain::Zone::Forest,
             mutation: 0.0,
             speed: 300.0,
@@ -143,6 +143,7 @@ pub struct SaveData {
     pub achievements_json: Option<String>,
     pub placed_blocks: Vec<[i32; 4]>,
     pub block_inventory: Vec<(u8, u32)>,
+    pub visited_seeds: Vec<u32>,
 }
 
 impl SaveData {
@@ -166,6 +167,7 @@ impl SaveData {
             achievements_json: None,
             placed_blocks: Vec::new(),
             block_inventory: Vec::new(),
+            visited_seeds: Vec::new(),
         }
     }
 }
