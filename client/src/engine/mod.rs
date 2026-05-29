@@ -2,6 +2,7 @@ pub mod achievements;
 pub mod modding;
 pub mod audio;
 pub mod bridge;
+pub mod erosion;
 pub mod camera;
 pub mod chunk;
 pub mod codex;
@@ -190,6 +191,26 @@ fn load_mined() -> HashSet<(i32,i32,i32)> {
     set
 }
 
+fn save_craters() {
+    let craters = terrain::get_craters();
+    let data: Vec<[i32; 2]> = craters.iter().map(|&(x, z)| [x, z]).collect();
+    if let Ok(json) = serde_json::to_string(&data) {
+        db::set_async("worlds_craters", &json);
+    }
+}
+
+fn load_craters() {
+    if let Some(json) = db::get("worlds_craters") {
+        if let Ok(data) = serde_json::from_str::<Vec<[i32; 2]>>(&json) {
+            let mut craters = std::collections::HashSet::new();
+            for arr in data {
+                craters.insert((arr[0], arr[1]));
+            }
+            terrain::set_craters(&craters);
+        }
+    }
+}
+
 pub(crate) fn collides_with_blocks(x: f64, y: f64, z: f64,
     blocks: &std::collections::HashMap<(i32,i32,i32), u8>) -> bool
 {
@@ -299,6 +320,148 @@ impl BreakParticle {
     }
 }
 
+// ── R10.1 Footprints ──
+#[allow(dead_code)]
+struct Footprint {
+    key: String,
+    x: f64,
+    y: f64,
+    z: f64,
+    lifetime: f64,
+    max_lifetime: f64,
+}
+
+struct FootprintSystem {
+    footprints: Vec<Footprint>,
+    step_counter: f64,
+    last_dir: f64,
+}
+
+impl FootprintSystem {
+    fn new() -> Self {
+        Self { footprints: Vec::new(), step_counter: 0.0, last_dir: 0.0 }
+    }
+
+    fn update(&mut self, delta: f64, moving: bool, running: bool, px: f64, py: f64, pz: f64, yaw: f64, on_ground: bool) {
+        if moving && on_ground {
+            let step_interval = if running { 0.35 } else { 0.6 };
+            self.step_counter += delta;
+            if self.step_counter >= step_interval {
+                self.step_counter = 0.0;
+                let rot = yaw + if running { 0.2 } else { 0.0 };
+                let key = format!("fp_{}", self.footprints.len());
+                bridge::create_footprint(&key, px, py, pz, rot);
+                self.footprints.push(Footprint {
+                    key,
+                    x: px, y: py, z: pz,
+                    lifetime: 8.0,
+                    max_lifetime: 8.0,
+                });
+                self.last_dir = yaw;
+            }
+        } else {
+            self.step_counter = 0.0;
+        }
+        let mut i = 0;
+        while i < self.footprints.len() {
+            let fp = &mut self.footprints[i];
+            fp.lifetime -= delta;
+            if fp.lifetime <= 0.0 {
+                let dead = self.footprints.remove(i);
+                bridge::remove_footprint(&dead.key);
+            } else {
+                let opacity = (fp.lifetime / fp.max_lifetime).max(0.0);
+                bridge::set_footprint_opacity(&fp.key, opacity * 0.4);
+                i += 1;
+            }
+        }
+        if self.footprints.len() > 80 {
+            let dead = self.footprints.remove(0);
+            bridge::remove_footprint(&dead.key);
+        }
+    }
+
+    fn remove_all(&self) {
+        for fp in &self.footprints {
+            bridge::remove_footprint(&fp.key);
+        }
+    }
+}
+
+// ── R10.3 Meteors / Falling Rocks ──
+struct Meteor {
+    key: String,
+    x: f64, y: f64, z: f64,
+    vx: f64, vy: f64, vz: f64,
+    lifetime: f64,
+}
+
+struct MeteorSystem {
+    meteors: Vec<Meteor>,
+    timer: f64,
+}
+
+impl MeteorSystem {
+    fn new() -> Self {
+        Self { meteors: Vec::new(), timer: 0.0 }
+    }
+
+    fn update(&mut self, delta: f64, params: &WorldParams, px: f64, pz: f64) {
+        self.timer += delta;
+        // Spawn in mountain/high-elevation zones
+        let zone = terrain::get_zone(params, px, pz);
+        let is_mountain = matches!(zone, Zone::Tundra | Zone::Storm | Zone::Aurora | Zone::Volcanic | Zone::Lava | Zone::Magma);
+        if is_mountain && self.timer > 5.0 {
+            self.timer = 0.0;
+            let rng_seed = ((px * 1000.0 + pz * 777.0) as u64).wrapping_mul(1103515245).wrapping_add(12345);
+            let r = |s: &mut u64| { *s = s.wrapping_mul(1103515245).wrapping_add(12345); *s as f64 / u64::MAX as f64 };
+            let mut s = rng_seed;
+            let spawn_dist = 15.0 + r(&mut s) * 20.0;
+            let angle = r(&mut s) * std::f64::consts::TAU;
+            let mx = px + angle.cos() * spawn_dist;
+            let mz = pz + angle.sin() * spawn_dist;
+            let my = terrain::get_height(params, mx, mz) + 25.0 + r(&mut s) * 15.0;
+            let fall_speed = 15.0 + r(&mut s) * 10.0;
+            let dir_x = r(&mut s) - 0.5;
+            let dir_z = r(&mut s) - 0.5;
+            let key = format!("meteor_{}", self.meteors.len());
+            bridge::create_meteor(&key, mx, my, mz);
+            self.meteors.push(Meteor {
+                key, x: mx, y: my, z: mz,
+                vx: dir_x * 3.0, vy: -fall_speed, vz: dir_z * 3.0,
+                lifetime: 6.0,
+            });
+        }
+        let mut i = 0;
+        while i < self.meteors.len() {
+            let m = &mut self.meteors[i];
+            m.x += m.vx * delta;
+            m.y += m.vy * delta;
+            m.z += m.vz * delta;
+            m.vy += 9.8 * delta * 0.5; // reduced gravity for visibility
+            m.lifetime -= delta;
+            let ground = terrain::get_height(params, m.x, m.z);
+            if m.y <= ground + 0.5 || m.lifetime <= 0.0 {
+                let dead = self.meteors.remove(i);
+                bridge::remove_meteor(&dead.key);
+            } else {
+                bridge::update_meteor(&m.key, m.x, m.y, m.z);
+                i += 1;
+            }
+        }
+        if self.meteors.len() > 20 {
+            let dead = self.meteors.remove(0);
+            bridge::remove_meteor(&dead.key);
+        }
+    }
+
+    fn remove_all(&self) {
+        for m in &self.meteors {
+            bridge::remove_meteor(&m.key);
+        }
+    }
+}
+
 #[allow(dead_code)]
 struct RemotePlayerData {
     name: String,
@@ -373,6 +536,12 @@ struct GameState {
     creature_persistent: std::collections::HashMap<(i32, i32), creatures::CreatureData>,
     break_counter: u32,
     break_particles: Vec<BreakParticle>,
+    // ── R10 Living World ──
+    footprints: FootprintSystem,
+    meteors: MeteorSystem,
+    flora_push_timer: f64,
+    last_flora_chunk: Option<(i32, i32)>,
+    flora_pushed: bool,
     ws_connected: bool,
     ws_player_id: String,
     ws_send_timer: f64,
@@ -666,6 +835,13 @@ fn regenerate_all(s: &mut GameState) {
     s.bubbles.remove();
     s.veg_chunks.clear();
     s.chunks_awaiting_worker.clear();
+    s.footprints.remove_all();
+    s.meteors.remove_all();
+    if let Some((fcx, fcz)) = s.last_flora_chunk.take() {
+        bridge::reset_flora(&format!("veg_{},{}", fcx, fcz));
+    }
+    s.flora_pushed = false;
+    s.flora_push_timer = 0.0;
     let mut new_chunks: Vec<ChunkData> = Vec::new();
     for x in (pcx - d)..=(pcx + d) {
         for z in (pcz - d)..=(pcz + d) {
@@ -1161,7 +1337,11 @@ impl Engine {
             veg_dirty: false,
             veg_chunks: std::collections::HashMap::new(),
             placed_blocks: load_blocks(),
-            mined_blocks: load_mined(),
+            mined_blocks: {
+                let mined = load_mined();
+                load_craters();
+                mined
+            },
             block_inventory: vec![(0, 64), (1, 32), (2, 16), (3, 16), (4, 8), (5, 8), (6, 8), (7, 8), (8, 8)],
             build_prev: false,
             slot_prev: 0,
@@ -1184,6 +1364,11 @@ impl Engine {
             creature_persistent: std::collections::HashMap::new(),
             break_counter: 0,
             break_particles: Vec::new(),
+            footprints: FootprintSystem::new(),
+            meteors: MeteorSystem::new(),
+            flora_push_timer: 0.0,
+            last_flora_chunk: None,
+            flora_pushed: false,
             ws_connected: false,
             ws_player_id: String::new(),
             ws_send_timer: 0.0,
@@ -1526,6 +1711,13 @@ impl Engine {
                                         }
                                     }
                                     s.mined_blocks.insert(key);
+                                    // R10.4: Terrain destruction — create crater if mining surface blocks
+                                    if !hit.1 {
+                                        let surface = terrain::get_height(&s.params, hx as f64 + 0.5, hz as f64 + 0.5);
+                                        if (hy as f64 - surface).abs() < 2.0 {
+                                            terrain::add_crater(hx, hz);
+                                        }
+                                    }
                                     s.params_dirty = true;
                                     s.achievements.try_unlock(achievements::Achievement::FirstMine);
                                 }
@@ -2114,6 +2306,79 @@ impl Engine {
                 s.foam.update(delta, &wf_params, foam_px, foam_pz, foam_wl);
                 s.bubbles.update(delta, &wf_params, bubble_x, bubble_y, bubble_z, bubble_wl);
 
+                // ── R10 Living World updates ──
+                // R10.1: Footprints
+                let moving = keys & (MASK_W | MASK_S | MASK_A | MASK_D) != 0;
+                let running = moving && keys & MASK_SHIFT != 0;
+                let on_ground = (s.char_pos[1] - ground_y).abs() < 0.2 && !s.params.fly_mode;
+                let fp_x = s.char_pos[0];
+                let fp_z = s.char_pos[2];
+                let fp_yaw = s.controls.yaw.get();
+                s.footprints.update(delta, moving, running, fp_x, ground_y, fp_z, fp_yaw, on_ground);
+
+                // R10.3: Meteors
+                let mpx = s.char_pos[0];
+                let mpz = s.char_pos[2];
+                let meteor_params = s.params;
+                s.meteors.update(delta, &meteor_params, mpx, mpz);
+
+                // R10.2: Reactive flora — push vegetation aside when walking near it
+                if moving && on_ground {
+                    let pcx = (s.char_pos[0] / CHUNK_SIZE) as i32;
+                    let pcz = (s.char_pos[2] / CHUNK_SIZE) as i32;
+                    let veg_chunks = &s.veg_chunks;
+                    let mut near_veg = false;
+                    let mut target_key: Option<(i32, i32)> = None;
+                    let mut push_dx = 0.0;
+                    let mut push_dz = 0.0;
+                    for dcx in -1..=1 {
+                        for dcz in -1..=1 {
+                            let key = (pcx + dcx, pcz + dcz);
+                            if let Some(veg) = veg_chunks.get(&key) {
+                                for inst in &veg.instances {
+                                    let dx = s.char_pos[0] - inst.x as f64;
+                                    let dz = s.char_pos[2] - inst.z as f64;
+                                    let dist = (dx * dx + dz * dz).sqrt();
+                                    if dist < 3.0 && (inst.veg_type == VegType::Bush || inst.veg_type == VegType::Flower || inst.veg_type == VegType::Mushroom) {
+                                        near_veg = true;
+                                        target_key = Some(key);
+                                        push_dx = dx;
+                                        push_dz = dz;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if near_veg {
+                        if let Some(key) = target_key {
+                            let strength = 0.25;
+                            let vkey = format!("veg_{},{}", key.0, key.1);
+                            bridge::push_flora(&vkey, push_dx, push_dz, strength);
+                            s.last_flora_chunk = Some(key);
+                            s.flora_pushed = true;
+                            s.flora_push_timer = 0.5;
+                        }
+                    } else if s.flora_pushed {
+                        s.flora_push_timer -= delta;
+                        if s.flora_push_timer <= 0.0 {
+                            if let Some((fcx, fcz)) = s.last_flora_chunk {
+                                bridge::reset_flora(&format!("veg_{},{}", fcx, fcz));
+                            }
+                            s.flora_pushed = false;
+                            s.last_flora_chunk = None;
+                        }
+                    }
+                } else if s.flora_pushed {
+                    s.flora_push_timer -= delta;
+                    if s.flora_push_timer <= 0.0 {
+                        if let Some((fcx, fcz)) = s.last_flora_chunk {
+                            bridge::reset_flora(&format!("veg_{},{}", fcx, fcz));
+                        }
+                        s.flora_pushed = false;
+                        s.last_flora_chunk = None;
+                    }
+                }
+
                 let surface_type = {
                     let zone = terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]);
                     if s.char_pos[1] < s.params.water_level - 0.5 { 4 }
@@ -2137,6 +2402,11 @@ impl Engine {
                     surface_type,
                     s.char_pos[1] as f32,
                     s.day_time as f32,
+                    s.wind_dir,
+                    s.wind_strength,
+                    &s.params,
+                    s.char_pos[0],
+                    s.char_pos[2],
                 );
 
                 // Auto-save placed blocks + mined blocks every 15s
@@ -2145,6 +2415,7 @@ impl Engine {
                     s.save_timer = 0.0;
                     save_blocks(&s.placed_blocks);
                     save_mined(&s.mined_blocks);
+                    save_craters();
                     auto_save_full(&s);
                 }
 

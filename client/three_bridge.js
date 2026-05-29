@@ -40,6 +40,88 @@ let csm = null;
 let vegWindUniforms = [];
 let grassMeshes = new Map();
 
+// ── R10 Living World ──
+const footprints = new Map();
+const meteors = new Map();
+
+window.threeBridgeCreateFootprint = function (key, x, y, z, rot) {
+    const geo = new THREE.CircleGeometry(0.12, 6);
+    const mat = new THREE.MeshBasicMaterial({
+        color: 0x221100,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, y + 0.015, z);
+    mesh.rotation.z = rot;
+    scene.add(mesh);
+    footprints.set(key, mesh);
+};
+
+window.threeBridgeSetFootprintOpacity = function (key, opacity) {
+    const mesh = footprints.get(key);
+    if (mesh) mesh.material.opacity = opacity;
+};
+
+window.threeBridgeRemoveFootprint = function (key) {
+    const mesh = footprints.get(key);
+    if (mesh) {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        footprints.delete(key);
+    }
+};
+
+window.threeBridgeCreateMeteor = function (key, x, y, z) {
+    const geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+    const mat = new THREE.MeshStandardMaterial({
+        color: 0x665544,
+        roughness: 0.9,
+        metalness: 0.1,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    scene.add(mesh);
+    meteors.set(key, mesh);
+};
+
+window.threeBridgeUpdateMeteor = function (key, x, y, z) {
+    const mesh = meteors.get(key);
+    if (mesh) mesh.position.set(x, y, z);
+};
+
+window.threeBridgeRemoveMeteor = function (key) {
+    const mesh = meteors.get(key);
+    if (mesh) {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        meteors.delete(key);
+    }
+};
+
+window.threeBridgePushFlora = function (key, push_x, push_z, strength) {
+    const mesh = meshes.get(key);
+    if (mesh) {
+        const angle = Math.atan2(push_x, push_z);
+        mesh.rotation.z = Math.sin(angle) * strength;
+        mesh.rotation.x = Math.cos(angle) * strength;
+    }
+};
+
+window.threeBridgeResetFlora = function (key) {
+    const mesh = meshes.get(key);
+    if (mesh) {
+        mesh.rotation.x = 0;
+        mesh.rotation.z = 0;
+    }
+};
+
 // Biome IDs matching Rust Zone enum index
 const BIOME = {
     FOREST: 0, PLAINS: 1, DESERT: 2, TUNDRA: 3, JUNGLE: 4,
@@ -405,7 +487,7 @@ window.threeBridgeInit = function (canvas) {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 0.7;
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
@@ -442,126 +524,20 @@ window.threeBridgeInit = function (canvas) {
         ssaoPass = null;
     }
 
-    const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.3, 0.2, 0.1);
-    composer.addPass(bloom);
-
-    // R4: Combined final pass (LUT color grading + vignette + film grain + auto exposure + lens flare + underwater)
-    generateIdentityLUT();
-    applyBiomeLUT(lutCtx, lutCanvas, 0);
-    lutTexture.needsUpdate = true;
-
-    const finalMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-            tDiffuse: { value: null },
-            uLutTex: { value: lutTexture },
-            uLutSize: { value: 32.0 },
-            uTime: { value: 0 },
-            uVignetteIntensity: { value: 0.25 },
-            uFilmGrainIntensity: { value: 0.04 },
-            uExposure: { value: 1.0 },
-            uSunUV: { value: new THREE.Vector2(-1, -1) },
-            uLensFlareIntensity: { value: 0.0 },
-            uUnderwaterIntensity: { value: 0.0 },
-            uUnderwaterColor: { value: new THREE.Color(0x006688) },
-        },
-        vertexShader: `
-            varying vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: `
-            uniform sampler2D tDiffuse;
-            uniform sampler2D uLutTex;
-            uniform float uLutSize;
-            uniform float uTime;
-            uniform float uVignetteIntensity;
-            uniform float uFilmGrainIntensity;
-            uniform float uExposure;
-            uniform vec2 uSunUV;
-            uniform float uLensFlareIntensity;
-            uniform float uUnderwaterIntensity;
-            uniform vec3 uUnderwaterColor;
-            varying vec2 vUv;
-
-            vec3 lutLookup(vec3 color, sampler2D lut, float size) {
-                float bIdx = color.b * (size - 1.0);
-                float b0 = floor(bIdx);
-                float b1 = min(b0 + 1.0, size - 1.0);
-                float t = bIdx - b0;
-                float rPos = color.r * (size - 1.0);
-                float gPos = color.g * (size - 1.0);
-                float tileW = size;
-                float texW = size * size;
-                float texH = size;
-                vec2 uv0 = vec2((b0 * tileW + rPos + 0.5) / texW, (gPos + 0.5) / texH);
-                vec2 uv1 = vec2((b1 * tileW + rPos + 0.5) / texW, (gPos + 0.5) / texH);
-                vec3 c0 = texture2D(lut, uv0).rgb;
-                vec3 c1 = texture2D(lut, uv1).rgb;
-                return mix(c0, c1, t);
-            }
-
-            void main() {
-                vec2 uv = vUv;
-
-                // 1. Underwater distortion
-                float uw = uUnderwaterIntensity;
-                if (uw > 0.01) {
-                    uv.x += sin(uv.y * 30.0 + uTime * 2.0) * 0.003 * uw;
-                    uv.y += cos(uv.x * 30.0 + uTime * 1.8) * 0.003 * uw;
-                }
-
-                vec4 color = texture2D(tDiffuse, uv);
-
-                // 2. LUT color grading
-                color.rgb = lutLookup(color.rgb, uLutTex, uLutSize);
-
-                // 3. Auto exposure
-                float avgLum = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-                color.rgb *= uExposure / max(avgLum, 0.01);
-
-                // 4. Underwater tint + bubbles
-                if (uw > 0.01) {
-                    color.rgb = mix(color.rgb, uUnderwaterColor, 0.3 * uw);
-                    float bubble = sin(uv.x * 80.0 + uTime * 3.0) * sin(uv.y * 80.0 + uTime * 2.5);
-                    bubble = clamp(bubble * 2.0, 0.0, 1.0) * 0.15 * uw;
-                    color.rgb += vec3(bubble);
-                }
-
-                // 5. Vignette
-                float dist = length(uv - 0.5);
-                float vignette = 1.0 - dist * dist * uVignetteIntensity;
-                color.rgb *= vignette;
-
-                // 6. Film grain (stronger in dark areas)
-                float grain = uFilmGrainIntensity * (1.0 - avgLum * 0.5);
-                float noise = fract(sin(dot(uv + uTime * 0.1, vec2(12.9898, 78.233))) * 43758.5453);
-                color.rgb += (noise - 0.5) * grain;
-
-                // 7. Lens flare
-                if (uLensFlareIntensity > 0.01 && uSunUV.x > 0.0 && uSunUV.x < 1.0 && uSunUV.y > 0.0 && uSunUV.y < 1.0) {
-                    vec2 flareDir = uSunUV - uv;
-                    float flareDist = length(flareDir);
-                    float flare = smoothstep(0.5, 0.0, flareDist) * uLensFlareIntensity * 0.4;
-                    color.rgb += vec3(1.0, 0.8, 0.4) * flare;
-                    // Ghost artifacts
-                    for (int i = 0; i < 3; i++) {
-                        vec2 goff = vec2(float(i + 1) * 0.04, 0.0);
-                        vec2 gpos = uSunUV - sign(uSunUV - 0.5) * goff;
-                        float gd = length(gpos - uv);
-                        float g = smoothstep(0.025, 0.0, gd) * uLensFlareIntensity * 0.12;
-                        color.rgb += vec3(1.0, 0.6, 0.2) * g;
-                    }
-                }
-
-                gl_FragColor = vec4(color.rgb, 1.0);
-            }
-        `,
-    });
-    finalPass = new ShaderPass(finalMaterial);
-    finalPass.renderToScreen = true;
-    composer.addPass(finalPass);
+    // Final output pass (copies to screen, enables SSR + SSAO pipeline)
+    try {
+        const copyMat = new THREE.ShaderMaterial({
+            uniforms: { tDiffuse: { value: null } },
+            vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+            fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv; void main() { gl_FragColor = texture2D(tDiffuse, vUv); }`,
+        });
+        const outputPass = new ShaderPass(copyMat);
+        outputPass.renderToScreen = true;
+        composer.addPass(outputPass);
+    } catch (e) {
+        console.warn('Output pass not available:', e.message);
+        ssrPass.renderToScreen = true;
+    }
 
     new ResizeObserver(() => {
         if (!renderer || !camera) return;
@@ -1670,47 +1646,6 @@ window.threeBridgeRenderFrame = function () {
     if (ssaoPass) {
         ssaoPass.ssaoMaterial.uniforms.cameraProjectionMatrix.value.copy(camera.projectionMatrix);
         ssaoPass.ssaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse);
-    }
-
-    // R4: Update final combined pass
-    if (finalPass) {
-        const u = finalPass.material.uniforms;
-        u.uTime.value = now * 0.001;
-        u.uUnderwaterIntensity.value = underwaterActive ? 1.0 : 0.0;
-
-        // Auto-exposure smooth adaptation
-        exposureCurrent += (exposureTarget - exposureCurrent) * 0.05;
-        u.uExposure.value = exposureCurrent;
-
-        // Lens flare: compute sun screen-space position from camera
-        if (globalThis.__sunLight) {
-            const sunWorld = globalThis.__sunLight.position.clone();
-            const sunNDC = sunWorld.project(camera);
-            if (sunNDC.z > 0 && sunNDC.z < 1) {
-                u.uSunUV.value.set(sunNDC.x * 0.5 + 0.5, sunNDC.y * 0.5 + 0.5);
-            } else {
-                u.uSunUV.value.set(-1, -1);
-            }
-            const viewDir = camera.getWorldDirection(new THREE.Vector3());
-            const sunDir = sunWorld.clone().normalize();
-            const alignment = Math.max(0, viewDir.dot(sunDir));
-            lensFlareIntensity = Math.pow(alignment, 5.0) * 0.8;
-            u.uLensFlareIntensity.value = lensFlareIntensity;
-        }
-
-        // Vignette & grain from biome
-        const cat = biomeCategory(currentLutBiome);
-        u.uVignetteIntensity.value = cat === 'cave' ? 0.7 : 0.25;
-        u.uFilmGrainIntensity.value = cat === 'cave' || underwaterActive ? 0.08 : 0.03;
-
-        // Exposure target from biome
-        switch (cat) {
-            case 'cave': exposureTarget = 1.8; break;
-            case 'aquatic': exposureTarget = 1.2; break;
-            case 'warm': exposureTarget = 0.9; break;
-            case 'special': exposureTarget = 0.85; break;
-            default: exposureTarget = 1.0; break;
-        }
     }
 
     // Cloud wind drift

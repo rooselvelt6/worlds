@@ -172,4 +172,29 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeWorkerTerminate)]
     pub fn worker_terminate();
+
+    // ── R10 Living World ──
+    #[wasm_bindgen(js_name = threeBridgeCreateFootprint)]
+    pub fn create_footprint(key: &str, x: f64, y: f64, z: f64, rot: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetFootprintOpacity)]
+    pub fn set_footprint_opacity(key: &str, opacity: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveFootprint)]
+    pub fn remove_footprint(key: &str);
+
+    #[wasm_bindgen(js_name = threeBridgeCreateMeteor)]
+    pub fn create_meteor(key: &str, x: f64, y: f64, z: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeUpdateMeteor)]
+    pub fn update_meteor(key: &str, x: f64, y: f64, z: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveMeteor)]
+    pub fn remove_meteor(key: &str);
+
+    #[wasm_bindgen(js_name = threeBridgePushFlora)]
+    pub fn push_flora(key: &str, push_x: f64, push_z: f64, strength: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeResetFlora)]
+    pub fn reset_flora(key: &str);
 }

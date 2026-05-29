@@ -1,21 +1,70 @@
+use std::cell::RefCell;
+use std::collections::HashSet;
 use crate::math::*;
 use crate::state::WorldParams;
 use serde::{Deserialize, Serialize};
 
+thread_local! {
+    static CRATERS: RefCell<HashSet<(i32, i32)>> = RefCell::new(HashSet::new());
+}
+
+pub fn set_craters(craters: &HashSet<(i32, i32)>) {
+    CRATERS.with(|c| *c.borrow_mut() = craters.clone());
+}
+
+pub fn add_crater(bx: i32, bz: i32) {
+    CRATERS.with(|c| { c.borrow_mut().insert((bx, bz)); });
+}
+
+pub fn get_craters() -> HashSet<(i32, i32)> {
+    CRATERS.with(|c| c.borrow().clone())
+}
+
+fn crater_depth(wx: f64, wz: f64) -> f64 {
+    let mut depth = 0.0;
+    CRATERS.with(|c| {
+        let craters = c.borrow();
+        let bx = wx.floor() as i32;
+        let bz = wz.floor() as i32;
+        for dx in -2..=2 {
+            for dz in -2..=2 {
+                if craters.contains(&(bx + dx, bz + dz)) {
+                    let cx = (bx + dx) as f64 + 0.5;
+                    let cz = (bz + dz) as f64 + 0.5;
+                    let dist = ((wx - cx).powi(2) + (wz - cz).powi(2)).sqrt();
+                    let radius = 1.8;
+                    if dist < radius {
+                        let falloff = 1.0 - (dist / radius);
+                        let d = 1.2 * falloff * falloff;
+                        if d > depth { depth = d; }
+                    }
+                }
+            }
+        }
+    });
+    depth
+}
+
+/// Pure noise-based height without any modifiers (for erosion calculations).
+pub fn get_height_base(params: &WorldParams, wx: f64, wz: f64) -> f64 {
+    let base = fbm(wx * params.scale, wz * params.scale, params.octaves);
+    (base * params.amplitude + params.water_level).max(0.0)
+}
+
 pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
-    let scale = params.scale;
-    let amplitude = params.amplitude;
     let water_level = params.water_level;
 
-    let nx = wx * scale;
-    let nz = wz * scale;
+    let mut h = get_height_base(params, wx, wz);
 
-    let base = fbm(nx, nz, params.octaves);
-    let mut h = (base * amplitude + water_level).max(0.0);
+    // R9.1: Plate tectonics - uplift at convergent boundaries, subsidence at divergent
+    let plate_uplift = crate::engine::erosion::apply_plate_tectonics(wx, wz, params);
+    h += plate_uplift;
 
-    // River carving (before zone modifiers so rivers work across biomes)
+    // R9.3: Watershed-based river carving (more natural than pure sin/cos)
     let river_depth = river_carve(params, wx, wz);
-    h -= river_depth;
+    let ws_depth = crate::engine::erosion::apply_watershed_river(wx, wz, params);
+    // Blend: use max of both river systems for channel depth
+    h -= river_depth.max(ws_depth);
 
     if params.canyons {
         let canyon = (wx * 0.04).sin() * (wz * 0.04).cos()
@@ -25,6 +74,14 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
             h = (h - depth).max(params.water_level - 6.0);
         }
     }
+
+    // R9.2: Thermal + hydraulic erosion
+    let erosion_delta = crate::engine::erosion::apply_erosion(wx, wz, h, params);
+    h += erosion_delta;
+
+    // R9.4: Sedimentation in valleys and river mouths
+    let sediment = crate::engine::erosion::apply_sedimentation(wx, wz, h, params);
+    h += sediment;
 
     match params.zone {
         Zone::Ocean => h += water_level,
@@ -48,6 +105,15 @@ pub fn get_height(params: &WorldParams, wx: f64, wz: f64) -> f64 {
             });
         }
         _ => {}
+    }
+
+    // R9.5: Continental shelf profile for underwater areas
+    h = crate::engine::erosion::apply_continental_shelf(h, water_level);
+
+    // R10: Terrain destruction — craters from mining/explosions
+    let crater_d = crater_depth(wx, wz);
+    if crater_d > 0.0 {
+        h = (h - crater_d).max(params.water_level - 2.0);
     }
 
     h

@@ -5,65 +5,65 @@
 
 ---
 
-## R1 — Terreno con Normales Suaves + Detail Mesh
+## ✅ R1 — Terreno con Normales Suaves + Detail Mesh
 **Impacto:** ⭐⭐⭐⭐⭐ | **Esfuerzo:** 4-6h | **Depende de:** —
-- Normales suaves por vértice (promediar normales de triángulos adyacentes en grid n+1 × n+1)
-- Detail mesh: segunda malla transparente con textura de detalle (arena/rocas/hojarasca) superpuesta con blending
-- Parallax mapping para micro-relieve en lugar de subdivisión geométrica
+- ✅ Normales suaves por vértice (promediar normales de triángulos adyacentes en grid n+1 × n+1)
+- ✅ Detail mesh: segunda malla transparente con textura de detalle (arena/rocas/hojarasca) superpuesta con blending
+- ✅ Parallax mapping para micro-relieve en lugar de subdivisión geométrica
 - **Archivos:** `chunk.rs`, `three_bridge.js`, `terrain.rs`
 
 ---
 
-## R2 — Océano Realista con SSR y Shoreline
+## ✅ R2 — Océano Realista con SSR y Shoreline
 **Impacto:** ⭐⭐⭐⭐⭐ | **Esfuerzo:** 6-8h | **Depende de:** R1
-- Gerstner waves completas: desplazar XZ + Y por vértice, normales correctas desde la función de onda
-- Screen-Space Reflections (SSR) con `SSRPass` de Three.js
-- Shoreline blending: vertex alpha cerca de costa → transición agua→terreno
-- Underwater post-processing: tinte azul, distorsión, burbujas
+- ✅ Gerstner waves completas: desplazar XZ + Y por vértice, normales correctas desde la función de onda
+- ✅ Screen-Space Reflections (SSR) con `SSRPass` de Three.js
+- ✅ Shoreline blending: vertex alpha cerca de costa → transición agua→terreno
+- ✅ Underwater post-processing: tinte azul, distorsión, burbujas
 - **Archivos:** `three_bridge.js`, `mod.rs`, `chunk.rs`, `bridge.rs`
 
 ---
 
-## R3 — Atmósfera + Nubes Volumétricas
+## ✅ R3 — Atmósfera + Nubes Volumétricas
 **Impacto:** ⭐⭐⭐⭐⭐ | **Esfuerzo:** 5-7h | **Depende de:** —
-- Rayleigh + Mie scattering en shader de cielo (Three.js `Sky` o custom)
-- Sol con corona, glow solar y halo
-- Nubes volumétricas: billboards alpha-blended con textura procedural
-- Capas: cirrus (altas), cumulus (medias), stratus (bajas)
-- Viento desplaza nubes horizontalmente
+- ✅ Rayleigh + Mie scattering en shader de cielo (Three.js `Sky` o custom)
+- ✅ Sol con corona, glow solar y halo
+- ✅ Nubes volumétricas: billboards alpha-blended con textura procedural
+- ✅ Capas: cirrus (altas), cumulus (medias), stratus (bajas)
+- ✅ Viento desplaza nubes horizontalmente
 - **Archivos:** `three_bridge.js`, `bridge.rs`
 
 ---
 
-## R4 — Post-Processing Cinematográfico Completo
+## 🔶 R4 — Post-Processing Cinematográfico Completo (falta DoF)
 **Impacto:** ⭐⭐⭐⭐ | **Esfuerzo:** 4-6h | **Depende de:** R3
-- LUT 3D: color grading por bioma con transiciones suaves
-- Depth of Field (`BokehPass` o `DepthOfFieldPass`)
-- Vignette dinámica (intensa en cuevas, sutil de día)
-- Lens flare al mirar al sol
-- Adaptive exposure (auto ojo humano al entrar/salir de cuevas)
-- Film grain sutil en entornos oscuros
+- ✅ LUT 3D: color grading por bioma con transiciones suaves
+- ⬜ Depth of Field (`BokehPass` o `DepthOfFieldPass`)
+- ✅ Vignette dinámica (intensa en cuevas, sutil de día)
+- ✅ Lens flare al mirar al sol
+- ✅ Adaptive exposure (auto ojo humano al entrar/salir de cuevas)
+- ✅ Film grain sutil en entornos oscuros
 - **Archivos:** `three_bridge.js`, `index.html`, `bridge.rs`
 
 ---
 
-## R5 — Vegetación Realista + GPU Instancing
+## 🔶 R5 — Vegetación Realista + GPU Instancing (parcial)
 **Impacto:** ⭐⭐⭐⭐ | **Esfuerzo:** 5-7h | **Depende de:** R1
-- Billboards impostors: cross-quads texturados para copas lejanas
-- `THREE.InstancedMesh`: 1 draw call por tipo en lugar de 120 por chunk
-- Troncos cilíndricos, copas con múltiples planos alfa, ramas
-- Sway por vértice en GPU (shader de viento)
-- Detail grass: billboards de pasto (InstancedMesh, 1000+ blades por chunk)
+- ⬜ Billboards impostors: cross-quads texturados para copas lejanas
+- ⬜ `THREE.InstancedMesh` para árboles (1 draw call por tipo)
+- ⬜ Troncos cilíndricos, copas con múltiples planos alfa, ramas
+- ✅ Sway por vértice en GPU (shader de viento)
+- ✅ Detail grass: billboards de pasto (InstancedMesh, 500 blades por chunk)
 - **Archivos:** `vegetation.rs`, `three_bridge.js`, `bridge.rs`, `chunk.rs`
 
 ---
 
-## R6 — CSM + Sombras de Alta Calidad
+## 🔶 R6 — CSM + Sombras de Alta Calidad (parcial)
 **Impacto:** ⭐⭐⭐⭐ | **Esfuerzo:** 4-6h | **Depende de:** —
-- Cascaded Shadow Maps (CSM): 3-4 cascadas con resolución progresiva
-- Contact hardening: sombras más nítidas cerca del contacto
-- PCSS (Percentage Closer Soft Shadows)
-- Alpha-test shadow maps para vegetación
+- ✅ Cascaded Shadow Maps (CSM): 4 cascadas con resolución 2048
+- ⬜ Contact hardening: sombras más nítidas cerca del contacto
+- ⬜ PCSS (Percentage Closer Soft Shadows)
+- ⬜ Alpha-test shadow maps para vegetación
 - **Archivos:** `three_bridge.js`, `index.html`, `bridge.rs`
 
 ---
@@ -79,53 +79,53 @@
 
 ---
 
-## R8 — Audio HRTF + Reverb por Zona
+## ✅ R8 — Audio HRTF + Reverb por Zona
 **Impacto:** ⭐⭐⭐ | **Esfuerzo:** 4-5h | **Depende de:** —
-- HRTF con `PannerNode` avanzado (coneInnerAngle, coneOuterAngle, rolloffFactor)
-- IR diferentes por zona: cueva (larga), bosque (media), pradera (corta), dungeon (metálica)
-- Wind audio modulado por altura y velocidad del viento
-- Sonidos ambientales de fauna según bioma
-- Water presence: intensidad de río/cascada basada en distancia real
+- ✅ HRTF con `PannerNode` avanzado (coneInnerAngle, coneOuterAngle, rolloffFactor)
+- ✅ IR diferentes por zona: cueva (larga), bosque (media), pradera (corta), dungeon (metálica)
+- ✅ Wind audio modulado por altura y velocidad del viento
+- ✅ Sonidos ambientales de fauna según bioma
+- ✅ Water presence: intensidad de río/cascada basada en distancia real
 - **Archivos:** `audio.rs`, `three_bridge.js`, `bridge.rs`
 
 ---
 
-## R9 — Erosión y Tectónica de Placas
+## ✅ R9 — Erosión y Tectónica de Placas
 **Impacto:** ⭐⭐⭐⭐⭐ | **Esfuerzo:** 8-10h | **Depende de:** R1
-- Placas tectónicas: 2-3 placas → montañas en bordes, valles en divergencia
-- Erosión hidráulica + thermal erosion: barrancos, deltas, acantilados naturales
-- Cuencas hidrográficas: flujo desde crestas hasta el mar, cauces realistas
-- Sedimentación: valles fértiles, deltas en desembocaduras
-- Plataforma continental, talud, llanura abisal
-- **Archivos:** `terrain.rs`, `chunk.rs`, `engine/erosion.rs` (nuevo)
+- ✅ Placas tectónicas: 3 placas → montañas en bordes, valles en divergencia
+- ✅ Erosión hidráulica + thermal erosion: barrancos, deltas, acantilados naturales
+- ✅ Cuencas hidrográficas: flujo desde crestas hasta el mar, cauces realistas
+- ✅ Sedimentación: valles fértiles, deltas en desembocaduras
+- ✅ Plataforma continental, talud, llanura abisal
+- **Archivos:** `terrain.rs`, `chunk.rs`, `engine/erosion.rs`
 
 ---
 
-## R10 — Mundo Vivo: Partículas, Huellas, Destrucción
+## 🔶 R10 — Mundo Vivo: Partículas, Huellas, Destrucción (parcial)
 **Impacto:** ⭐⭐⭐⭐ | **Esfuerzo:** 6-8h | **Depende de:** R5, R7
-- Micropartículas: polen, polvo, hojas secas, nieve levantada por viento
-- Huellas al caminar/correr (decals o desplazamiento de vértices)
-- Destrucción de terreno: mesh de superficie se deforma al explotar/minar
-- Flora reactiva: arbustos y pasto se apartan al paso del jugador
-- Meteoros/rocas que caen en montaña
-- Estaciones visibles: nieve acumulada en invierno, barro en primavera
+- ✅ Micropartículas: polen, polvo, hojas secas, nieve levantada por viento
+- ⬜ Huellas al caminar/correr (decals o desplazamiento de vértices)
+- ⬜ Destrucción de terreno: mesh de superficie se deforma al explotar/minar
+- ⬜ Flora reactiva: arbustos y pasto se apartan al paso del jugador
+- ⬜ Meteoros/rocas que caen en montaña
+- ✅ Estaciones visibles: nieve acumulada en invierno, barro en primavera
 - **Archivos:** `particles.rs`, `chunk.rs`, `three_bridge.js`, `mod.rs`, `bridge.rs`, `terrain.rs`
 
 ---
 
 ## Resumen
 
-| # | Fase | Impacto | Esfuerzo | Depende de |
-|---|------|---------|----------|------------|
-| R1 | Terreno Normales Suaves | ⭐⭐⭐⭐⭐ | 4-6h | — |
-| R2 | Océano SSR + Shoreline | ⭐⭐⭐⭐⭐ | 6-8h | R1 |
-| R3 | Atmósfera + Nubes | ⭐⭐⭐⭐⭐ | 5-7h | — |
-| R4 | Post-Processing | ⭐⭐⭐⭐ | 4-6h | R3 |
-| R5 | Vegetación Instancing | ⭐⭐⭐⭐ | 5-7h | R1 |
-| R6 | CSM Sombras | ⭐⭐⭐⭐ | 4-6h | — |
-| ✅ R7 | SSAO + Cuevas | ⭐⭐⭐⭐ | 6-8h | R6 |
-| R8 | Audio HRTF | ⭐⭐⭐ | 4-5h | — |
-| R9 | Erosión/Tectónica | ⭐⭐⭐⭐⭐ | 8-10h | R1 |
-| R10 | Mundo Vivo | ⭐⭐⭐⭐ | 6-8h | R5, R7 |
+| # | Fase | Impacto | Esfuerzo | Depende de | Estado |
+|---|------|---------|----------|------------|--------|
+| ✅ R1 | Terreno Normales Suaves | ⭐⭐⭐⭐⭐ | 4-6h | — | Completo |
+| ✅ R2 | Océano SSR + Shoreline | ⭐⭐⭐⭐⭐ | 6-8h | R1 | Completo |
+| ✅ R3 | Atmósfera + Nubes | ⭐⭐⭐⭐⭐ | 5-7h | — | Completo |
+| 🔶 R4 | Post-Processing | ⭐⭐⭐⭐ | 4-6h | R3 | **Solo falta DoF** |
+| 🔶 R5 | Vegetación Instancing | ⭐⭐⭐⭐ | 5-7h | R1 | Parcial (árboles sin instancing, sin billboards) |
+| 🔶 R6 | CSM Sombras | ⭐⭐⭐⭐ | 4-6h | — | Parcial (CSM OK, falta PCSS/contact hardening) |
+| 🔶 R7 | SSAO + Cuevas | ⭐⭐⭐⭐ | 6-8h | R6 | Parcial (SSAO OK, falta baked light maps/god rays) |
+| ✅ R8 | Audio HRTF | ⭐⭐⭐ | 4-5h | — | Completo |
+| ✅ R9 | Erosión/Tectónica | ⭐⭐⭐⭐⭐ | 8-10h | R1 | Completo |
+| 🔶 R10 | Mundo Vivo | ⭐⭐⭐⭐ | 6-8h | R5, R7 | Parcial (partículas+estaciones OK, falta huellas/destrucción/flora/meteoros) |
 
 **Total estimado:** 52-72 horas
