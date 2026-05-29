@@ -101,13 +101,13 @@
 
 ---
 
-## 🔶 R10 — Mundo Vivo: Partículas, Huellas, Destrucción (parcial)
+## ✅ R10 — Mundo Vivo: Huellas, Flora Reactiva, Meteoros, Cráteres
 **Impacto:** ⭐⭐⭐⭐ | **Esfuerzo:** 6-8h | **Depende de:** R5, R7
 - ✅ Micropartículas: polen, polvo, hojas secas, nieve levantada por viento
-- ⬜ Huellas al caminar/correr (decals o desplazamiento de vértices)
-- ⬜ Destrucción de terreno: mesh de superficie se deforma al explotar/minar
-- ⬜ Flora reactiva: arbustos y pasto se apartan al paso del jugador
-- ⬜ Meteoros/rocas que caen en montaña
+- ✅ Huellas al caminar/correr (CircleGeometry con fade-out)
+- ✅ Cráteres por minería (thread_local CRATERS, deformación de mesh)
+- ✅ Flora reactiva: arbustos se apartan al paso del jugador (push_flora en three_bridge.js)
+- ✅ Meteoros/rocas que caen en zonas montañosas
 - ✅ Estaciones visibles: nieve acumulada en invierno, barro en primavera
 - **Archivos:** `particles.rs`, `chunk.rs`, `three_bridge.js`, `mod.rs`, `bridge.rs`, `terrain.rs`
 
@@ -126,6 +126,6 @@
 | 🔶 R7 | SSAO + Cuevas | ⭐⭐⭐⭐ | 6-8h | R6 | Parcial (SSAO OK, falta baked light maps/god rays) |
 | ✅ R8 | Audio HRTF | ⭐⭐⭐ | 4-5h | — | Completo |
 | ✅ R9 | Erosión/Tectónica | ⭐⭐⭐⭐⭐ | 8-10h | R1 | Completo |
-| 🔶 R10 | Mundo Vivo | ⭐⭐⭐⭐ | 6-8h | R5, R7 | Parcial (partículas+estaciones OK, falta huellas/destrucción/flora/meteoros) |
+| ✅ R10 | Mundo Vivo | ⭐⭐⭐⭐ | 6-8h | R5, R7 | Completo |
 
 **Total estimado:** 52-72 horas
