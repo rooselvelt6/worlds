@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>WORLDS — Phase 1 Foundation</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" crossorigin="anonymous" />
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "/three/three.module.js",
+            "three/addons/": "/three/"
+        }
+    }
+    </script>
+    <script type="module" src="three_bridge.js"></script>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0a0a12" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --glow-r: 34;
+            --glow-g: 211;
+            --glow-b: 238;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a12; font-family: 'Inter', system-ui, sans-serif; }
+        canvas:focus { outline: none; }
+        input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; }
+        input[type="range"]::-moz-range-thumb { border: none; }
+        .slider-thumb::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: white;
+            box-shadow: 0 0 12px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.5),
+                        0 0 30px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.2),
+                        0 2px 8px rgba(0,0,0,0.4);
+            transition: box-shadow 0.2s, transform 0.15s;
+            border: 2px solid rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.4);
+        }
+        .slider-thumb::-moz-range-thumb {
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: white;
+            box-shadow: 0 0 12px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.5),
+                        0 0 30px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.2);
+            transition: box-shadow 0.2s, transform 0.15s;
+            border: 2px solid rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.4);
+        }
+        .slider-thumb:hover::-webkit-slider-thumb {
+            box-shadow: 0 0 20px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.7),
+                        0 0 50px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.3);
+            transform: scale(1.15);
+        }
+        .slider-thumb:hover::-moz-range-thumb {
+            box-shadow: 0 0 20px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.7),
+                        0 0 50px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.3);
+            transform: scale(1.15);
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+        .glass-shimmer {
+            background: linear-gradient(
+                120deg,
+                transparent 20%,
+                rgba(255,255,255,0.03) 50%,
+                transparent 80%
+            );
+            background-size: 200% 100%;
+            animation: shimmer 6s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        @keyframes glow-pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-3px); }
+        }
+        @keyframes fade-slide-in {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(10px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .ach-fade-in {
+            animation: fade-in 0.4s ease-out;
+        }
+        .tab-enter {
+            animation: fade-slide-in 0.25s ease-out;
+        }
+        .scrollbar-thin {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.08) transparent;
+        }
+        .backdrop-blur-glass {
+            backdrop-filter: blur(24px) saturate(1.4);
+            -webkit-backdrop-filter: blur(24px) saturate(1.4);
+        }
+    </style>
+<link rel="modulepreload" href="/worlds-app-f872acb0c69aa3f3.js" crossorigin="anonymous" integrity="sha384-CwqoSrVnJRLmZ7VBhb4ZLkoojzqXzPAA040q9TBpCtGagtz0r5mltv/R3YDUeLrM"><link rel="preload" href="/worlds-app-f872acb0c69aa3f3_bg.wasm" crossorigin="anonymous" integrity="sha384-LuG4MPSKZ/CKsyz6krwhQWr6WSrnssAAhlqEo3ipT71dKoxZ5SFd3h94y1TJHE5y" as="fetch" type="application/wasm"></head>
+<body class="bg-[#0a0a12]">
+
+<script type="module">
+import init, * as bindings from '/worlds-app-f872acb0c69aa3f3.js';
+const wasm = await init({ module_or_path: '/worlds-app-f872acb0c69aa3f3_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script></body>
+</html>

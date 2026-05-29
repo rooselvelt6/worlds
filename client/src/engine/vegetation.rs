@@ -490,3 +490,73 @@ pub fn generate_veg_mesh_from_data(veg: &VegData, season: u8, growth_ticks: u64)
     }
     (pos, norms, idx, cols)
 }
+
+// ── R5 Grass System ──
+const MAX_GRASS: usize = 500;
+
+pub struct GrassData {
+    pub cx: i32,
+    pub cz: i32,
+    /// Flat array of [x, y, z, scale, rotation] per blade
+    pub instances: Vec<f32>,
+    pub count: usize,
+}
+
+fn grass_density(zone: Zone) -> f32 {
+    match zone {
+        Zone::Forest => 0.8,
+        Zone::Plains => 1.0,
+        Zone::Jungle => 0.6,
+        Zone::Crystal => 0.3,
+        Zone::Aurora => 0.2,
+        _ => 0.0,
+    }
+}
+
+pub fn compute_chunk_grass(params: &WorldParams, cx: i32, cz: i32, _season: u8) -> GrassData {
+    let zone = terrain::get_zone(params, cx as f64 * 24.0 + 12.0, cz as f64 * 24.0 + 12.0);
+    let density = grass_density(zone);
+    if density <= 0.0 {
+        return GrassData { cx, cz, instances: Vec::new(), count: 0 };
+    }
+
+    let ox = cx as f64 * 24.0;
+    let oz = cz as f64 * 24.0;
+    let rng_seed = (params.seed as u64).wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+
+    let mut instances = Vec::with_capacity(MAX_GRASS * 5);
+    let mut count = 0;
+
+    for i in 0..MAX_GRASS {
+        let r = (rng_seed.wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407 + i as u64 + (cx as u64).wrapping_mul(1000) + (cz as u64).wrapping_mul(2000))) as f64
+            / u64::MAX as f64;
+
+        if r >= density as f64 { continue; }
+
+        let px = ox + r * 24.0;
+        let pz = oz + fract(r * 7.13) * 24.0;
+
+        let ground = terrain::get_height(params, px, pz);
+        if ground < params.water_level - 0.5 || ground > params.water_level + 5.0 { continue; }
+
+        let scale = 0.5 + fract(r * 3.7) * 0.8;
+        let rotation = fract(r * 11.3) * std::f64::consts::TAU;
+
+        instances.push(px as f32);
+        instances.push(ground as f32);
+        instances.push(pz as f32);
+        instances.push(scale as f32);
+        instances.push(rotation as f32);
+        count += 1;
+
+        if count >= MAX_GRASS { break; }
+    }
+
+    GrassData { cx, cz, instances, count }
+}
+
+fn fract(x: f64) -> f64 {
+    x - x.floor()
+}

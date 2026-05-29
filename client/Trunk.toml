@@ -1,2 +1,5 @@
 [[assets]]
 source = "three_bridge.js"
+
+[[assets]]
+source = "worker.js"

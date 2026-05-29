@@ -518,6 +518,7 @@ pub fn App() -> impl IntoView {
                 <button on:click=move |_| toggle_menu("zone") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Zone / Zona">{ "🌍" }</button>
                 <button on:click=move |_| toggle_menu("canyons") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Canyons / Cañones">{ "🏔️" }</button>
                 <button on:click=move |_| toggle_menu("particles") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Particles / Partículas">{ "🌧️" }</button>
+                <button on:click=move |_| toggle_menu("profiling") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Profiling / Rendimiento">{ "📊" }</button>
             </div>
 
             <div class="absolute left-[156px] top-1/2 -translate-y-1/2 z-20 flex-col gap-2.5 max-sm:hidden hidden sm:flex">
@@ -550,6 +551,7 @@ pub fn App() -> impl IntoView {
                                     Some("saves") => "Guardar / Cargar",
                                     Some("season") => "Estaciones",
                                     Some("codex") => "Codex / Bestiario",
+                                    Some("profiling") => "Profiling / Rendimiento",
                                     _ => "",
                                 }}
                             </div>
@@ -867,6 +869,31 @@ pub fn App() -> impl IntoView {
                                     <div class="text-[9px] font-mono text-white/20 text-center mt-1">
                                         Presiona G para cambiar clima
                                     </div>
+                                </div>
+                            }) } else { None }}
+
+                            {move || if open_menu.get() == Some("profiling") { Some(view! {
+                                <div class="flex flex-col gap-2 min-w-[200px]">
+                                    <div class="text-white/80 text-[10px] font-mono mb-1">"📊 Rendimiento"</div>
+                                    {move || {
+                                        let h = hud.get();
+                                        let items = vec![
+                                            ("FPS", format!("{}", h.profiling_fps), h.profiling_fps >= 30),
+                                            ("Chunks", format!("{}", h.profiling_chunks), true),
+                                            ("Worker cola", format!("{}", h.profiling_worker_pending), h.profiling_worker_pending < 8),
+                                            ("Draw calls", format!("{}", h.profiling_draw_calls), h.profiling_draw_calls < 500),
+                                            ("Memoria", format!("{:.1} MB", h.profiling_memory_mb), h.profiling_memory_mb < 200.0),
+                                        ];
+                                        items.into_iter().map(|(label, value, ok)| {
+                                            let color = if ok { "text-green-400" } else { "text-red-400" };
+                                            view! {
+                                                <div class="flex items-center gap-2 py-1 px-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                                                    <span class="text-[10px] font-mono text-white/50 min-w-[9ch]">{label}</span>
+                                                    <span class={format!("flex-1 text-right text-[11px] font-mono {}", color)}>{value}</span>
+                                                </div>
+                                            }
+                                        }).collect::<Vec<_>>()
+                                    }}
                                 </div>
                             }) } else { None }}
                         </div>

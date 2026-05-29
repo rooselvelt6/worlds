@@ -692,6 +692,7 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
     }
 
     // Generate smooth terrain surface mesh from heightmap
+    // Uses averaged per-corner normals for smooth shading (R1)
     {
         let cn = n + 1;
         let mut corner_heights = vec![0.0_f64; cn * cn];
@@ -705,6 +706,54 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
             }
         }
 
+        // First pass: accumulate normals at each corner (iz, ix)
+        let mut corner_normals = vec![[0.0_f32; 3]; cn * cn];
+        for iz in 0..n {
+            for ix in 0..n {
+                let h00 = corner_heights[iz * cn + ix] as f32;
+                let h10 = corner_heights[iz * cn + (ix + 1)] as f32;
+                let h01 = corner_heights[(iz + 1) * cn + ix] as f32;
+                let h11 = corner_heights[(iz + 1) * cn + (ix + 1)] as f32;
+
+                let x0 = (ox + ix as f64 * step) as f32;
+                let z0 = (oz + iz as f64 * step) as f32;
+                let x1 = (ox + (ix + 1) as f64 * step) as f32;
+                let z1 = (oz + (iz + 1) as f64 * step) as f32;
+
+                // Tri 1: (ix,iz) -> (ix+1,iz+1) -> (ix+1,iz)
+                let p0 = [x0, h00, z0]; let p1 = [x1, h11, z1]; let p2 = [x1, h10, z0];
+                let e1x = p1[0]-p0[0]; let e1y = p1[1]-p0[1]; let e1z = p1[2]-p0[2];
+                let e2x = p2[0]-p0[0]; let e2y = p2[1]-p0[1]; let e2z = p2[2]-p0[2];
+                let nx = e1y*e2z - e1z*e2y; let ny = e1z*e2x - e1x*e2z; let nz = e1x*e2y - e1y*e2x;
+
+                let c00 = iz * cn + ix;
+                let c10 = iz * cn + (ix + 1);
+                let c01 = (iz + 1) * cn + ix;
+                let c11 = (iz + 1) * cn + (ix + 1);
+
+                corner_normals[c00][0] += nx; corner_normals[c00][1] += ny; corner_normals[c00][2] += nz;
+                corner_normals[c11][0] += nx; corner_normals[c11][1] += ny; corner_normals[c11][2] += nz;
+                corner_normals[c10][0] += nx; corner_normals[c10][1] += ny; corner_normals[c10][2] += nz;
+
+                // Tri 2: (ix,iz) -> (ix,iz+1) -> (ix+1,iz+1)
+                let p3 = [x0, h01, z1];
+                let e3x = p3[0]-p0[0]; let e3y = p3[1]-p0[1]; let e3z = p3[2]-p0[2];
+                let e4x = p1[0]-p0[0]; let e4y = p1[1]-p0[1]; let e4z = p1[2]-p0[2];
+                let nx2 = e3y*e4z - e3z*e4y; let ny2 = e3z*e4x - e3x*e4z; let nz2 = e3x*e4y - e3y*e4x;
+
+                corner_normals[c00][0] += nx2; corner_normals[c00][1] += ny2; corner_normals[c00][2] += nz2;
+                corner_normals[c01][0] += nx2; corner_normals[c01][1] += ny2; corner_normals[c01][2] += nz2;
+                corner_normals[c11][0] += nx2; corner_normals[c11][1] += ny2; corner_normals[c11][2] += nz2;
+            }
+        }
+
+        // Normalize corner normals
+        for cn_ref in &mut corner_normals {
+            let len = (cn_ref[0]*cn_ref[0] + cn_ref[1]*cn_ref[1] + cn_ref[2]*cn_ref[2]).sqrt().max(0.001);
+            cn_ref[0] /= len; cn_ref[1] /= len; cn_ref[2] /= len;
+        }
+
+        // Second pass: output mesh vertices with smoothed normals
         for iz in 0..n {
             for ix in 0..n {
                 let col_offset = iz * n + ix;
@@ -721,12 +770,10 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 let h01 = corner_heights[(iz + 1) * cn + ix] as f32;
                 let h11 = corner_heights[(iz + 1) * cn + (ix + 1)] as f32;
 
-                // Compute slope from corner heights (tan of inclination angle)
                 let dzdx = ((h10 - h00) + (h11 - h01)) / (2.0 * step as f32);
                 let dzdy = ((h01 - h00) + (h11 - h10)) / (2.0 * step as f32);
                 let slope = (dzdx * dzdx + dzdy * dzdy).sqrt();
 
-                // Select effective surface type based on slope, zone, and height
                 let effective_bt = if surface_h > max_h * 0.85 && !matches!(zone, Zone::Desert | Zone::Tundra) {
                     BLK_SNOW
                 } else if slope > 0.6 {
@@ -766,37 +813,18 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 let x1 = (ox + (ix + 1) as f64 * step) as f32;
                 let z1 = (oz + (iz + 1) as f64 * step) as f32;
 
+                let p0 = [x0, h00, z0]; let p1 = [x1, h11, z1]; let p2 = [x1, h10, z0]; let p3 = [x0, h01, z1];
+
+                let n00 = corner_normals[iz * cn + ix];
+                let n10 = corner_normals[iz * cn + (ix + 1)];
+                let n01 = corner_normals[(iz + 1) * cn + ix];
+                let n11 = corner_normals[(iz + 1) * cn + (ix + 1)];
+
                 let nv = (positions.len() / 3) as u32;
 
-                // Triangle 1: (0,0)-(1,1)-(1,0) — CCW from above
-                let p0 = [x0, h00, z0];
-                let p1 = [x1, h11, z1];
-                let p2 = [x1, h10, z0];
-                // Triangle 2: (0,0)-(0,1)-(1,1) — CCW from above
-                let p3 = [x0, h01, z1];
-
-                // Compute normal for tri1
-                let e1x = p1[0] - p0[0]; let e1y = p1[1] - p0[1]; let e1z = p1[2] - p0[2];
-                let e2x = p2[0] - p0[0]; let e2y = p2[1] - p0[1]; let e2z = p2[2] - p0[2];
-                let nx1 = e1y * e2z - e1z * e2y;
-                let ny1 = e1z * e2x - e1x * e2z;
-                let nz1 = e1x * e2y - e1y * e2x;
-                let len1 = (nx1 * nx1 + ny1 * ny1 + nz1 * nz1).sqrt().max(0.001);
-                let (nx1, ny1, nz1) = (nx1 / len1, ny1 / len1, nz1 / len1);
-
-                // Compute normal for tri2
-                let e3x = p3[0] - p0[0]; let e3y = p3[1] - p0[1]; let e3z = p3[2] - p0[2];
-                let e4x = p1[0] - p0[0]; let e4y = p1[1] - p0[1]; let e4z = p1[2] - p0[2];
-                let nx2 = e3y * e4z - e3z * e4y;
-                let ny2 = e3z * e4x - e3x * e4z;
-                let nz2 = e3x * e4y - e3y * e4x;
-                let len2 = (nx2 * nx2 + ny2 * ny2 + nz2 * nz2).sqrt().max(0.001);
-                let (nx2, ny2, nz2) = (nx2 / len2, ny2 / len2, nz2 / len2);
-
-                // Push tri1: p0, p1, p2
-                for &(v, n) in &[(p0, (nx1, ny1, nz1)), (p1, (nx1, ny1, nz1)), (p2, (nx1, ny1, nz1))] {
+                for &(v, n) in &[(p0, n00), (p1, n11), (p2, n10)] {
                     positions.push(v[0]); positions.push(v[1]); positions.push(v[2]);
-                    normals.push(n.0); normals.push(n.1); normals.push(n.2);
+                    normals.push(n[0]); normals.push(n[1]); normals.push(n[2]);
                     colors.push(rl); colors.push(gl); colors.push(bl);
                 }
                 uvs.push(u0); uvs.push(v0);
@@ -804,10 +832,9 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 uvs.push(u1); uvs.push(v0);
                 indices.push(nv); indices.push(nv + 1); indices.push(nv + 2);
 
-                // Push tri2: p0, p3, p1
-                for &(v, n) in &[(p0, (nx2, ny2, nz2)), (p3, (nx2, ny2, nz2)), (p1, (nx2, ny2, nz2))] {
+                for &(v, n) in &[(p0, n00), (p3, n01), (p1, n11)] {
                     positions.push(v[0]); positions.push(v[1]); positions.push(v[2]);
-                    normals.push(n.0); normals.push(n.1); normals.push(n.2);
+                    normals.push(n[0]); normals.push(n[1]); normals.push(n[2]);
                     colors.push(rl); colors.push(gl); colors.push(bl);
                 }
                 uvs.push(u0); uvs.push(v0);

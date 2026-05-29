@@ -54,7 +54,22 @@ extern "C" {
         positions: &js_sys::Float32Array,
         normals: &js_sys::Float32Array,
         indices: &js_sys::Uint32Array,
+        alphas: &js_sys::Float32Array,
     );
+
+    #[wasm_bindgen(js_name = threeBridgeUpdateWaterMesh)]
+    pub fn update_water_mesh(
+        key: &str,
+        positions: &js_sys::Float32Array,
+        normals: &js_sys::Float32Array,
+        alphas: &js_sys::Float32Array,
+    );
+
+    #[wasm_bindgen(js_name = threeBridgeSetUnderwater)]
+    pub fn set_underwater(active: bool);
+
+    #[wasm_bindgen(js_name = threeBridgeSetWaterColor)]
+    pub fn set_water_color(r: f64, g: f64, b: f64);
 
     #[wasm_bindgen(js_name = threeBridgeSetMeshColor)]
     pub fn set_mesh_color(key: &str, r: f64, g: f64, b: f64);
@@ -85,6 +100,26 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeSetWind)]
     pub fn set_wind(dir: f64, strength: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetSunPosition)]
+    pub fn set_sun_position(x: f64, y: f64, z: f64, elevation: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetNightParams)]
+    pub fn set_night_params(r: f64, g: f64, b: f64, stars_opacity: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetBiome)]
+    pub fn set_biome(zone_id: i32);
+
+    #[wasm_bindgen(js_name = threeBridgeUploadGrass)]
+    pub fn upload_grass(
+        key: &str,
+        instance_data: &js_sys::Float32Array,
+        count: u32,
+        height: f32,
+    );
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveGrass)]
+    pub fn remove_grass(key: &str);
 
     #[wasm_bindgen(js_name = threeBridgeUploadPortalMesh)]
     pub fn upload_portal_mesh(
@@ -118,4 +153,23 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeWsRemovePlayer)]
     pub fn ws_remove_player(id: &str);
+
+    // Web Worker chunk generation
+    #[wasm_bindgen(js_name = threeBridgeWorkerInit)]
+    pub fn worker_init();
+
+    #[wasm_bindgen(js_name = threeBridgeWorkerGenChunk)]
+    pub fn worker_gen_chunk(params_json: &str, cx: i32, cz: i32, lod: u32) -> i32;
+
+    #[wasm_bindgen(js_name = threeBridgeWorkerGetReady)]
+    pub fn worker_get_ready() -> Option<String>;
+
+    #[wasm_bindgen(js_name = threeBridgeWorkerPending)]
+    pub fn worker_pending() -> u32;
+
+    #[wasm_bindgen(js_name = threeBridgeWorkerSetSeed)]
+    pub fn worker_set_seed(seed: u32);
+
+    #[wasm_bindgen(js_name = threeBridgeWorkerTerminate)]
+    pub fn worker_terminate();
 }

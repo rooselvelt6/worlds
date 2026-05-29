@@ -41,7 +41,7 @@ WORLDS genera mundos 3D infinitos con terreno procedural FBM, texturizado por pe
 | UI | Leptos 0.8 CSR |
 | Servidor | Axum (Rust, con WebSocket) |
 | Audio | Web Audio API (sintesis 100%) |
-| Post-procesado | UnrealBloomPass + EffectComposer |
+| Post-procesado | EffectComposer + SSRPass + SSAOPass + UnrealBloomPass |
 
 ## Arquitectura
 

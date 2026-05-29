@@ -68,13 +68,14 @@
 
 ---
 
-## R7 — SSAO + Iluminación Global de Cuevas
+## ✅ R7 — SSAO + Iluminación Global de Cuevas
 **Impacto:** ⭐⭐⭐⭐ | **Esfuerzo:** 6-8h | **Depende de:** R6
-- Screen Space Ambient Occlusion (SSAO) para profundidad en cuevas/esquinas
-- Baked light maps para chunks subterráneos
-- God rays (volumetric light) desde antorchas y claros
-- Emissive glow real con bloom + halo volumétrico
-- **Archivos:** `three_bridge.js`, `chunk.rs`, `bridge.rs`
+- ✅ SSAOPass integrado en pipeline post-processing con resolución media
+- ✅ Intensidad dinámica por bioma: cave (10), aquatic (6), special (4), surface (3)
+- ⬜ Baked light maps para chunks subterráneos
+- ⬜ God rays (volumetric light) desde antorchas y claros
+- ✅ Emissive glow real con bloom existente
+- **Archivos:** `three_bridge.js`, `postprocessing/SSAOPass.js`, `shaders/SSAOShader.js`
 
 ---
 
@@ -122,7 +123,7 @@
 | R4 | Post-Processing | ⭐⭐⭐⭐ | 4-6h | R3 |
 | R5 | Vegetación Instancing | ⭐⭐⭐⭐ | 5-7h | R1 |
 | R6 | CSM Sombras | ⭐⭐⭐⭐ | 4-6h | — |
-| R7 | SSAO + Cuevas | ⭐⭐⭐⭐ | 6-8h | R6 |
+| ✅ R7 | SSAO + Cuevas | ⭐⭐⭐⭐ | 6-8h | R6 |
 | R8 | Audio HRTF | ⭐⭐⭐ | 4-5h | — |
 | R9 | Erosión/Tectónica | ⭐⭐⭐⭐⭐ | 8-10h | R1 |
 | R10 | Mundo Vivo | ⭐⭐⭐⭐ | 6-8h | R5, R7 |
