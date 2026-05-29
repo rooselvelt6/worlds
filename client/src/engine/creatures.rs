@@ -485,7 +485,6 @@ fn is_walkable(
     params: &WorldParams,
     wx: f64, wz: f64,
     is_underwater: bool,
-    placed_blocks: &HashMap<(i32,i32,i32), u8>,
     veg_chunks: &HashMap<(i32, i32), crate::engine::vegetation::VegData>,
 ) -> bool {
     let h = crate::engine::terrain::get_height(params, wx, wz);
@@ -505,7 +504,6 @@ fn is_walkable(
     if (h3 - h).abs() > 1.2 { return false; }
     let h4 = crate::engine::terrain::get_height(params, wx, wz - step);
     if (h4 - h).abs() > 1.2 { return false; }
-    if crate::engine::collides_with_blocks(wx, h, wz, placed_blocks) { return false; }
     if crate::engine::collides_with_veg(wx, wz, veg_chunks) { return false; }
     true
 }
@@ -534,7 +532,6 @@ fn pathfind_a_star(
     start_x: f64, start_z: f64,
     goal_x: f64, goal_z: f64,
     is_underwater: bool,
-    placed_blocks: &HashMap<(i32,i32,i32), u8>,
     veg_chunks: &HashMap<(i32, i32), crate::engine::vegetation::VegData>,
 ) -> Vec<(f64, f64)> {
     const CELL: f64 = 1.0;
@@ -543,7 +540,7 @@ fn pathfind_a_star(
 
     let start = (to_gx(start_x), to_gx(start_z));
     let goal = (to_gx(goal_x), to_gx(goal_z));
-    if !is_walkable(params, goal_x, goal_z, is_underwater, placed_blocks, veg_chunks) {
+    if !is_walkable(params, goal_x, goal_z, is_underwater, veg_chunks) {
         return vec![];
     }
 
@@ -589,7 +586,7 @@ fn pathfind_a_star(
             if (nx - start.0).abs() > SEARCH_RADIUS || (nz - start.1).abs() > SEARCH_RADIUS {
                 continue;
             }
-            if !is_walkable(params, to_wx(nx), to_wx(nz), is_underwater, placed_blocks, veg_chunks) {
+            if !is_walkable(params, to_wx(nx), to_wx(nz), is_underwater, veg_chunks) {
                 continue;
             }
             let move_cost = if dx != 0 && dz != 0 { 1.414 } else { 1.0 };
@@ -615,7 +612,6 @@ pub fn update_creature_ai(
     data: &mut CreatureData,
     time: f64,
     player_x: f64, player_z: f64,
-    placed_blocks: &HashMap<(i32,i32,i32), u8>,
     veg_chunks: &HashMap<(i32, i32), crate::engine::vegetation::VegData>,
     _day_time: f64,
     delta: f64,
@@ -667,7 +663,7 @@ pub fn update_creature_ai(
                     let radius = 3.0 + (ph * 7.0).fract() * 5.0;
                     let tx = creature.x + angle.cos() * radius;
                     let tz = creature.z + angle.sin() * radius;
-                    creature.path = pathfind_a_star(params, creature.x, creature.z, tx, tz, is_underwater, placed_blocks, veg_chunks);
+                    creature.path = pathfind_a_star(params, creature.x, creature.z, tx, tz, is_underwater, veg_chunks);
                     creature.path_index = 0;
                     creature.state = STATE_WANDER;
                     creature.state_timer = 4.0 + (ph * 3.0).fract() * 4.0;
@@ -711,7 +707,7 @@ pub fn update_creature_ai(
             STATE_FOLLOW => {
                 if dist_to_player > 2.5 {
                     if creature.path.is_empty() || creature.path_index >= creature.path.len() {
-                        creature.path = pathfind_a_star(params, creature.x, creature.z, player_x, player_z, is_underwater, placed_blocks, veg_chunks);
+                        creature.path = pathfind_a_star(params, creature.x, creature.z, player_x, player_z, is_underwater, veg_chunks);
                         creature.path_index = 0;
                     }
                     if creature.path_index < creature.path.len() {

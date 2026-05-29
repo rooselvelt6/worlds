@@ -10,8 +10,9 @@ pub mod controls;
 pub mod creatures;
 pub mod db;
 pub mod foam;
-pub mod gamepad;
 pub mod inventory;
+pub mod gamepad;
+
 pub mod joystick;
 pub mod minimap;
 pub mod minerals;
@@ -24,7 +25,6 @@ pub mod vegetation;
 pub mod waterfall;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
 use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
@@ -35,11 +35,11 @@ use codex::Codex;
 use foam::FoamSystem;
 use particles::BubbleSystem;
 use crate::state::{CameraMode, CharacterPreset, ParticleMode, WorldParams};
-use terrain::{Zone, get_height};
+use terrain::Zone;
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
-use controls::{Controls, MASK_1, MASK_2, MASK_3, MASK_4, MASK_5, MASK_6, MASK_7, MASK_8, MASK_9,
-    MASK_A, MASK_B, MASK_D, MASK_E, MASK_G, MASK_LCLICK, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+use controls::{Controls,
+    MASK_A, MASK_D, MASK_E, MASK_G, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
 use creatures::generate_creature_mesh_from_data;
 use gamepad::poll_gamepad;
 use inventory::Inventory;
@@ -79,10 +79,7 @@ pub struct HudData {
     pub portal_target_seed: Option<u32>,
     pub portal_pos: [f64; 3],
     pub visited_seeds: Vec<u32>,
-    pub build_mode: bool,
-    pub inventory: Vec<(u8, u32)>,
     pub minerals: Vec<(u8, u32)>,
-    pub selected_slot: u8,
     pub season: u8,
     pub creature_count: u32,
     pub achievement_points: u32,
@@ -133,8 +130,6 @@ fn auto_save_full(s: &GameState) {
     let inventory_json = serde_json::to_string(&s.inventory).ok();
     let codex_json = serde_json::to_string(&s.codex).ok();
     let achievements_json = serde_json::to_string(&s.achievements).ok();
-    let placed: Vec<[i32; 4]> = s.placed_blocks.iter().map(|(&(x,y,z), &t)| [x, y, z, t as i32]).collect();
-    let block_inv: Vec<(u8, u32)> = s.block_inventory.iter().map(|(t, c)| (*t, *c)).collect();
     let discovered = s.discovered_biomes.clone();
     let mut data = crate::state::SaveData::new(
         "Auto", &s.params, s.char_pos,
@@ -145,50 +140,10 @@ fn auto_save_full(s: &GameState) {
     data.inventory_json = inventory_json;
     data.codex_json = codex_json;
     data.achievements_json = achievements_json;
-    data.placed_blocks = placed;
-    data.block_inventory = block_inv;
     data.visited_seeds = s.visited_seeds.clone();
     if let Ok(json) = serde_json::to_string(&data) {
         db::set_async("worlds_autosave", &json);
     }
-}
-
-fn save_blocks(blocks: &std::collections::HashMap<(i32,i32,i32), u8>) {
-    let data: Vec<[i32; 4]> = blocks.iter().map(|(&(x,y,z), &t)| [x, y, z, t as i32]).collect();
-    if let Ok(json) = serde_json::to_string(&data) {
-        db::set_async("worlds_blocks", &json);
-    }
-}
-
-fn load_blocks() -> std::collections::HashMap<(i32,i32,i32), u8> {
-    let mut map = std::collections::HashMap::new();
-    if let Some(json) = db::get("worlds_blocks") {
-        if let Ok(data) = serde_json::from_str::<Vec<[i32; 4]>>(&json) {
-            for arr in data {
-                map.insert((arr[0], arr[1], arr[2]), arr[3] as u8);
-            }
-        }
-    }
-    map
-}
-
-fn save_mined(mined: &HashSet<(i32,i32,i32)>) {
-    let data: Vec<[i32; 3]> = mined.iter().map(|&(x,y,z)| [x, y, z]).collect();
-    if let Ok(json) = serde_json::to_string(&data) {
-        db::set_async("worlds_mined", &json);
-    }
-}
-
-fn load_mined() -> HashSet<(i32,i32,i32)> {
-    let mut set = HashSet::new();
-    if let Some(json) = db::get("worlds_mined") {
-        if let Ok(data) = serde_json::from_str::<Vec<[i32; 3]>>(&json) {
-            for arr in data {
-                set.insert((arr[0], arr[1], arr[2]));
-            }
-        }
-    }
-    set
 }
 
 fn save_craters() {
@@ -211,114 +166,7 @@ fn load_craters() {
     }
 }
 
-pub(crate) fn collides_with_blocks(x: f64, y: f64, z: f64,
-    blocks: &std::collections::HashMap<(i32,i32,i32), u8>) -> bool
-{
-    let bx = x.floor() as i32;
-    let bz = z.floor() as i32;
-    let by = y.floor() as i32;
-    for dy in 0..2 {
-        if blocks.contains_key(&(bx, by + dy, bz)) {
-            return true;
-        }
-    }
-    false
-}
 
-fn raycast_block(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, max_dist: f64,
-    placed: &std::collections::HashMap<(i32,i32,i32), u8>,
-    mined: &HashSet<(i32,i32,i32)>,
-    params: &WorldParams) -> Option<((i32,i32,i32), bool)>
-{
-    let len = (dx*dx + dy*dy + dz*dz).sqrt();
-    if len < 0.001 { return None; }
-    let (sx, sy, sz) = (dx/len, dy/len, dz/len);
-    let mut x = ox;
-    let mut y = oy;
-    let mut z = oz;
-    let step = 0.5;
-    let mut dist = 0.0;
-    while dist < max_dist {
-        let bx = x.floor() as i32;
-        let by = y.floor() as i32;
-        let bz = z.floor() as i32;
-        let key = (bx, by, bz);
-        if placed.contains_key(&key) {
-            return Some((key, true));
-        }
-        if mined.contains(&key) {
-            x += sx * step;
-            y += sy * step;
-            z += sz * step;
-            dist += step;
-            continue;
-        }
-        let mut terrain_h = get_height(params, x, z);
-        terrain::zone_effects(params, x, z, &mut terrain_h);
-        if y < terrain_h && terrain_h > params.water_level {
-            return Some((key, false));
-        }
-        x += sx * step;
-        y += sy * step;
-        z += sz * step;
-        dist += step;
-    }
-    None
-}
-
-struct BreakParticle {
-    key: String,
-    positions: Vec<f64>,
-    velocities: Vec<[f64; 3]>,
-    lifetime: f64,
-    max_lifetime: f64,
-}
-
-impl BreakParticle {
-    fn new(key: String, origin: [f64; 3], count: usize) -> Self {
-        let mut rng: u64 = origin[0] as u64 ^ (origin[1] as u64).wrapping_mul(374761393) ^ (origin[2] as u64).wrapping_mul(668265263);
-        let mut rng_f = || {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            rng as f64 * 4.6566129e-10
-        };
-        let mut positions = Vec::with_capacity(count * 3);
-        let mut velocities = Vec::with_capacity(count);
-        for _ in 0..count {
-            let theta = rng_f() * std::f64::consts::TAU;
-            let phi = rng_f() * std::f64::consts::PI;
-            let speed = 2.0 + rng_f() * 4.0;
-            positions.push(origin[0]);
-            positions.push(origin[1]);
-            positions.push(origin[2]);
-            velocities.push([theta.cos() * phi.sin() * speed, phi.cos() * speed, theta.sin() * phi.sin() * speed]);
-        }
-        let flat: Vec<f32> = positions.iter().map(|&v| v as f32).collect();
-        let arr = js_sys::Float32Array::from(&flat[..]);
-        bridge::create_particles(&key, count as u32, 1.0, 1.0, 1.0, 0.06);
-        bridge::update_particles(&key, &arr);
-        Self { key, positions, velocities, lifetime: 0.6, max_lifetime: 0.6 }
-    }
-
-    fn update(&mut self, delta: f64) {
-        self.lifetime -= delta;
-        if self.lifetime <= 0.0 { return; }
-        let gray = (self.lifetime / self.max_lifetime) as f32;
-        bridge::set_particles_opacity(&self.key, (gray * 0.8) as f64);
-        for i in 0..self.velocities.len() {
-            let i3 = i * 3;
-            self.positions[i3] += self.velocities[i][0] * delta;
-            self.positions[i3 + 1] += self.velocities[i][1] * delta;
-            self.positions[i3 + 2] += self.velocities[i][2] * delta;
-            self.velocities[i][1] -= 9.8 * delta;
-        }
-        let flat: Vec<f32> = self.positions.iter().map(|&v| v as f32).collect();
-        bridge::update_particles(&self.key, &js_sys::Float32Array::from(&flat[..]));
-    }
-
-    fn remove(&self) {
-        bridge::remove_mesh(&self.key);
-    }
-}
 
 // ── R10.1 Footprints ──
 #[allow(dead_code)]
@@ -512,10 +360,6 @@ struct GameState {
     tree_growth_ticks: u64,
     veg_dirty: bool,
     veg_chunks: std::collections::HashMap<(i32, i32), VegData>,
-    placed_blocks: std::collections::HashMap<(i32, i32, i32), u8>,
-    block_inventory: Vec<(u8, u32)>,
-    build_prev: bool,
-    slot_prev: u32,
     save_timer: f64,
     params_dirty: bool,
     char_dirty: bool,
@@ -532,14 +376,12 @@ struct GameState {
     total_distance: f64,
     weather_power_idx: u8,
     weather_cooldown: f64,
-    mined_blocks: HashSet<(i32, i32, i32)>,
     creature_persistent: std::collections::HashMap<(i32, i32), creatures::CreatureData>,
-    break_counter: u32,
-    break_particles: Vec<BreakParticle>,
     // ── R10 Living World ──
     footprints: FootprintSystem,
     meteors: MeteorSystem,
     flora_push_timer: f64,
+    flora_push_cooldown: f64,
     last_flora_chunk: Option<(i32, i32)>,
     flora_pushed: bool,
     ws_connected: bool,
@@ -629,33 +471,104 @@ fn box_mesh(w: f64, h: f64, d: f64) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
     (positions, normals, indices)
 }
 
-fn box_pivot_top(w: f64, h: f64, d: f64) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
-    let hw = (w * 0.5) as f32;
-    let hh = (h * 0.5) as f32;
-    let hd = (d * 0.5) as f32;
-    let shift = -hh;
-    let positions = vec![
-        -hw, shift-hh,  hd,  hw, shift-hh,  hd,  hw, shift+hh,  hd, -hw, shift+hh,  hd,
-        -hw, shift-hh, -hd, -hw, shift+hh, -hd,  hw, shift+hh, -hd,  hw, shift-hh, -hd,
-        -hw, shift+hh, -hd, -hw, shift+hh,  hd,  hw, shift+hh,  hd,  hw, shift+hh, -hd,
-        -hw, shift-hh, -hd,  hw, shift-hh, -hd,  hw, shift-hh,  hd, -hw, shift-hh,  hd,
-         hw, shift-hh, -hd,  hw, shift+hh, -hd,  hw, shift+hh,  hd,  hw, shift-hh,  hd,
-        -hw, shift-hh, -hd, -hw, shift-hh,  hd, -hw, shift+hh,  hd, -hw, shift+hh, -hd,
-    ];
-    let normals = vec![
-        0.0f32, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
-        0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0,
-        0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0,
-        0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0,
-        1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-        -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0,
-    ];
-    let indices = vec![
-        0u32, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7,
-        8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15,
-        16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
-    ];
-    (positions, normals, indices)
+fn cylinder_mesh(radius: f64, height: f64, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let r = radius as f32;
+    let hh = (height * 0.5) as f32;
+    let mut pos = Vec::new();
+    let mut norms = Vec::new();
+    let mut idx = Vec::new();
+
+    let tc = 0u32;
+    pos.push(0.0); pos.push(hh); pos.push(0.0);
+    norms.push(0.0); norms.push(1.0); norms.push(0.0);
+
+    let bc = 1u32;
+    pos.push(0.0); pos.push(-hh); pos.push(0.0);
+    norms.push(0.0); norms.push(-1.0); norms.push(0.0);
+
+    let ts = 2u32;
+    for seg in 0..segments {
+        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
+        let (nx, nz) = (theta.cos(), theta.sin());
+        pos.push(r * nx); pos.push(hh); pos.push(r * nz);
+        norms.push(nx); norms.push(0.0); norms.push(nz);
+    }
+
+    let bs = ts + segments;
+    for seg in 0..segments {
+        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
+        let (nx, nz) = (theta.cos(), theta.sin());
+        pos.push(r * nx); pos.push(-hh); pos.push(r * nz);
+        norms.push(nx); norms.push(0.0); norms.push(nz);
+    }
+
+    for seg in 0..segments {
+        let a = ts + seg;
+        let b = ts + (seg + 1) % segments;
+        let c = bs + seg;
+        let d = bs + (seg + 1) % segments;
+        idx.push(a); idx.push(c); idx.push(b);
+        idx.push(b); idx.push(c); idx.push(d);
+    }
+
+    for seg in 0..segments {
+        let a = ts + seg;
+        let b = ts + (seg + 1) % segments;
+        idx.push(tc); idx.push(a); idx.push(b);
+        idx.push(bc); idx.push(b); idx.push(a);
+    }
+
+    (pos, norms, idx)
+}
+
+fn cylinder_pivot_top(radius: f64, height: f64, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let r = radius as f32;
+    let h = height as f32;
+    let mut pos = Vec::new();
+    let mut norms = Vec::new();
+    let mut idx = Vec::new();
+
+    let tc = 0u32;
+    pos.push(0.0); pos.push(0.0); pos.push(0.0);
+    norms.push(0.0); norms.push(1.0); norms.push(0.0);
+
+    let bc = 1u32;
+    pos.push(0.0); pos.push(-h); pos.push(0.0);
+    norms.push(0.0); norms.push(-1.0); norms.push(0.0);
+
+    let ts = 2u32;
+    for seg in 0..segments {
+        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
+        let (nx, nz) = (theta.cos(), theta.sin());
+        pos.push(r * nx); pos.push(0.0); pos.push(r * nz);
+        norms.push(nx); norms.push(0.0); norms.push(nz);
+    }
+
+    let bs = ts + segments;
+    for seg in 0..segments {
+        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
+        let (nx, nz) = (theta.cos(), theta.sin());
+        pos.push(r * nx); pos.push(-h); pos.push(r * nz);
+        norms.push(nx); norms.push(0.0); norms.push(nz);
+    }
+
+    for seg in 0..segments {
+        let a = ts + seg;
+        let b = ts + (seg + 1) % segments;
+        let c = bs + seg;
+        let d = bs + (seg + 1) % segments;
+        idx.push(a); idx.push(c); idx.push(b);
+        idx.push(b); idx.push(c); idx.push(d);
+    }
+
+    for seg in 0..segments {
+        let a = ts + seg;
+        let b = ts + (seg + 1) % segments;
+        idx.push(tc); idx.push(a); idx.push(b);
+        idx.push(bc); idx.push(b); idx.push(a);
+    }
+
+    (pos, norms, idx)
 }
 
 fn gerstner_wave(wx: f64, wz: f64, time: f64, steepness: f64) -> (f64, f64, f64, f64, f64, f64) {
@@ -815,9 +728,6 @@ fn part_position(part_key: &str, char_pos: [f64; 3], ox: f64, oy: f64, oz: f64) 
 }
 
 fn regenerate_all(s: &mut GameState) {
-    let d = s.params.render_distance as i32;
-    let pcx = (s.char_pos[0] / CHUNK_SIZE) as i32;
-    let pcz = (s.char_pos[2] / CHUNK_SIZE) as i32;
     for old in s.chunks.drain(..) {
         bridge::remove_mesh(&format!("chunk_{},{}", old.cx, old.cz));
         bridge::remove_mesh(&format!("veg_{},{}", old.cx, old.cz));
@@ -835,6 +745,8 @@ fn regenerate_all(s: &mut GameState) {
     s.bubbles.remove();
     s.veg_chunks.clear();
     s.chunks_awaiting_worker.clear();
+    bridge::worker_terminate();
+    bridge::worker_init();
     s.footprints.remove_all();
     s.meteors.remove_all();
     if let Some((fcx, fcz)) = s.last_flora_chunk.take() {
@@ -842,103 +754,12 @@ fn regenerate_all(s: &mut GameState) {
     }
     s.flora_pushed = false;
     s.flora_push_timer = 0.0;
-    let mut new_chunks: Vec<ChunkData> = Vec::new();
-    for x in (pcx - d)..=(pcx + d) {
-        for z in (pcz - d)..=(pcz + d) {
-            let data = chunk::compute_chunk_data(&s.params, x, z, &s.mined_blocks, &s.placed_blocks);
-            let key = format!("chunk_{},{}", data.cx, data.cz);
-            let pos_arr = js_sys::Float32Array::from(&data.positions[..]);
-            let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
-            let col_arr = js_sys::Float32Array::from(&data.colors[..]);
-            let idx_arr = js_sys::Uint32Array::from(&data.indices[..]);
-            let uv_arr = js_sys::Float32Array::from(&data.uvs[..]);
-            bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr, &uv_arr);
-            let veg_data = compute_chunk_vegetation(&s.params, x, z, s.params.season);
-            if !veg_data.instances.is_empty() {
-                let vkey = format!("veg_{},{}", x, z);
-                let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, s.params.season, s.tree_growth_ticks);
-                let vp = js_sys::Float32Array::from(&vpos[..]);
-                let vn = js_sys::Float32Array::from(&vnorm[..]);
-                let vi = js_sys::Uint32Array::from(&vidx[..]);
-                let vc = js_sys::Float32Array::from(&vcol[..]);
-                let vu = empty_uv_arr();
-                bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc, &vu);
-            }
-            s.veg_chunks.insert((x, z), veg_data);
-            // R5: Grass
-            let grass_data = compute_chunk_grass(&s.params, x, z, s.params.season);
-            if grass_data.count > 0 {
-                let gkey = format!("grass_{},{}", x, z);
-                let gi = js_sys::Float32Array::from(&grass_data.instances[..]);
-                bridge::upload_grass(&gkey, &gi, grass_data.count as u32, 0.4);
-            }
-            {
-                let creature_data = creatures::compute_chunk_creatures_with_time(&s.params, x, z, s.day_time);
-                if !creature_data.creatures.is_empty() {
-                    let ckey = format!("crea_{},{}", x, z);
-                    if let Some((cpos, cnorm, cidx, ccol)) = creatures::generate_creature_mesh_from_data(&creature_data) {
-                        let cp = js_sys::Float32Array::from(&cpos[..]);
-                        let cn = js_sys::Float32Array::from(&cnorm[..]);
-                        let ci = js_sys::Uint32Array::from(&cidx[..]);
-                        let cc = js_sys::Float32Array::from(&ccol[..]);
-                        let cu = empty_uv_arr();
-                        bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc, &cu);
-                    }
-                    s.creature_persistent.insert((x, z), creature_data);
-                }
-            }
-            if let Some((spos, snorm, sidx, scol)) = generate_struct_mesh(&s.params, x, z) {
-                let skey = format!("struct_{},{}", x, z);
-                let sp = js_sys::Float32Array::from(&spos[..]);
-                let sn = js_sys::Float32Array::from(&snorm[..]);
-                let si = js_sys::Uint32Array::from(&sidx[..]);
-                let sc = js_sys::Float32Array::from(&scol[..]);
-                let su = empty_uv_arr();
-                bridge::upload_mesh(&skey, &sp, &sn, &si, &sc, &su);
-            }
-            if let Some((mpos, mnorm, midx, mcol)) = generate_mineral_mesh(&s.params, x, z) {
-                let mkey = format!("mineral_{},{}", x, z);
-                let mp = js_sys::Float32Array::from(&mpos[..]);
-                let mn = js_sys::Float32Array::from(&mnorm[..]);
-                let mi = js_sys::Uint32Array::from(&midx[..]);
-                let mc = js_sys::Float32Array::from(&mcol[..]);
-                let mu = empty_uv_arr();
-                bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc, &mu);
-            }
-            if let Some((ppos, pnorm, pidx, pcol, pseed, pradius)) = generate_portal_mesh(&s.params, x, z) {
-                let pkey = format!("portal_{},{}", x, z);
-                let pp = js_sys::Float32Array::from(&ppos[..]);
-                let pn = js_sys::Float32Array::from(&pnorm[..]);
-                let pi = js_sys::Uint32Array::from(&pidx[..]);
-                let pc = js_sys::Float32Array::from(&pcol[..]);
-                bridge::upload_portal_mesh(&pkey, &pp, &pn, &pi, &pc, pseed, pradius);
-            }
-            if let Some((rpos, rnorm, ridx, rcol)) = generate_road_mesh(&s.params, x, z) {
-                let rkey = format!("road_{},{}", x, z);
-                let rp = js_sys::Float32Array::from(&rpos[..]);
-                let rn = js_sys::Float32Array::from(&rnorm[..]);
-                let ri = js_sys::Uint32Array::from(&ridx[..]);
-                let rc = js_sys::Float32Array::from(&rcol[..]);
-                let ru = empty_uv_arr();
-                bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc, &ru);
-            }
-            // Blueprint meshes from mods
-            if let Some((bppos, bpnorms, bpidx, bpcols)) = generate_blueprint_mesh(&s.params, x, z) {
-                let bkey = format!("bp_{},{}", x, z);
-                let bpp = js_sys::Float32Array::from(&bppos[..]);
-                let bpn = js_sys::Float32Array::from(&bpnorms[..]);
-                let bpi = js_sys::Uint32Array::from(&bpidx[..]);
-                let bpc = js_sys::Float32Array::from(&bpcols[..]);
-                let bpu = empty_uv_arr();
-                bridge::upload_mesh(&bkey, &bpp, &bpn, &bpi, &bpc, &bpu);
-            }
-            new_chunks.push(data);
-        }
-    }
-    s.chunks = new_chunks;
-    s.prev_cx = pcx;
-    s.prev_cz = pcz;
+    s.flora_push_cooldown = 0.0;
+    // Force chunk regeneration on next frame via incremental system
+    s.prev_cx = i32::MAX;
+    s.prev_cz = i32::MAX;
 }
+
 
 fn lod_for_distance(dist: i32) -> u32 {
     if dist <= 1 { 0 }
@@ -994,9 +815,9 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
         let dx = (cx - s.prev_cx).abs().max((cz - s.prev_cz).abs());
         let lod = lod_for_distance(dx);
         let data = if lod > 0 {
-            chunk::compute_chunk_data_lod(&s.params, cx, cz, &s.mined_blocks, &s.placed_blocks, lod)
+            chunk::compute_chunk_data_lod(&s.params, cx, cz, lod)
         } else {
-            chunk::compute_chunk_data(&s.params, cx, cz, &s.mined_blocks, &s.placed_blocks)
+            chunk::compute_chunk_data(&s.params, cx, cz)
         };
         upload_chunk_mesh(s, &data, cx, cz, lod);
         new_chunks.push(data);
@@ -1172,7 +993,7 @@ fn regenerate_character(s: &mut GameState) {
     let (aw, ah, ad) = preset_arm;
     let (lw, lh, ld) = preset_leg;
 
-    let (b_pos, b_norm, b_idx) = box_mesh(bw * scale, bh * scale, bd * scale);
+    let (b_pos, b_norm, b_idx) = cylinder_mesh(((bw + bd) * 0.25 * scale) as f64, bh * scale, 8);
     let b_col = fill_color(b_pos.len() / 3, body_col[0], body_col[1], body_col[2]);
     upload_part("char_body", &b_pos, &b_norm, &b_idx, &b_col);
 
@@ -1184,18 +1005,18 @@ fn regenerate_character(s: &mut GameState) {
     let h_col = fill_color(h_pos.len() / 3, head_col[0], head_col[1], head_col[2]);
     upload_part("char_head", &h_pos, &h_norm, &h_idx, &h_col);
 
-    let (a_pos, a_norm, a_idx) = box_pivot_top(aw * scale, ah * scale, ad * scale);
+    let (a_pos, a_norm, a_idx) = cylinder_pivot_top(((aw + ad) * 0.25 * scale) as f64, ah * scale, 8);
     let a_col = fill_color(a_pos.len() / 3, head_col[0], head_col[1], head_col[2]);
     upload_part("char_arm_l", &a_pos, &a_norm, &a_idx, &a_col);
     upload_part("char_arm_r", &a_pos, &a_norm, &a_idx, &a_col);
 
-    let (l_pos, l_norm, l_idx) = box_pivot_top(lw * scale, lh * scale, ld * scale);
+    let (l_pos, l_norm, l_idx) = cylinder_pivot_top(((lw + ld) * 0.25 * scale) as f64, lh * scale, 8);
     let l_col = fill_color(l_pos.len() / 3, body_col[0], body_col[1], body_col[2]);
     upload_part("char_leg_l", &l_pos, &l_norm, &l_idx, &l_col);
     upload_part("char_leg_r", &l_pos, &l_norm, &l_idx, &l_col);
 
     if s.params.character == CharacterPreset::Kraken {
-        let (t_pos, t_norm, t_idx) = box_pivot_top(0.1 * scale, 0.7 * scale, 0.1 * scale);
+        let (t_pos, t_norm, t_idx) = cylinder_pivot_top(0.05 * scale, 0.7 * scale, 6);
         let t_col = fill_color(t_pos.len() / 3, 0.2, 0.7, 0.3);
         for i in 1..=4 {
             upload_part(&format!("char_tent_{}", i), &t_pos, &t_norm, &t_idx, &t_col);
@@ -1219,7 +1040,7 @@ impl Engine {
         controls.attach(&canvas);
         let camera = Camera::new(yaw.clone(), pitch.clone());
 
-        let (b_pos, b_norm, b_idx) = box_mesh(0.7, 1.0, 0.4);
+        let (b_pos, b_norm, b_idx) = cylinder_mesh(0.275, 1.0, 8);
         let b_col = fill_color(b_pos.len() / 3, 0.2, 0.4, 0.8);
         upload_part("char_body", &b_pos, &b_norm, &b_idx, &b_col);
 
@@ -1227,12 +1048,12 @@ impl Engine {
         let h_col = fill_color(h_pos.len() / 3, 1.0, 0.85, 0.75);
         upload_part("char_head", &h_pos, &h_norm, &h_idx, &h_col);
 
-        let (a_pos, a_norm, a_idx) = box_pivot_top(0.2, 0.7, 0.2);
+        let (a_pos, a_norm, a_idx) = cylinder_pivot_top(0.1, 0.7, 8);
         let a_col = fill_color(a_pos.len() / 3, 1.0, 0.85, 0.75);
         upload_part("char_arm_l", &a_pos, &a_norm, &a_idx, &a_col);
         upload_part("char_arm_r", &a_pos, &a_norm, &a_idx, &a_col);
 
-        let (l_pos, l_norm, l_idx) = box_pivot_top(0.25, 0.7, 0.25);
+        let (l_pos, l_norm, l_idx) = cylinder_pivot_top(0.125, 0.7, 8);
         let l_col = fill_color(l_pos.len() / 3, 0.2, 0.4, 0.8);
         upload_part("char_leg_l", &l_pos, &l_norm, &l_idx, &l_col);
         upload_part("char_leg_r", &l_pos, &l_norm, &l_idx, &l_col);
@@ -1293,6 +1114,8 @@ impl Engine {
         let init_cam_y = char_pos[1] + ARM_HEIGHT + ARM_LENGTH * init_pitch.sin();
         let cam_pos = [init_cam_x, init_cam_y.max(init_ground + 0.5), init_cam_z];
 
+        load_craters();
+
         let state = Rc::new(RefCell::new(GameState {
             canvas,
             camera,
@@ -1336,15 +1159,6 @@ impl Engine {
             tree_growth_ticks: 0,
             veg_dirty: false,
             veg_chunks: std::collections::HashMap::new(),
-            placed_blocks: load_blocks(),
-            mined_blocks: {
-                let mined = load_mined();
-                load_craters();
-                mined
-            },
-            block_inventory: vec![(0, 64), (1, 32), (2, 16), (3, 16), (4, 8), (5, 8), (6, 8), (7, 8), (8, 8)],
-            build_prev: false,
-            slot_prev: 0,
             save_timer: 0.0,
             params_dirty: false,
             char_dirty: false,
@@ -1362,11 +1176,10 @@ impl Engine {
             weather_power_idx: 0,
             weather_cooldown: 0.0,
             creature_persistent: std::collections::HashMap::new(),
-            break_counter: 0,
-            break_particles: Vec::new(),
             footprints: FootprintSystem::new(),
             meteors: MeteorSystem::new(),
             flora_push_timer: 0.0,
+            flora_push_cooldown: 0.0,
             last_flora_chunk: None,
             flora_pushed: false,
             ws_connected: false,
@@ -1489,22 +1302,6 @@ impl Engine {
                     }
                 }
                 s.tour_prev = tour_pressed;
-
-                // Build mode toggle (edge detection)
-                let build_pressed = keys & MASK_B != 0;
-                if build_pressed && !s.build_prev {
-                    s.params.build_mode = !s.params.build_mode;
-                }
-                s.build_prev = build_pressed;
-
-                // Slot selection with number keys (edge detection)
-                let slot_masks = [MASK_1, MASK_2, MASK_3, MASK_4, MASK_5, MASK_6, MASK_7, MASK_8, MASK_9];
-                for (i, &mask) in slot_masks.iter().enumerate() {
-                    if keys & mask != 0 && s.slot_prev & mask == 0 {
-                        s.inventory.selected_slot = i as u8;
-                    }
-                }
-                s.slot_prev = keys;
 
                 let cam_yaw = s.controls.yaw.get();
                 let keys = s.controls.keys.get();
@@ -1631,192 +1428,74 @@ impl Engine {
                     }
                 }
 
-                // Build mode: block interaction with raycast
-                if s.params.build_mode {
-                    let sel_slot = s.inventory.selected_slot;
-                    let rdx = s.char_pos[0] - s.cam_pos[0];
-                    let rdy = s.char_pos[1] - s.cam_pos[1];
-                    let rdz = s.char_pos[2] - s.cam_pos[2];
-                    if let Some(hit) = raycast_block(s.cam_pos[0], s.cam_pos[1], s.cam_pos[2], rdx, rdy, rdz, 12.0, &s.placed_blocks, &s.mined_blocks, &s.params) {
-                        let (hx, hy, hz) = hit.0;
-                        let key = (hx, hy, hz);
-                        if keys & MASK_LCLICK != 0 {
-                            // Try to place a block at the targeted position
-                            let can_place = match hit.1 {
-                                true => false,
-                                false => {
-                                    let dist2 = (s.char_pos[0] - (hx as f64 + 0.5)).powi(2) + (s.char_pos[1] - (hy as f64 + 0.5)).powi(2) + (s.char_pos[2] - (hz as f64 + 0.5)).powi(2);
-                                    dist2 > 1.5
-                                }
-                            };
-                            if can_place && !s.placed_blocks.contains_key(&key) {
-                                if let Some(slot) = s.block_inventory.iter().find(|(t, _)| *t == sel_slot) {
-                                    if slot.1 > 0 {
-                                        s.placed_blocks.insert(key, sel_slot);
-                                        let bkey = format!("b_{}_{}_{}", hx, hy, hz);
-                                        let block_colors = [[0.6,0.45,0.3],[0.5,0.5,0.5],[0.55,0.35,0.15],[0.2,0.6,0.2],[0.7,0.4,1.0],[0.8,0.3,0.05],[0.7,0.9,1.0],[0.85,0.75,0.5],[0.3,0.5,0.2]];
-                                        let bcol = if sel_slot == 2 { [0.9, 0.6, 0.1] } else { block_colors[sel_slot as usize % block_colors.len()] };
-                                        let _is_torch = sel_slot == 2;
-                                        let (pos, nrm, idx) = box_mesh(1.0, 1.0, 1.0);
-                                        let col = fill_color(24, bcol[0], bcol[1], bcol[2]);
-                                        let bp = js_sys::Float32Array::from(&pos[..]);
-                                        let bn = js_sys::Float32Array::from(&nrm[..]);
-                                        let bi = js_sys::Uint32Array::from(&idx[..]);
-                                        let bc_arr = js_sys::Float32Array::from(&col[..]);
-                                        let bu_arr = empty_uv_arr();
-                                        bridge::upload_mesh(&bkey, &bp, &bn, &bi, &bc_arr, &bu_arr);
-                                        bridge::set_mesh_position(&bkey, hx as f64 + 0.5, hy as f64 + 0.5, hz as f64 + 0.5);
-                                        if let Some(slot) = s.block_inventory.iter_mut().find(|(t, _)| *t == sel_slot) {
-                                            slot.1 -= 1;
+                // Interact with creatures (right click): feed or examine
+                if keys & MASK_RCLICK != 0 {
+                    let has_fruit = s.inventory.has(18, 1);
+                    let mut fed = false;
+                    let px = s.char_pos[0];
+                    let pz = s.char_pos[2];
+                    let params_cp = s.params;
+                    let chunks_copy: Vec<(i32, i32)> = s.chunks.iter().map(|c| (c.cx, c.cz)).collect();
+                    let mut messages: Vec<String> = Vec::new();
+                    let mut discovered_ct: Option<u8> = None;
+                    let mut consumed = false;
+                    for (cx, cz) in &chunks_copy {
+                        if let Some(data) = s.creature_persistent.get_mut(&(*cx, *cz)) {
+                            for cr in &mut data.creatures {
+                                let dx = cr.x - px;
+                                let dz = cr.z - pz;
+                                if dx * dx + dz * dz < 9.0 {
+                                    if has_fruit && !fed {
+                                        consumed = true;
+                                        fed = true;
+                                        cr.state = creatures::STATE_EAT;
+                                        cr.state_timer = 2.0;
+                                        cr.hunger = (cr.hunger + 30.0).min(100.0);
+                                        if !cr.tamed && cr.hunger < 30.0 {
+                                            cr.tamed = true;
+                                            cr.state = creatures::STATE_FOLLOW;
+                                            messages.push(format!("💕 ¡{} domesticado!", creatures::creature_name(cr.creature_type)));
+                                        } else {
+                                            messages.push(format!("🍎 {} comió fruta", creatures::creature_name(cr.creature_type)));
                                         }
-                                        s.achievements.blocks_placed += 1;
-                                        let bp = s.achievements.blocks_placed;
-                                        s.achievements.check_build(bp);
-                                    }
-                                }
-                            }
-                        }
-                        if keys & MASK_RCLICK != 0 {
-                            let broke = if hit.1 {
-                                s.placed_blocks.remove(&key).is_some()
-                            } else {
-                                !s.mined_blocks.contains(&key)
-                            };
-                            if broke {
-                                if hit.1 {
-                                    let bkey = format!("b_{}_{}_{}", hx, hy, hz);
-                                    bridge::remove_mesh(&bkey);
-                                } else {
-                                    let wx = hx as f64 + 0.5;
-                                    let wz = hz as f64 + 0.5;
-                                    let zone = terrain::get_zone(&s.params, wx, wz);
-                                    let mut surface_h = terrain::get_height(&s.params, wx, wz);
-                                    terrain::zone_effects(&s.params, wx, wz, &mut surface_h);
-                                    let bt = terrain::get_block_type(&s.params, wx, hy as f64 + 0.5, wz, surface_h, zone);
-                                    // Drop mineral based on block type
-                                    let mineral = match bt {
-                                        terrain::BLK_STONE | terrain::BLK_DIRT | terrain::BLK_GRAVEL => Some(0),
-                                        terrain::BLK_COAL_ORE => Some(2),
-                                        terrain::BLK_IRON_ORE => Some(0),
-                                        terrain::BLK_GOLD_ORE => Some(4),
-                                        terrain::BLK_DIAMOND_ORE => Some(3),
-                                        terrain::BLK_SAND => Some(7),
-                                        _ => None,
-                                    };
-                                    let dist2 = (s.char_pos[0] - wx).powi(2) + (s.char_pos[1] - (hy as f64 + 0.5)).powi(2) + (s.char_pos[2] - wz).powi(2);
-                                    if dist2 < 6.0 {
-                                        if let Some(mt) = mineral {
-                                            s.inventory.add_mineral(mt, 1);
-                                            s.codex.discover_mineral(mt);
-                                        }
-                                    }
-                                    s.mined_blocks.insert(key);
-                                    // R10.4: Terrain destruction — create crater if mining surface blocks
-                                    if !hit.1 {
-                                        let surface = terrain::get_height(&s.params, hx as f64 + 0.5, hz as f64 + 0.5);
-                                        if (hy as f64 - surface).abs() < 2.0 {
-                                            terrain::add_crater(hx, hz);
-                                        }
-                                    }
-                                    s.params_dirty = true;
-                                    s.achievements.try_unlock(achievements::Achievement::FirstMine);
-                                }
-                                // Particle burst
-                                let pkey = format!("break_{}", s.break_counter);
-                                s.break_counter += 1;
-                                s.break_particles.push(BreakParticle::new(
-                                    pkey,
-                                    [hx as f64 + 0.5, hy as f64 + 0.5, hz as f64 + 0.5],
-                                    20,
-                                ));
-                            }
-                        }
-                    }
-                } else {
-                    // Inventory: auto-collect nearby minerals
-                    if keys & MASK_LCLICK != 0 {
-                        let cx = (s.char_pos[0] / CHUNK_SIZE) as i32;
-                        let cz = (s.char_pos[2] / CHUNK_SIZE) as i32;
-                        let md = minerals::compute_chunk_minerals(&s.params, cx, cz);
-                        for d in &md.deposits {
-                            let dx = d.x as f64 - s.char_pos[0];
-                            let dz = d.z as f64 - s.char_pos[2];
-                            if dx * dx + dz * dz < 4.0 {
-                                s.inventory.add_mineral(d.mineral_type, 1);
-                                s.codex.discover_mineral(d.mineral_type);
-                                s.achievements.try_unlock(achievements::Achievement::FirstMine);
-                            }
-                        }
-                    }
-                    // Feed or examine nearby creatures
-                    if keys & MASK_RCLICK != 0 {
-                        let has_fruit = s.inventory.has(18, 1);
-                        let mut fed = false;
-                        let px = s.char_pos[0];
-                        let pz = s.char_pos[2];
-                        let params_cp = s.params;
-                        let chunks_copy: Vec<(i32, i32)> = s.chunks.iter().map(|c| (c.cx, c.cz)).collect();
-                        let mut messages: Vec<String> = Vec::new();
-                        let mut discovered_ct: Option<u8> = None;
-                        let mut consumed = false;
-                        for (cx, cz) in &chunks_copy {
-                            if let Some(data) = s.creature_persistent.get_mut(&(*cx, *cz)) {
-                                for cr in &mut data.creatures {
-                                    let dx = cr.x - px;
-                                    let dz = cr.z - pz;
-                                    if dx * dx + dz * dz < 9.0 {
-                                        if has_fruit && !fed {
-                                            consumed = true;
-                                            fed = true;
-                                            cr.state = creatures::STATE_EAT;
-                                            cr.state_timer = 2.0;
-                                            cr.hunger = (cr.hunger + 30.0).min(100.0);
-                                            if !cr.tamed && cr.hunger < 30.0 {
-                                                cr.tamed = true;
-                                                cr.state = creatures::STATE_FOLLOW;
-                                                messages.push(format!("💕 ¡{} domesticado!", creatures::creature_name(cr.creature_type)));
-                                            } else {
-                                                messages.push(format!("🍎 {} comió fruta", creatures::creature_name(cr.creature_type)));
-                                            }
-                                            break;
-                                        }
-                                        discovered_ct = Some(cr.creature_type);
-                                        let name = creatures::creature_name(cr.creature_type);
-                                        let zone_str = crate::engine::terrain::get_zone(&params_cp, cr.x, cr.z).as_str().to_string();
-                                        messages.push(format!("🔍 {} — {}", name, zone_str));
                                         break;
                                     }
-                                }
-                            }
-                            if fed { break; }
-                        }
-                        if consumed {
-                            let _ = s.inventory.consume(18, 1);
-                        }
-                        if let Some(ct) = discovered_ct {
-                            s.codex.discover_creature(ct);
-                            s.achievements.check_creatures(1);
-                        }
-                        for msg in messages {
-                            if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
-                            s.chat_messages.push_back(("Sistema".into(), msg));
-                        }
-                    }
-                    // Harvest fruit from nearby trees (summer/autumn)
-                    if s.params.season == 1 || s.params.season == 2 {
-                        let chunks_copy: Vec<(i32, i32)> = s.chunks.iter().map(|c| (c.cx, c.cz)).collect();
-                        for (cx, cz) in &chunks_copy {
-                            let data = vegetation::compute_chunk_vegetation(&s.params, *cx, *cz, s.params.season);
-                            for inst in &data.instances {
-                                if inst.veg_type != vegetation::VegType::Tree { continue; }
-                                let dx = inst.x as f64 - s.char_pos[0];
-                                let dz = inst.z as f64 - s.char_pos[2];
-                                if dx * dx + dz * dz < 9.0 {
-                                    s.inventory.add_mineral(18, 1);
-                                    if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
-                                    s.chat_messages.push_back(("Sistema".into(), "🍎 Recolectaste fruta".into()));
+                                    discovered_ct = Some(cr.creature_type);
+                                    let name = creatures::creature_name(cr.creature_type);
+                                    let zone_str = crate::engine::terrain::get_zone(&params_cp, cr.x, cr.z).as_str().to_string();
+                                    messages.push(format!("🔍 {} — {}", name, zone_str));
                                     break;
                                 }
+                            }
+                        }
+                        if fed { break; }
+                    }
+                    if consumed {
+                        let _ = s.inventory.consume(18, 1);
+                    }
+                    if let Some(ct) = discovered_ct {
+                        s.codex.discover_creature(ct);
+                        s.achievements.check_creatures(1);
+                    }
+                    for msg in messages {
+                        if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
+                        s.chat_messages.push_back(("Sistema".into(), msg));
+                    }
+                }
+                // Harvest fruit from nearby trees (summer/autumn)
+                if s.params.season == 1 || s.params.season == 2 {
+                    let chunks_copy: Vec<(i32, i32)> = s.chunks.iter().map(|c| (c.cx, c.cz)).collect();
+                    for (cx, cz) in &chunks_copy {
+                        let data = vegetation::compute_chunk_vegetation(&s.params, *cx, *cz, s.params.season);
+                        for inst in &data.instances {
+                            if inst.veg_type != vegetation::VegType::Tree { continue; }
+                            let dx = inst.x as f64 - s.char_pos[0];
+                            let dz = inst.z as f64 - s.char_pos[2];
+                            if dx * dx + dz * dz < 9.0 {
+                                s.inventory.add_mineral(18, 1);
+                                if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
+                                s.chat_messages.push_back(("Sistema".into(), "🍎 Recolectaste fruta".into()));
+                                break;
                             }
                         }
                     }
@@ -1956,7 +1635,6 @@ impl Engine {
                 // Creature AI state machine update every other frame
                 if s.frame_count & 1 == 0 {
                     let params_cp = s.params;
-                    let placed = unsafe { &*(&s.placed_blocks as *const std::collections::HashMap<(i32,i32,i32), u8>) };
                     let veg = unsafe { &*(&s.veg_chunks as *const std::collections::HashMap<(i32, i32), crate::engine::vegetation::VegData>) };
                     let dt = s.day_time;
                     let px = s.char_pos[0];
@@ -1968,7 +1646,7 @@ impl Engine {
                             if let Some(positions) = creatures::update_creature_ai(
                                 &params_cp, data, tm,
                                 px, pz,
-                                placed, veg,
+                                veg,
                                 dt, delta,
                             ) {
                                 let key = format!("crea_{},{}", cx, cz);
@@ -2132,22 +1810,6 @@ impl Engine {
                             audio::play_effect("thunder");
                         }
                     }
-                }
-
-                // Update break particles
-                let mut i = 0;
-                while i < s.break_particles.len() {
-                    if s.break_particles[i].lifetime <= 0.0 {
-                        let dead = s.break_particles.remove(i);
-                        dead.remove();
-                    } else {
-                        s.break_particles[i].update(delta);
-                        i += 1;
-                    }
-                }
-                if s.break_particles.len() > 10 {
-                    let dead = s.break_particles.remove(0);
-                    dead.remove();
                 }
 
                 // Weather label for HUD
@@ -2323,7 +1985,9 @@ impl Engine {
                 s.meteors.update(delta, &meteor_params, mpx, mpz);
 
                 // R10.2: Reactive flora — push vegetation aside when walking near it
-                if moving && on_ground {
+                s.flora_push_cooldown -= delta;
+                if moving && on_ground && s.flora_push_cooldown <= 0.0 {
+                    s.flora_push_cooldown = 0.15;
                     let pcx = (s.char_pos[0] / CHUNK_SIZE) as i32;
                     let pcz = (s.char_pos[2] / CHUNK_SIZE) as i32;
                     let veg_chunks = &s.veg_chunks;
@@ -2331,19 +1995,24 @@ impl Engine {
                     let mut target_key: Option<(i32, i32)> = None;
                     let mut push_dx = 0.0;
                     let mut push_dz = 0.0;
-                    for dcx in -1..=1 {
+                    let px = s.char_pos[0];
+                    let pz = s.char_pos[2];
+                    'outer: for dcx in -1..=1 {
                         for dcz in -1..=1 {
                             let key = (pcx + dcx, pcz + dcz);
                             if let Some(veg) = veg_chunks.get(&key) {
                                 for inst in &veg.instances {
-                                    let dx = s.char_pos[0] - inst.x as f64;
-                                    let dz = s.char_pos[2] - inst.z as f64;
-                                    let dist = (dx * dx + dz * dz).sqrt();
-                                    if dist < 3.0 && (inst.veg_type == VegType::Bush || inst.veg_type == VegType::Flower || inst.veg_type == VegType::Mushroom) {
+                                    if inst.veg_type != VegType::Bush && inst.veg_type != VegType::Flower && inst.veg_type != VegType::Mushroom {
+                                        continue;
+                                    }
+                                    let dx = px - inst.x as f64;
+                                    let dz = pz - inst.z as f64;
+                                    if dx * dx + dz * dz < 9.0 {
                                         near_veg = true;
                                         target_key = Some(key);
                                         push_dx = dx;
                                         push_dz = dz;
+                                        break 'outer;
                                     }
                                 }
                             }
@@ -2351,9 +2020,8 @@ impl Engine {
                     }
                     if near_veg {
                         if let Some(key) = target_key {
-                            let strength = 0.25;
                             let vkey = format!("veg_{},{}", key.0, key.1);
-                            bridge::push_flora(&vkey, push_dx, push_dz, strength);
+                            bridge::push_flora(&vkey, push_dx, push_dz, 0.25);
                             s.last_flora_chunk = Some(key);
                             s.flora_pushed = true;
                             s.flora_push_timer = 0.5;
@@ -2409,12 +2077,10 @@ impl Engine {
                     s.char_pos[2],
                 );
 
-                // Auto-save placed blocks + mined blocks every 15s
+                // Auto-save every 15s
                 s.save_timer += delta;
                 if s.save_timer > 15.0 {
                     s.save_timer = 0.0;
-                    save_blocks(&s.placed_blocks);
-                    save_mined(&s.mined_blocks);
                     save_craters();
                     auto_save_full(&s);
                 }
@@ -2526,9 +2192,6 @@ impl Engine {
                 let angle = (cam_yaw * 180.0 / std::f64::consts::PI) as i32;
                 let angle = if angle < 0 { angle + 360 } else { angle % 360 };
                 let zone = terrain::get_zone(&s.params, s.char_pos[0], s.char_pos[2]);
-                let hud_build_mode = s.params.build_mode;
-                let hud_selected = s.inventory.selected_slot;
-                let hud_blocks = s.block_inventory.clone();
                 *hud.borrow_mut() = HudData {
                     pos: s.char_pos,
                     biome: zone.name_for_hud(),
@@ -2537,9 +2200,6 @@ impl Engine {
                     chunks: s.chunks.len(),
                     yaw_deg: angle,
                     speed: s.speed,
-                    build_mode: hud_build_mode,
-                    selected_slot: hud_selected,
-                    inventory: hud_blocks,
                     minerals: s.inventory.items.iter().filter(|i| i.count > 0).map(|i| (i.mineral_type, i.count)).collect(),
                     near_portal,
                     portal_target_seed,
@@ -2599,8 +2259,6 @@ impl Engine {
         let inventory_json = serde_json::to_string(&s.inventory).ok();
         let codex_json = serde_json::to_string(&s.codex).ok();
         let achievements_json = serde_json::to_string(&s.achievements).ok();
-        let placed_blocks: Vec<[i32; 4]> = s.placed_blocks.iter().map(|(&(x,y,z), &t)| [x, y, z, t as i32]).collect();
-        let block_inventory: Vec<(u8, u32)> = s.block_inventory.iter().map(|(t, c)| (*t, *c)).collect();
         let discovered_vec = discovered.to_vec();
         let mut data = crate::state::SaveData::new(
             name,
@@ -2617,8 +2275,6 @@ impl Engine {
         data.inventory_json = inventory_json;
         data.codex_json = codex_json;
         data.achievements_json = achievements_json;
-        data.placed_blocks = placed_blocks;
-        data.block_inventory = block_inventory;
         data.visited_seeds = s.visited_seeds.clone();
         let json = serde_json::to_string(&data).map_err(|e| e.to_string())?;
         let key = format!("worlds_save_{}", slot);
@@ -2662,16 +2318,6 @@ impl Engine {
                 s.achievements = ach;
             }
         }
-        // Restore placed blocks
-        let mut blocks = std::collections::HashMap::new();
-        for arr in &data.placed_blocks {
-            blocks.insert((arr[0], arr[1], arr[2]), arr[3] as u8);
-        }
-        s.placed_blocks = blocks;
-        // Restore block inventory
-        if !data.block_inventory.is_empty() {
-            s.block_inventory = data.block_inventory.clone();
-        }
         // Restore discovered biomes (from legacy field or data)
         if !data.discovered_biomes.is_empty() {
             s.discovered_biomes = data.discovered_biomes.clone();
@@ -2679,26 +2325,6 @@ impl Engine {
         // Restore visited seeds
         if !data.visited_seeds.is_empty() {
             s.visited_seeds = data.visited_seeds.clone();
-        }
-
-        // Respawn blocks in 3D scene
-        let block_colors: [[f32; 3]; 9] = [
-            [0.6,0.45,0.3],[0.5,0.5,0.5],[0.55,0.35,0.15],
-            [0.2,0.6,0.2],[0.7,0.4,1.0],[0.8,0.3,0.05],
-            [0.7,0.9,1.0],[0.85,0.75,0.5],[0.3,0.5,0.2],
-        ];
-        for (&(bx, by, bz), &bt) in &s.placed_blocks {
-            let bkey = format!("b_{}_{}_{}", bx, by, bz);
-            let bcol = block_colors[bt as usize % block_colors.len()];
-            let (pos, nrm, idx) = box_mesh(1.0, 1.0, 1.0);
-            let col = fill_color(24, bcol[0], bcol[1], bcol[2]);
-            let bp = js_sys::Float32Array::from(&pos[..]);
-            let bn = js_sys::Float32Array::from(&nrm[..]);
-            let bi = js_sys::Uint32Array::from(&idx[..]);
-            let bc_arr = js_sys::Float32Array::from(&col[..]);
-            let bu_arr = empty_uv_arr();
-            bridge::upload_mesh(&bkey, &bp, &bn, &bi, &bc_arr, &bu_arr);
-            bridge::set_mesh_position(&bkey, bx as f64 + 0.5, by as f64 + 0.5, bz as f64 + 0.5);
         }
     }
 
@@ -2716,15 +2342,6 @@ impl Engine {
                 match result_id {
                     14 => { // Heal potion
                         audio::play_effect("heal");
-                        // Green particles burst around player
-                        let pkey = format!("heal_{}", s.break_counter);
-                        s.break_counter += 1;
-                        let pos = s.char_pos;
-                        s.break_particles.push(BreakParticle::new(
-                            pkey,
-                            [pos[0], pos[1] + 1.0, pos[2]],
-                            30,
-                        ));
                     }
                     17 => { // Power ring: temp speed boost
                         audio::play_effect("power_up");

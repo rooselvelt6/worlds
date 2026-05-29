@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+
 use crate::engine::terrain;
 use crate::engine::terrain::{Zone, BLK_AIR, BLK_DIRT, BLK_SNOW, BLK_STONE};
 use crate::engine::structures;
@@ -206,10 +206,6 @@ fn is_air(params: &WorldParams, wx: f64, wy: f64, wz: f64) -> bool {
     let mut h2 = h;
     terrain::zone_effects(params, wx, wz, &mut h2);
     wy > h2
-}
-
-fn block_key(cx: i32, cz: i32, ix: usize, iy: usize, iz: usize, ug_layers: i32) -> (i32, i32, i32) {
-    (cx * 24 + ix as i32, -ug_layers + iy as i32, cz * 24 + iz as i32)
 }
 
 fn feature_hash(cx: i32, cz: i32, seed: u32, index: u32) -> f64 {
@@ -449,21 +445,17 @@ fn apply_underground_features(
 /// Compute lighting at a block position by checking nearby light-emitting blocks.
 /// surface_h is the terrain surface height above this column.
 fn block_light_level(wx: f64, wy: f64, wz: f64, surface_h: f64,
-    blocks: &[u8], n: usize, grid_ny: usize, wy_min: f64, ox: f64, oz: f64,
-    placed_blocks: &HashMap<(i32,i32,i32), u8>, cx_chunk: i32, cz_chunk: i32) -> f32
+    blocks: &[u8], n: usize, grid_ny: usize, wy_min: f64, ox: f64, oz: f64) -> f32
 {
-    // Surface light: blocks near the surface get full brightness
     let depth_below_surface = surface_h - wy;
     let surface_light = if depth_below_surface <= 0.5 { 1.0 }
         else { (1.0 - (depth_below_surface - 0.5) / 6.0).clamp(0.1, 1.0) };
 
-    // Check nearby light-emitting blocks (torches = placed block type 2, plus natural emitters)
     let mut nearby_light = 0.0_f32;
     let check_radius = 4.0;
     let steps = 5;
     let step_sz = check_radius / steps as f64;
 
-    // Convert world coords to block grid indices
     let base_ix = ((wx - ox) / BLOCK_SIZE) as i32;
     let base_iy = ((wy - wy_min) / BLOCK_SIZE) as i32;
     let base_iz = ((wz - oz) / BLOCK_SIZE) as i32;
@@ -490,18 +482,6 @@ fn block_light_level(wx: f64, wy: f64, wz: f64, surface_h: f64,
                     let light_strength = 1.0 - (dist2.sqrt() / check_radius as f32).clamp(0.0, 1.0);
                     nearby_light = nearby_light.max(light_strength * 0.8);
                 }
-
-                // Check placed torches (block type 2 = torch)
-                let world_x = cx_chunk * 24 + ix as i32;
-                let world_y = -(underground_layers(0)) + iy as i32;
-                let world_z = cz_chunk * 24 + iz as i32;
-                let world_key = (world_x, world_y, world_z);
-                if let Some(&pt) = placed_blocks.get(&world_key) {
-                    if pt == 2 { // torch
-                        let light_strength = 1.0 - (dist2.sqrt() / check_radius as f32).clamp(0.0, 1.0);
-                        nearby_light = nearby_light.max(light_strength);
-                    }
-                }
             }
         }
     }
@@ -510,8 +490,8 @@ fn block_light_level(wx: f64, wy: f64, wz: f64, surface_h: f64,
     total_light.clamp(0.1, 1.0) as f32
 }
 
-pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32, mined: &HashSet<(i32,i32,i32)>, placed: &HashMap<(i32,i32,i32), u8>) -> ChunkData {
-    compute_chunk_data_lod(params, cx, cz, mined, placed, 0)
+pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
+    compute_chunk_data_lod(params, cx, cz, 0)
 }
 
 fn underground_layers(lod: u32) -> i32 {
@@ -522,7 +502,7 @@ fn underground_layers(lod: u32) -> i32 {
     }
 }
 
-pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &HashSet<(i32,i32,i32)>, placed: &HashMap<(i32,i32,i32), u8>, lod: u32) -> ChunkData {
+pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32) -> ChunkData {
     let mutated = apply_mutation(params, cx, cz);
     let p = &mutated;
 
@@ -555,11 +535,7 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 let wy = wy_min + iy as f64 + BLOCK_SIZE * 0.5;
                 let idx = iy * n * n + iz * n + ix;
                 let bt = terrain::get_block_type(p, wx, wy, wz, surface_h, zone);
-                if bt != BLK_AIR && mined.contains(&block_key(cx, cz, ix, iy, iz, ug_layers)) {
-                    blocks[idx] = BLK_AIR;
-                } else {
-                    blocks[idx] = bt;
-                }
+                blocks[idx] = bt;
             }
         }
     }
@@ -626,7 +602,7 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 } else if sample_step > 1 {
                     0.7_f32
                 } else if lod == 0 {
-                    block_light_level(wx, wy, wz, surface_h, &blocks, n, grid_ny, wy_min, ox, oz, placed, cx, cz)
+                    block_light_level(wx, wy, wz, surface_h, &blocks, n, grid_ny, wy_min, ox, oz)
                 } else {
                     0.7_f32
                 };
@@ -689,6 +665,31 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
             ix += sample_step;
         }
         iz += sample_step;
+    }
+
+    // Smooth normals of the flat-shaded subsurface (average at shared positions)
+    if !positions.is_empty() {
+        use std::collections::HashMap;
+        let nv = positions.len() / 3;
+        let mut nmap: HashMap<u64, (f32, f32, f32, u32)> = HashMap::new();
+        for i in 0..nv {
+            let px = (positions[i * 3] as f64 * 2.0).round() as i64;
+            let py = (positions[i * 3 + 1] as f64 * 2.0).round() as i64;
+            let pz = (positions[i * 3 + 2] as f64 * 2.0).round() as i64;
+            let key = px.wrapping_mul(374761393).wrapping_add(py.wrapping_mul(668265263)).wrapping_add(pz.wrapping_mul(1274126177)) as u64;
+            let e = nmap.entry(key).or_insert((0.0, 0.0, 0.0, 0));
+            e.0 += normals[i * 3]; e.1 += normals[i * 3 + 1]; e.2 += normals[i * 3 + 2]; e.3 += 1;
+        }
+        for i in 0..nv {
+            let px = (positions[i * 3] as f64 * 2.0).round() as i64;
+            let py = (positions[i * 3 + 1] as f64 * 2.0).round() as i64;
+            let pz = (positions[i * 3 + 2] as f64 * 2.0).round() as i64;
+            let key = px.wrapping_mul(374761393).wrapping_add(py.wrapping_mul(668265263)).wrapping_add(pz.wrapping_mul(1274126177)) as u64;
+            if let Some(&(nx, ny, nz, _)) = nmap.get(&key) {
+                let len = (nx * nx + ny * ny + nz * nz).sqrt().max(0.001);
+                normals[i * 3] = nx / len; normals[i * 3 + 1] = ny / len; normals[i * 3 + 2] = nz / len;
+            }
+        }
     }
 
     // Generate smooth terrain surface mesh from heightmap
@@ -800,7 +801,7 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, mined: &Ha
                 let light = if terrain::block_emits_light(effective_bt) {
                     1.0_f32
                 } else if lod == 0 {
-                    block_light_level(wx_center, surface_h, wz_center, surface_h, &blocks, n, grid_ny, wy_min, ox, oz, placed, cx, cz)
+                    block_light_level(wx_center, surface_h, wz_center, surface_h, &blocks, n, grid_ny, wy_min, ox, oz)
                 } else {
                     0.7_f32
                 };

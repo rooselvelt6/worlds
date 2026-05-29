@@ -29,6 +29,8 @@ thread_local! {
     static WF_SOUND_TIMER: RefCell<f64> = const { RefCell::new(0.0) };
     static WATER_MURMUR: RefCell<Option<(OscillatorNode, GainNode, OscillatorNode, GainNode)>> = const { RefCell::new(None) };
     static WIND_NOISE: RefCell<Option<(OscillatorNode, GainNode)>> = const { RefCell::new(None) };
+    static RIVER_CHECK_TIMER: RefCell<f64> = const { RefCell::new(0.0) };
+    static CACHED_RIVER_DIST: RefCell<f64> = const { RefCell::new(999.0) };
 }
 
 pub fn init() {
@@ -407,7 +409,17 @@ fn create_impulse_response(ctx: &AudioContext, duration: f64, decay: f64, lowpas
 // ── R8.5: Water presence ───────────────────────────────────────────
 
 fn start_water_murmur(params: &WorldParams, player_x: f64, player_z: f64) {
-    let river_dist = nearest_river_distance(params, player_x, player_z);
+    RIVER_CHECK_TIMER.with(|t| {
+        let mut timer = *t.borrow();
+        timer += 1.0 / 60.0;
+        if timer >= 0.5 {
+            timer = 0.0;
+            let dist = nearest_river_distance(params, player_x, player_z);
+            CACHED_RIVER_DIST.with(|c| *c.borrow_mut() = dist);
+        }
+        *t.borrow_mut() = timer;
+    });
+    let river_dist = CACHED_RIVER_DIST.with(|c| *c.borrow());
     let is_near_river = river_dist < 30.0;
 
     WATER_MURMUR.with(|wm| {

@@ -1,11 +1,27 @@
 use crate::math::*;
 use crate::state::WorldParams;
+use std::cell::RefCell;
 
 /// ── R9.1: Plate Tectonics ──────────────────────────────────────
 /// Generates 3 plates from seed, computes uplift at convergent boundaries,
 /// subsidence at divergent boundaries.
 
 const NUM_PLATES: usize = 3;
+
+thread_local! {
+    static CACHED_PLATE_CENTERS: RefCell<Option<(u32, [(f64, f64); 3])>> = const { RefCell::new(None) };
+}
+
+fn get_plate_centers(params: &WorldParams) -> [(f64, f64); NUM_PLATES] {
+    CACHED_PLATE_CENTERS.with(|c| {
+        if let Some((seed, centers)) = *c.borrow() {
+            if seed == params.seed { return centers; }
+        }
+        let centers = plate_centers(params.seed);
+        *c.borrow_mut() = Some((params.seed, centers));
+        centers
+    })
+}
 
 fn plate_centers(seed: u32) -> [(f64, f64); NUM_PLATES] {
     let mut centers = [(0.0, 0.0); NUM_PLATES];
@@ -49,7 +65,7 @@ fn plate_id_at(wx: f64, wz: f64, centers: &[(f64, f64); NUM_PLATES]) -> (usize, 
 }
 
 fn plate_boundary(wx: f64, wz: f64, params: &WorldParams) -> f64 {
-    let centers = plate_centers(params.seed);
+    let centers = get_plate_centers(params);
     let (pid, d1, d2) = plate_id_at(wx, wz, &centers);
     let boundary_width = 8.0;
     let dist_to_boundary = d2 - d1;

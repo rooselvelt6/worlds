@@ -35,20 +35,10 @@ pub const MASK_G: u32 = 1 << 10;
 pub const MASK_H: u32 = 1 << 11;
 pub const MASK_T: u32 = 1 << 12;
 pub const MASK_M: u32 = 1 << 13;
-pub const MASK_B: u32 = 1 << 14;
 pub const MASK_LCLICK: u32 = 1 << 15;
 pub const MASK_N: u32 = 1 << 16;
 pub const MASK_R: u32 = 1 << 17;
 pub const MASK_RCLICK: u32 = 1 << 18;
-pub const MASK_1: u32 = 1 << 19;
-pub const MASK_2: u32 = 1 << 20;
-pub const MASK_3: u32 = 1 << 21;
-pub const MASK_4: u32 = 1 << 22;
-pub const MASK_5: u32 = 1 << 23;
-pub const MASK_6: u32 = 1 << 24;
-pub const MASK_7: u32 = 1 << 25;
-pub const MASK_8: u32 = 1 << 26;
-pub const MASK_9: u32 = 1 << 27;
 pub const MASK_F: u32 = 1 << 28;
 
 impl Controls {
@@ -92,13 +82,9 @@ impl Controls {
                 "h" | "H" => k |= MASK_H,
                 "t" | "T" => k |= MASK_T,
                 "m" | "M" => k |= MASK_M,
-                "b" | "B" => k |= MASK_B,
                 "n" | "N" => k |= MASK_N,
                 "r" | "R" => k |= MASK_R,
                 "f" | "F" => k |= MASK_F,
-                "1" => k |= MASK_1, "2" => k |= MASK_2, "3" => k |= MASK_3,
-                "4" => k |= MASK_4, "5" => k |= MASK_5, "6" => k |= MASK_6,
-                "7" => k |= MASK_7, "8" => k |= MASK_8, "9" => k |= MASK_9,
                 _ => {}
             }
             keys.set(k);
@@ -124,13 +110,9 @@ impl Controls {
                 "h" | "H" => k &= !MASK_H,
                 "t" | "T" => k &= !MASK_T,
                 "m" | "M" => k &= !MASK_M,
-                "b" | "B" => k &= !MASK_B,
                 "n" | "N" => k &= !MASK_N,
                 "r" | "R" => k &= !MASK_R,
                 "f" | "F" => k &= !MASK_F,
-                "1" => k &= !MASK_1, "2" => k &= !MASK_2, "3" => k &= !MASK_3,
-                "4" => k &= !MASK_4, "5" => k &= !MASK_5, "6" => k &= !MASK_6,
-                "7" => k &= !MASK_7, "8" => k &= !MASK_8, "9" => k &= !MASK_9,
                 _ => {}
             }
             keys2.set(k);
@@ -166,7 +148,7 @@ impl Controls {
         });
         el.add_event_listener_with_callback("click", click.as_ref().unchecked_ref()).ok();
 
-        // Mining: left click = mine/place
+        // Left click = interact, right click = examine
         let keys_md = keys_mouse.clone();
         let mousedown = Closure::<dyn Fn(MouseEvent)>::new(move |e: MouseEvent| {
             if e.button() == 0 {

@@ -141,8 +141,6 @@ pub struct SaveData {
     pub inventory_json: Option<String>,
     pub codex_json: Option<String>,
     pub achievements_json: Option<String>,
-    pub placed_blocks: Vec<[i32; 4]>,
-    pub block_inventory: Vec<(u8, u32)>,
     pub visited_seeds: Vec<u32>,
 }
 
@@ -165,8 +163,6 @@ impl SaveData {
             inventory_json: None,
             codex_json: None,
             achievements_json: None,
-            placed_blocks: Vec::new(),
-            block_inventory: Vec::new(),
             visited_seeds: Vec::new(),
         }
     }

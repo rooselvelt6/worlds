@@ -204,6 +204,52 @@ Priorizado por impacto/dependencias. Cada fase lista archivos a modificar y tare
 
 ---
 
+---
+
+## 15. 🌿 F-Orgánica — Transformación a Estética Orgánica/Realista
+**Impacto:** ⭐⭐⭐⭐ | **Depende de:** — | **Tamaño:** continuo
+
+Eliminar toda estética geométrica/Minecraft. Transformar a orgánico/realista.
+
+### Fase 1 — Eliminar sistema de bloques ✅
+- [x] Eliminar `placed_blocks`, `mined_blocks`, `block_inventory` del GameState
+- [x] Eliminar build mode, hotbar (teclas B, 1-9), break particles
+- [x] Eliminar `collides_with_blocks()`, `raycast_block()`, block serialization
+- [x] Compila limpio (0 warnings)
+
+### Fase 2 — Vegetación orgánica ✅
+- [x] `push_cylinder()` y `push_sphere()` en `vegetation.rs`
+- [x] Tree: tronco cilíndrico + copa esférica
+- [x] Bush: esfera
+- [x] Cactus: cilindros (tronco + brazo)
+- [x] DeadTree: tronco cilíndrico
+- [x] Mushroom: tallo cilíndrico + sombrero esférico
+- [x] Compila limpio (0 warnings)
+
+### Fase 3 — Personaje orgánico ✅
+**Archivos:** `engine/mod.rs`
+- [x] Añadidas `cylinder_mesh()` y `cylinder_pivot_top()` (cilindro con tapas, con/sin pivote superior)
+- [x] Body: reemplazado de `box_mesh` a `cylinder_mesh` (radio = (bw+bd)*0.25, altura = bh, 8 segmentos)
+- [x] Arms/Legs: reemplazados de `box_pivot_top` a `cylinder_pivot_top` (radio = (aw+ad)*0.25, altura = ah, 8 segmentos)
+- [x] Head: ya era `uv_sphere` para la mayoría de presets (se mantiene)
+- [x] Robot head: mantiene `box_mesh` (intencional, estética robot)
+- [x] Kraken tentáculos: cambiados a cilindros delgados
+- [x] Eliminada `box_pivot_top` (código muerto)
+- [x] Compila limpio (0 warnings)
+
+### Fase 4 — Subsuelo suavizado ✅
+**Archivos:** `chunk.rs`
+- [x] Post-process de normales: mapear posiciones de vértices → normales acumuladas vía HashMap
+- [x] Normalizar normales promediadas para cada vértice del subsuelo
+- [x] Afecta solo caras planas (flat-shaded), la superficie (smooth) queda intacta
+- [x] Compila limpio (0 warnings)
+
+### Fase 5 — Controles fauna ✅
+**Archivos:** `controls.rs`, `engine/mod.rs`
+- [x] Click derecho (`MASK_RCLICK`) ya interactúa con fauna: alimenta con fruta o examina (nombre + bioma)
+- [x] Click izquierdo (`MASK_LCLICK`) no tiene acción (block placement eliminado en Fase 1)
+- [x] Ya implementado desde Fase 1 — solo verificar
+
 ## Resumen de Prioridades
 
 | Prio | Fase | Esfuerzo | Por qué ahora |

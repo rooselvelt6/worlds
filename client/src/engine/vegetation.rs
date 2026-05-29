@@ -314,6 +314,72 @@ fn veg_size(veg_type: VegType, zone: Zone, r: f64) -> f32 {
     (base * scale) as f32
 }
 
+fn push_cylinder(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, radius: f32, height: f32, segments: u32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+) {
+    let nv = pos.len() as u32 / 3;
+    for ring in 0..2 {
+        let y = cy + if ring == 0 { -height * 0.5 } else { height * 0.5 };
+        for seg in 0..segments {
+            let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
+            let nx = theta.cos();
+            let nz = theta.sin();
+            pos.push(cx + radius * nx);
+            pos.push(y);
+            pos.push(cz + radius * nz);
+            norms.push(nx);
+            norms.push(0.0);
+            norms.push(nz);
+            cols.push(r); cols.push(g); cols.push(b);
+        }
+    }
+    for seg in 0..segments {
+        let a = nv + seg;
+        let b = nv + (seg + 1) % segments;
+        let c = nv + segments + seg;
+        let d = nv + segments + (seg + 1) % segments;
+        idx.push(a); idx.push(c); idx.push(b);
+        idx.push(b); idx.push(c); idx.push(d);
+    }
+    *base_idx = nv + segments * 2;
+}
+
+fn push_sphere(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, radius: f32, rings: u32, segments: u32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+) {
+    let nv = pos.len() as u32 / 3;
+    let vpr = segments + 1;
+    for ring in 0..=rings {
+        let phi = ring as f32 / rings as f32 * std::f32::consts::PI;
+        for seg in 0..=segments {
+            let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
+            let nx = theta.cos() * phi.sin();
+            let nz = theta.sin() * phi.sin();
+            let ny = phi.cos();
+            pos.push(cx + radius * nx);
+            pos.push(cy + radius * ny);
+            pos.push(cz + radius * nz);
+            norms.push(nx); norms.push(ny); norms.push(nz);
+            cols.push(r); cols.push(g); cols.push(b);
+        }
+    }
+    for ring in 0..rings {
+        for seg in 0..segments {
+            let a = nv + ring * vpr + seg;
+            let b = a + 1;
+            let c = nv + (ring + 1) * vpr + seg;
+            let d = c + 1;
+            idx.push(a); idx.push(c); idx.push(b);
+            idx.push(b); idx.push(c); idx.push(d);
+        }
+    }
+    *base_idx = nv + vpr * (rings + 1);
+}
+
 fn push_box(
     pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
     cx: f32, cy: f32, cz: f32, hw: f32, hh: f32, hd: f32,
@@ -357,56 +423,53 @@ fn emit_veg(
     let c = veg_color_season(veg_type, season);
     match veg_type {
         VegType::Tree => {
-            let th = size * 0.6;
-            let tw = size * 0.06;
-            let fh = size * 0.5;
-            let fw = size * 0.3;
+            let trunk_height = size * 0.6;
+            let trunk_radius = size * 0.06;
+            let canopy_radius = size * 0.3;
+            let canopy_center_y = trunk_height + canopy_radius;
             let canopy = tree_canopy_color(season);
-            push_box(pos, norms, idx, cols, x, y + th * 0.5, z, tw, th * 0.5, tw, 0.4, 0.25, 0.1, base_idx);
-            push_box(pos, norms, idx, cols, x, y + th + fh * 0.5, z, fw, fh * 0.5, fw, canopy[0], canopy[1], canopy[2], base_idx);
-            // Fruit in summer and autumn
+            push_cylinder(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height, 8, 0.4, 0.25, 0.1, base_idx);
+            push_sphere(pos, norms, idx, cols, x, y + canopy_center_y, z, canopy_radius, 6, 8, canopy[0], canopy[1], canopy[2], base_idx);
             if season == 1 || season == 2 {
                 let fruit_color = if season == 1 { [0.9, 0.2, 0.1] } else { [1.0, 0.5, 0.1] };
-                let fruit_r = fw * 0.15;
+                let fruit_r = canopy_radius * 0.15;
                 for fi in 0..4 {
                     let angle = fi as f32 * std::f32::consts::PI * 0.5 + 0.3;
-                    let fx = x + angle.cos() * fw * 0.6;
-                    let fz = z + angle.sin() * fw * 0.6;
-                    let fy = y + th + fh * 0.3 + (fi as f32 * 0.1);
+                    let fx = x + angle.cos() * canopy_radius * 0.6;
+                    let fz = z + angle.sin() * canopy_radius * 0.6;
+                    let fy = y + trunk_height + canopy_radius * 0.3 + (fi as f32 * 0.1);
                     push_box(pos, norms, idx, cols, fx, fy, fz, fruit_r, fruit_r, fruit_r, fruit_color[0], fruit_color[1], fruit_color[2], base_idx);
                 }
             }
         }
         VegType::DeadTree => {
-            let th = size * 0.7;
-            let tw = size * 0.05;
-            push_box(pos, norms, idx, cols, x, y + th * 0.5, z, tw, th * 0.5, tw, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x + size * 0.1, y + th * 0.6, z + size * 0.05, tw * 0.5, size * 0.15, tw * 0.5, c[0], c[1], c[2], base_idx);
+            let trunk_height = size * 0.7;
+            let trunk_radius = size * 0.05;
+            push_cylinder(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height, 8, c[0], c[1], c[2], base_idx);
+            push_box(pos, norms, idx, cols, x + size * 0.1, y + trunk_height * 0.6, z + size * 0.05, trunk_radius * 0.5, size * 0.15, trunk_radius * 0.5, c[0], c[1], c[2], base_idx);
         }
         VegType::Bush => {
-            let s = size * 0.35;
-            push_box(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx);
+            let r = size * 0.35;
+            push_sphere(pos, norms, idx, cols, x, y + r, z, r, 4, 6, c[0], c[1], c[2], base_idx);
         }
         VegType::Rock => {
             let s = size * 0.35;
             push_box(pos, norms, idx, cols, x, y + s, z, s * 0.9, s * 0.7, s * 0.8, c[0], c[1], c[2], base_idx);
         }
         VegType::Cactus => {
-            let th = size * 0.7;
-            let tw = size * 0.05;
-            push_box(pos, norms, idx, cols, x, y + th * 0.5, z, tw, th * 0.5, tw, c[0], c[1], c[2], base_idx);
-            // arm
-            let ah = size * 0.3;
-            let aw = size * 0.04;
-            push_box(pos, norms, idx, cols, x + size * 0.12, y + th * 0.6 + ah * 0.5, z, aw, ah * 0.5, aw, c[0], c[1], c[2], base_idx);
+            let trunk_height = size * 0.7;
+            let trunk_radius = size * 0.05;
+            push_cylinder(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height, 8, c[0], c[1], c[2], base_idx);
+            let arm_height = size * 0.3;
+            let arm_radius = size * 0.04;
+            push_cylinder(pos, norms, idx, cols, x + size * 0.12, y + trunk_height * 0.6 + arm_height * 0.5, z, arm_radius, arm_height, 8, c[0], c[1], c[2], base_idx);
         }
         VegType::Mushroom => {
-            let sh = size * 0.5;
-            let sw = size * 0.04;
-            push_box(pos, norms, idx, cols, x, y + sh * 0.5, z, sw, sh * 0.5, sw, 0.9, 0.85, 0.75, base_idx);
-            let ch = size * 0.35;
-            let cw = size * 0.25;
-            push_box(pos, norms, idx, cols, x, y + sh + ch * 0.5, z, cw, ch * 0.5, cw, c[0], c[1], c[2], base_idx);
+            let stem_height = size * 0.5;
+            let stem_radius = size * 0.04;
+            push_cylinder(pos, norms, idx, cols, x, y + stem_height * 0.5, z, stem_radius, stem_height, 8, 0.9, 0.85, 0.75, base_idx);
+            let cap_radius = size * 0.25;
+            push_sphere(pos, norms, idx, cols, x, y + stem_height + cap_radius, z, cap_radius, 4, 6, c[0], c[1], c[2], base_idx);
         }
         VegType::Crystal => {
             let s = size * 0.3;
