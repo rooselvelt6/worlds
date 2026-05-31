@@ -1,13 +1,13 @@
-# WORLDS — Motor 3D de Mundos Infinitos
+# WORLDS — Visualizador 3D de Terreno Procedural
 
-**Generacion procedural · Rust WASM + Three.js · Audio sintetizado · Terreno configurable en vivo**
+**Rust WASM + Three.js · Terreno configurable en vivo · Criaturas, vegetacion, audio 3D, multiplayer**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![Three.js](https://img.shields.io/badge/Three.js-r175-blue.svg)](https://threejs.org)
 [![Leptos](https://img.shields.io/badge/Leptos-0.8-purple.svg)](https://leptos.dev)
 
-WORLDS genera mundos 3D infinitos con terreno procedural FBM, texturizado por pendiente, zonas tematicas, personaje personalizable, ciclo dia/noche, particulas ambientales y audio sintetizado. Todo corre en el navegador.
+WORLDS es un visualizador 3D de terreno procedural que corre en el navegador. El servidor Axum (Rust) sirve los assets y genera chunks bajo demanda; el cliente renderiza con Three.js desde WASM compilado en Rust. Incluye terreno FBM con Marching Cubes subterraneo, criaturas con IA, vegetacion, clima, audio 3D sintetizado, y UI configurable en vivo.
 
 ---
 
@@ -16,7 +16,7 @@ WORLDS genera mundos 3D infinitos con terreno procedural FBM, texturizado por pe
 | Fase | Estado |
 |------|--------|
 | ✅ F5 — Persistencia (IndexedDB) | Completado |
-| ✅ F7 — Terreno Voxel 3D (Cuevas) | Completado |
+| ✅ F7 — Terreno Subterraneo (Marching Cubes) | Completado |
 | ✅ F8 — Ecosistemas Dinamicos | Completado |
 | ✅ F9 — Criaturas con IA | Completado |
 | ✅ F10 — Audio 3D Inmersivo | Completado |
@@ -36,8 +36,9 @@ WORLDS genera mundos 3D infinitos con terreno procedural FBM, texturizado por pe
 
 | Capa | Tecnologia |
 |------|-----------|
-| Motor 3D | Three.js r175 (local, sin CDN) |
+| Motor 3D | Three.js r175 (local en `server/assets/three/`) |
 | Logica de terreno | Rust 2021 -> WASM (wasm-bindgen) |
+| Mesh subterraneo | Marching Cubes con SDF (cuevas, tuneles, cavernas) |
 | UI | Leptos 0.8 CSR |
 | Servidor | Axum (Rust, con WebSocket) |
 | Audio | Web Audio API (sintesis 100%) |
@@ -47,47 +48,76 @@ WORLDS genera mundos 3D infinitos con terreno procedural FBM, texturizado por pe
 
 ```
 worlds/
-├── client/                    # Motor Rust -> Wasm
+├── client/                        # Motor Rust -> Wasm (Leptos CSR)
 │   ├── src/
-│   │   ├── engine/            # Nucleo del motor
-│   │   │   ├── mod.rs         # Game loop + fisica + colision
-│   │   │   ├── terrain.rs     # Altura FBM, zonas, colores, pendiente
-│   │   │   ├── chunk.rs       # Malla superficie continua + LOD 3 niveles
-│   │   │   ├── bridge.rs      # FFI -> JavaScript
-│   │   │   ├── audio.rs       # Sintesis de audio 3D por zona
-│   │   │   ├── controls.rs    # Teclado + mouse + gamepad
-│   │   │   ├── particles.rs   # Lluvia/Nieve/Insectos
-│   │   │   ├── vegetation.rs  # Arboles, arbustos, rocas
-│   │   │   ├── structures.rs  # 12 tipos de estructuras
-│   │   │   ├── minerals.rs    # Depositos de minerales
-│   │   │   ├── creatures.rs   # 16 tipos de criaturas con IA
-│   │   │   ├── portals.rs     # Portales entre mundos
-│   │   │   ├── codex.rs       # Bestiario
-│   │   │   ├── achievements.rs# Logros
-│   │   │   ├── inventory.rs   # Inventario + crafteo
-│   │   │   ├── db.rs          # IndexedDB persistencia
-│   │   │   ├── foam.rs        # Espuma de agua
-│   │   │   ├── waterfall.rs   # Cascadas
-│   │   │   └── modding/       # Modding API (biomas, formulas, blueprints)
-│   │   ├── math/              # Ruido FBM y formulas
-│   │   ├── state/mod.rs       # Estado global
-│   │   ├── i18n.rs            # Internacionalizacion
-│   │   └── app.rs             # UI Leptos
-│   ├── three_bridge.js        # Render Three.js + post-procesado
-│   ├── i18n/                  # Traducciones ES/EN/FR/DE/JA
-│   ├── manifest.json          # PWA manifest
-│   └── service-worker.js      # Service worker v4
-├── server/                    # Servidor Axum
-│   └── assets/                # Frontend estatico + Three.js local
-│       └── three/             # three.module.js + three.core.js
-└── shared/                    # Libreria compartida Rust
+│   │   ├── engine/                # Nucleo del motor
+│   │   │   ├── mod.rs             # Game loop + fisica + colision
+│   │   │   ├── terrain.rs         # Altura FBM, zonas, SDF, colores
+│   │   │   ├── chunk.rs           # Surface mesh + Marching Cubes (LOD 3)
+│   │   │   ├── bridge.rs          # FFI -> JavaScript (Three.js bridge)
+│   │   │   ├── audio.rs           # Sintesis de audio 3D por zona
+│   │   │   ├── camera.rs          # Camaras 1a/3a persona
+│   │   │   ├── controls.rs        # Teclado + mouse
+│   │   │   ├── gamepad.rs         # Mando
+│   │   │   ├── joystick.rs        # Joystick tactil
+│   │   │   ├── particles.rs       # Lluvia/Nieve/Insectos
+│   │   │   ├── vegetation.rs      # Arboles, arbustos, rocas
+│   │   │   ├── structures.rs      # 12 tipos de estructuras
+│   │   │   ├── minerals.rs        # Depositos de minerales
+│   │   │   ├── creatures.rs       # 16 tipos de criaturas con IA
+│   │   │   ├── portals.rs         # Portales entre mundos
+│   │   │   ├── codex.rs           # Bestiario
+│   │   │   ├── achievements.rs    # Logros
+│   │   │   ├── inventory.rs       # Inventario + crafteo
+│   │   │   ├── db.rs              # IndexedDB persistencia
+│   │   │   ├── foam.rs            # Espuma de agua
+│   │   │   ├── waterfall.rs       # Cascadas
+│   │   │   ├── erosion.rs         # Erosion hidraulica
+│   │   │   ├── minimap.rs         # Minimapa
+│   │   │   ├── tour.rs            # Tour guiado
+│   │   │   └── modding/           # Modding API (biomas, formulas, blueprints)
+│   │   ├── math/                  # Ruido FBM, Perlin, formulas
+│   │   ├── state/mod.rs           # Estado global
+│   │   ├── i18n.rs                # Internacionalizacion
+│   │   ├── app.rs                 # UI Leptos
+│   │   └── lib.rs                 # Punto de entrada WASM
+│   ├── three_bridge.js            # Render Three.js + post-procesado (1925 lineas)
+│   ├── i18n/                      # Traducciones ES/EN/FR/DE/JA
+│   ├── manifest.json              # PWA manifest
+│   ├── service-worker.js          # Service worker v4
+│   ├── index.html                 # Entry point dev (trunk serve)
+│   ├── Trunk.toml                 # Config Trunk
+│   └── icon.svg                   # Icono PWA
+├── server/                        # Servidor Axum (Rust)
+│   ├── src/
+│   │   ├── main.rs                # HTTP + WebSocket + API
+│   │   └── ws/
+│   │       └── mod.rs             # WebSocket handler
+│   └── assets/                    # Frontend servido estaticamente
+│       ├── index.html             # Entry point produccion (local Three.js)
+│       ├── three_bridge.js        # Bridge Three.js (1869 lineas, con SSR/SSAO/Bloom)
+│       ├── worlds-app-*.js        # WASM JS loader (hash por build)
+│       ├── worlds-app-*_bg.wasm   # WASM compilado
+│       ├── game.js                # Logica cliente legacy
+│       ├── service-worker.js
+│       ├── manifest.json
+│       └── three/                 # Three.js r175 local (sin CDN)
+│           ├── three.module.js
+│           ├── three.core.js
+│           ├── postprocessing/    # EffectComposer, SSRPass, SSAOPass, ...
+│           ├── shaders/           # SSR, SSAO, Bokeh, Copy, Bloom
+│           ├── csm/               # Cascaded Shadow Maps
+│           └── math/SimplexNoise.js
+└── shared/                        # Libreria compartida Rust
+    └── src/
+        └── lib.rs                 # WorldGenerator, tipos comunes
 ```
 
 ## Características
 
 ### Superficie Continua (Mesh Suave)
 
-El terreno dejó de ser voxel blocky para usar un **mesh de superficie continuo** generado por `compute_chunk_data_lod`:
+El terreno usa un **mesh de superficie continuo** generado por `compute_chunk_data_lod`:
 
 - Cada chunk de 16x16 celdas muestrea altura en esquinas (17x17 puntos)
 - Triangulación con winding CCW para normales correctas
@@ -118,14 +148,17 @@ El terreno usa **FBM (Fractional Brownian Motion)** como funcion de ruido unica,
 - **Canones**: tallado profundo con ondas sinusoidales
 - **15 Zonas**: Forest, Plains, Desert, Tundra, Jungle, Volcanic, Ocean, Crystal, Cave, Lava, Fungus, Abyss, Storm, Aurora, Magma
 
-###  Terreno Voxel 3D Subterraneo
+### 🏔️ Terreno Subterraneo (Marching Cubes)
 
-- **32 capas** de profundidad con bloqueo solido
-- Cuevas, acuiferos, lava tubes, cavernas de hongo, geodas, dungeon rooms
-- LOD 3 niveles (32/8/2 capas)
-- Iluminacion por voxel con antorchas + bloques emisivos
-- Color blending superficie/subterraneo
-- 9 tipos de bloque: Dirt, Stone, Wood, Leaves, Crystal, Lava Stone, Ice, Sand, Moss
+El subsuelo ya no usa voxel blocky: ahora es un **mesh continuo generado por Marching Cubes** sobre un campo SDF (Signed Distance Field):
+
+- **SDF**: positivo = aire, negativo = roca, isosuperficie en 0
+- **Cuevas**: talladas con FBM 3D, umbral variable por semilla
+- **Cavernas grandes**: salas con Perlin noise de baja frecuencia
+- **Tuneles de gusano**: 5 sistemas de tuneles sinuosos conectados
+- **Colores por zona + profundidad**: roca de zona oscurecida por profundidad, con hue/saturation/lightness ajustable
+- **Sin UV mapping**: el mesh usa vertex colors (3 floats por vertice)
+- La superficie (heightmap) sigue siendo un mesh separado texturizado por pendiente
 
 ### 💧 Agua Dinámica
 
@@ -281,23 +314,19 @@ Interfaz de 3 columnas con botones de acción directa. Cada botón abre un panel
 ## Build & Deploy
 
 ```bash
-# Requisitos: Rust + trunk + Node.js (para Three.js)
+# Requisitos: Rust + trunk
 cargo install trunk
 
-# Build WASM release (sin wasm-bindgen-rayon por compatibilidad)
+# Build WASM release
 cd client && trunk build --release --no-default-features
 
 # Deploy al servidor
 HASH=$(ls dist/worlds-app-*.wasm | sed 's/.*worlds-app-//;s/_bg.wasm//')
 cp dist/worlds-app-$HASH.js dist/worlds-app-${HASH}_bg.wasm ../server/assets/
-cp dist/index.html dist/three_bridge.js ../server/assets/
+cp dist/three_bridge.js ../server/assets/
+# NOTA: three_bridge.js debe incluir threeBridgeUploadMeshBatch
+# (la version de server/assets/ tiene SSR/SSAO/Bloom; syncronizar desde client/three_bridge.js)
 sed -i "s/worlds-app-[a-f0-9]*/worlds-app-$HASH/g" ../server/assets/index.html
-
-# Descargar Three.js local (necesario para Brave/Chrome sin CDN)
-# mkdir -p ../server/assets/three
-# curl -o ../server/assets/three/three.module.js https://unpkg.com/three@0.175.0/build/three.module.js
-# curl -o ../server/assets/three/three.core.js https://unpkg.com/three@0.175.0/build/three.core.js
-# (postprocessing y shaders tambien necesarios)
 
 # Iniciar servidor
 cd .. && cargo run --release -p worlds-server
@@ -309,10 +338,10 @@ cd .. && cargo run --release -p worlds-server
 # Build WASM + deploy rapido
 cd client && trunk build --release --no-default-features && \
 HASH=$(ls dist/worlds-app-*.wasm | sed 's/.*worlds-app-//;s/_bg.wasm//') && \
-cp dist/worlds-app-$HASH.js dist/worlds-app-${HASH}_bg.wasm dist/index.html dist/three_bridge.js ../server/assets/ && \
+cp dist/worlds-app-$HASH.js dist/worlds-app-${HASH}_bg.wasm dist/three_bridge.js ../server/assets/ && \
 sed -i "s/worlds-app-[a-f0-9]*/worlds-app-$HASH/g" ../server/assets/index.html
 
-# Verificar compilacion
+# Solo compilar (sin deploy)
 cargo check -p worlds-app
 ```
 
