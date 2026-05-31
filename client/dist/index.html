@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>WORLDS — Phase 1 Foundation</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" crossorigin="anonymous" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" integrity="sha384-AIH1kL7JmmReCxSwiSyaRNwzSFO7h4Ir4F/PO28EKezqFza1LwIMgEPLd83KwmZ4" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha384-nRgPTkuX86pH8yjPJUAFuASXQSSl2/bBUiNV47vSYpKFxHJhbcrGnmlYpYJMeD7a" crossorigin="anonymous" />
     <script type="importmap">
     {
         "imports": {
-            "three": "/three/three.module.js",
-            "three/addons/": "/three/"
+            "three": "https://unpkg.com/three@0.175.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.175.0/examples/jsm/"
         }
     }
     </script>
@@ -21,6 +21,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#0a0a12" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' ws://localhost:3000 wss://*; img-src 'self' data:; manifest-src 'self'; frame-ancestors 'none'; form-action 'none'" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet" />
@@ -115,12 +116,12 @@
             -webkit-backdrop-filter: blur(24px) saturate(1.4);
         }
     </style>
-<link rel="modulepreload" href="/worlds-app-f872acb0c69aa3f3.js" crossorigin="anonymous" integrity="sha384-CwqoSrVnJRLmZ7VBhb4ZLkoojzqXzPAA040q9TBpCtGagtz0r5mltv/R3YDUeLrM"><link rel="preload" href="/worlds-app-f872acb0c69aa3f3_bg.wasm" crossorigin="anonymous" integrity="sha384-LuG4MPSKZ/CKsyz6krwhQWr6WSrnssAAhlqEo3ipT71dKoxZ5SFd3h94y1TJHE5y" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/worlds-app-b907f5e1c1fe984a.js" crossorigin="anonymous" integrity="sha384-RqCLMmWGrcUWnjKxvi31pZd/IO7MnZ/X32/6I0h9QI5Q6xhOUJhhqQPGY698jBq/"><link rel="preload" href="/worlds-app-b907f5e1c1fe984a_bg.wasm" crossorigin="anonymous" integrity="sha384-QJGZq7SNF1Sas9DMLNC19MYPopnuxWIwf0E8ReqEySFtB/4MxVfD63sBVnCM9H2u" as="fetch" type="application/wasm"></head>
 <body class="bg-[#0a0a12]">
 
 <script type="module">
-import init, * as bindings from '/worlds-app-f872acb0c69aa3f3.js';
-const wasm = await init({ module_or_path: '/worlds-app-f872acb0c69aa3f3_bg.wasm' });
+import init, * as bindings from '/worlds-app-b907f5e1c1fe984a.js';
+const wasm = await init({ module_or_path: '/worlds-app-b907f5e1c1fe984a_bg.wasm' });
 
 
 window.wasmBindings = bindings;

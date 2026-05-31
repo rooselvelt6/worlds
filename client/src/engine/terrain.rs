@@ -705,6 +705,94 @@ pub fn get_terrain_color(h: f64, max_h: f64) -> [f32; 3] {
     get_zone_terrain_color(Zone::Forest, h, max_h, 0.8, 0.0, 0.0)
 }
 
+/// Signed-distance function for marching-cubes terrain.
+/// Positive = air (outside), negative = solid (inside), isosurface at 0.
+pub fn sdf_sample(params: &WorldParams, wx: f64, wy: f64, wz: f64) -> f64 {
+    let surface_h = get_height(params, wx, wz);
+    let mut h = surface_h;
+    zone_effects(params, wx, wz, &mut h);
+
+    // Base SDF: positive above surface (air), negative below (solid).
+    // Small bias (-0.1) so MC isosurface sits just below the heightmap
+    // to prevent z-fighting with the heightmap surface mesh.
+    let sdf_base = wy - h - 0.1;
+
+    if sdf_base >= 0.0 {
+        return sdf_base;
+    }
+
+    let depth = h - wy;
+    let depth_factor = (depth / 3.0).min(1.0);
+
+    // ── Cave noise ──
+    let cave_noise = crate::math::fbm_3d(wx * 0.04, wy * 0.04, wz * 0.04, 3);
+    let cave_threshold = 0.45 + (params.seed as f64 * 0.001).fract() * 0.1;
+    let cave_carve = if cave_noise > cave_threshold {
+        ((cave_noise - cave_threshold) / (1.0 - cave_threshold)).min(1.0) * depth_factor
+    } else {
+        0.0
+    };
+
+    // ── Large cavern rooms ──
+    let room_noise = crate::math::perlin_noise_3d(wx * 0.015, wy * 0.015, wz * 0.015);
+    let room_carve = if room_noise > 0.65 {
+        ((room_noise - 0.65) / 0.35).min(1.0) * depth_factor
+    } else {
+        0.0
+    };
+
+    // ── Worm tunnels ──
+    let tunnel_carve = worm_tunnel_sdf(wx, wy, wz, params, depth) * depth_factor;
+
+    // Combine carving: max since they are independent void systems
+    let carve = cave_carve.max(room_carve).max(tunnel_carve);
+
+    sdf_base + carve * 3.0
+}
+
+/// SDF contribution from worm tunnels (connected winding passage network).
+/// Returns 0 .. ~1 where a tunnel carves through, 0 outside.
+fn worm_tunnel_sdf(wx: f64, wy: f64, wz: f64, params: &WorldParams, depth: f64) -> f64 {
+    if depth < 2.0 {
+        return 0.0;
+    }
+    let seed = params.seed;
+    let worm_seeds = [0u32, 137, 337, 577, 733];
+    let mut max_carve = 0.0;
+    for &ws in &worm_seeds {
+        let s = (seed.wrapping_add(ws)) as f64 * 0.001;
+        let path_x = wx + (wz * 0.05 + wy * 0.03 + s).sin() * 3.0;
+        let path_z = wz + (wx * 0.04 + wy * 0.02 + s * 1.3).cos() * 3.0;
+        let path_y = wy + (wx * 0.03 + wz * 0.04 + s * 0.7).sin() * 2.0;
+        let dx = wx - path_x;
+        let dy = wy - path_y;
+        let dz = wz - path_z;
+        let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+        let radius_noise = crate::math::perlin_noise_3d(wx * 0.02, wy * 0.02, wz * 0.02);
+        let tunnel_radius = 1.5 + radius_noise * 1.5;
+        let carve = if dist < tunnel_radius {
+            1.0 - dist / tunnel_radius
+        } else {
+            0.0
+        };
+        if carve > max_carve {
+            max_carve = carve;
+        }
+    }
+    max_carve
+}
+
+/// Vertex color for the marching-cubes isosurface.
+/// Uses zone rock color darkened by depth below surface.
+pub fn sdf_color(params: &WorldParams, wx: f64, wy: f64, wz: f64) -> [f32; 3] {
+    let zone = get_zone(params, wx, wz);
+    let surface_h = get_height(params, wx, wz);
+    let depth = surface_h - wy;
+    let rock = zone_rock_color(zone);
+    let darken = (1.0 - (depth / 20.0).clamp(0.0, 0.75)).max(0.25) as f32;
+    [rock[0] * darken, rock[1] * darken, rock[2] * darken]
+}
+
 pub fn zone_effects(params: &WorldParams, wx: f64, wz: f64, h: &mut f64) {
     match params.zone {
         Zone::Crystal => {

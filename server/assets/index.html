@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>WORLDS — Phase 1 Foundation</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" crossorigin="anonymous" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" integrity="sha384-AIH1kL7JmmReCxSwiSyaRNwzSFO7h4Ir4F/PO28EKezqFza1LwIMgEPLd83KwmZ4" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha384-nRgPTkuX86pH8yjPJUAFuASXQSSl2/bBUiNV47vSYpKFxHJhbcrGnmlYpYJMeD7a" crossorigin="anonymous" />
     <script type="importmap">
     {
         "imports": {
@@ -21,6 +21,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#0a0a12" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' ws://localhost:3000 wss://*; img-src 'self' data:; manifest-src 'self'; frame-ancestors 'none'; form-action 'none'" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet" />
@@ -115,12 +116,12 @@
             -webkit-backdrop-filter: blur(24px) saturate(1.4);
         }
     </style>
-<link rel="modulepreload" href="/worlds-app-f227d4a27a57c5cb.js" crossorigin="anonymous" integrity="sha384-hapIlFhELtPEwMF2LWiHkG+MvjANCUG1AbCc+bDE18nfTMat59L3at1MkV7/X/HU"><link rel="preload" href="/worlds-app-f227d4a27a57c5cb_bg.wasm" crossorigin="anonymous" integrity="sha384-SQqcLxIKTEuXG2g0QxNpbx6v2qn1SQSi2ROv98X8ML6jafwN+NaU4f0T9IWEMF1G" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/worlds-app-63e62fb277af4fcf.js" crossorigin="anonymous" integrity="sha384-7Bg5/xeDIsjfCqxskMhQ0NbnEbm7/nUneyG3lJqfIcfJ7tH0wckOLHIsmKB1zzT4"><link rel="preload" href="/worlds-app-63e62fb277af4fcf_bg.wasm" crossorigin="anonymous" integrity="sha384-1bF6TLDs1ex5ChhN4yxfa9r9JsC+m8E2rtEo1EyB6ZxyVTavABMJis6j68zr7Q+m" as="fetch" type="application/wasm"></head>
 <body class="bg-[#0a0a12]">
 
 <script type="module">
-import init, * as bindings from '/worlds-app-f227d4a27a57c5cb.js';
-const wasm = await init({ module_or_path: '/worlds-app-f227d4a27a57c5cb_bg.wasm' });
+import init, * as bindings from '/worlds-app-63e62fb277af4fcf.js';
+const wasm = await init({ module_or_path: '/worlds-app-63e62fb277af4fcf_bg.wasm' });
 
 
 window.wasmBindings = bindings;

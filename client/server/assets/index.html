@@ -9,8 +9,8 @@
     <script type="importmap">
     {
         "imports": {
-            "three": "/three/three.module.js",
-            "three/addons/": "/three/"
+            "three": "https://unpkg.com/three@0.175.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.175.0/examples/jsm/"
         }
     }
     </script>
@@ -115,12 +115,12 @@
             -webkit-backdrop-filter: blur(24px) saturate(1.4);
         }
     </style>
-<link rel="modulepreload" href="/worlds-app-f872acb0c69aa3f3.js" crossorigin="anonymous" integrity="sha384-CwqoSrVnJRLmZ7VBhb4ZLkoojzqXzPAA040q9TBpCtGagtz0r5mltv/R3YDUeLrM"><link rel="preload" href="/worlds-app-f872acb0c69aa3f3_bg.wasm" crossorigin="anonymous" integrity="sha384-LuG4MPSKZ/CKsyz6krwhQWr6WSrnssAAhlqEo3ipT71dKoxZ5SFd3h94y1TJHE5y" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/worlds-app-b907f5e1c1fe984a.js" crossorigin="anonymous" integrity="sha384-CwqoSrVnJRLmZ7VBhb4ZLkoojzqXzPAA040q9TBpCtGagtz0r5mltv/R3YDUeLrM"><link rel="preload" href="/worlds-app-b907f5e1c1fe984a_bg.wasm" crossorigin="anonymous" integrity="sha384-LuG4MPSKZ/CKsyz6krwhQWr6WSrnssAAhlqEo3ipT71dKoxZ5SFd3h94y1TJHE5y" as="fetch" type="application/wasm"></head>
 <body class="bg-[#0a0a12]">
 
 <script type="module">
-import init, * as bindings from '/worlds-app-f872acb0c69aa3f3.js';
-const wasm = await init({ module_or_path: '/worlds-app-f872acb0c69aa3f3_bg.wasm' });
+import init, * as bindings from '/worlds-app-b907f5e1c1fe984a.js';
+const wasm = await init({ module_or_path: '/worlds-app-b907f5e1c1fe984a_bg.wasm' });
 
 
 window.wasmBindings = bindings;
