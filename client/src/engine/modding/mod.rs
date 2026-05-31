@@ -173,18 +173,47 @@ impl ModContext {
     }
 }
 
+pub fn validate_mod_url(url: &str) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("Mod URL must use https://".to_string());
+    }
+    if url.contains(' ') || url.contains('\t') || url.contains('\n') || url.contains('\r') {
+        return Err("Mod URL contains invalid characters".to_string());
+    }
+    if url.len() > 2048 {
+        return Err("Mod URL too long (max 2048 chars)".to_string());
+    }
+    Ok(())
+}
+
 pub async fn fetch_and_apply_mod(url: &str) -> Result<(), String> {
+    validate_mod_url(url)?;
     let window = window().ok_or("No window")?;
     let promise = window.fetch_with_str(url);
     let resp = JsFuture::from(promise).await
         .map_err(|e| format!("Fetch error: {:?}", e))?;
     let resp: web_sys::Response = resp.dyn_into()
         .map_err(|_| "Not a Response".to_string())?;
+
+    // Check content length before reading
+    if let Ok(Some(content_length)) = resp.headers().get("Content-Length") {
+        if let Ok(size) = content_length.parse::<u64>() {
+            if size > 5 * 1024 * 1024 {
+                return Err("Mod file too large (max 5MB)".to_string());
+            }
+        }
+    }
+
     let text_promise = resp.text()
         .map_err(|e| format!("text() error: {:?}", e))?;
     let text = JsFuture::from(text_promise).await
         .map_err(|e| format!("text future error: {:?}", e))?;
     let json_str = text.as_string().ok_or("Not a string")?;
+
+    // Limit response size
+    if json_str.len() > 5 * 1024 * 1024 {
+        return Err("Mod response too large (max 5MB)".to_string());
+    }
 
     let ctx = ModContext::load_from_json(&json_str)?;
     ModContext::set_active(ctx);

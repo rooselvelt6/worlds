@@ -2396,7 +2396,23 @@ impl Engine {
     }
 
     // ── Multiplayer ──
+    pub fn validate_ws_url(url: &str) -> Result<(), String> {
+        if url.starts_with("wss://") {
+            return Ok(());
+        }
+        if url.starts_with("ws://localhost") || url.starts_with("ws://127.0.0.1") || url.starts_with("ws://[::1]") {
+            return Ok(());
+        }
+        Err("WebSocket URL must use wss:// or ws://localhost".to_string())
+    }
+
     pub fn connect_multiplayer(&mut self, server_url: &str, seed: u32) {
+        if let Err(e) = Self::validate_ws_url(server_url) {
+            let mut s = self.state.borrow_mut();
+            s.chat_messages.push_back(("Sistema".into(), format!("Error: {}", e)));
+            if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
+            return;
+        }
         self.disconnect_multiplayer();
         let state = self.state.clone();
         let cb = Closure::<dyn FnMut(String)>::new(move |json: String| {

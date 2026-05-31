@@ -811,7 +811,12 @@ pub fn App() -> impl IntoView {
                                                     let el = input.dyn_into::<web_sys::HtmlInputElement>().ok()?;
                                                     Some(el.value())
                                                 }).unwrap_or_default();
-                                                if !url.is_empty() { mp_connect_url.set(Some(url)); }
+                                                if !url.is_empty() {
+                                                    // Basic client-side validation: must be wss:// or ws://localhost
+                                                    if url.starts_with("wss://") || url.starts_with("ws://localhost") || url.starts_with("ws://127.0.0.1") {
+                                                        mp_connect_url.set(Some(url));
+                                                    }
+                                                }
                                             } class=PBTN>"Conectar"</button>
                                         }.into_any()
                                     } else {

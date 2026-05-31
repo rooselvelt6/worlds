@@ -2,18 +2,42 @@ mod ws;
 
 use axum::{
     extract::{Path, State},
+    http::{HeaderName, HeaderValue, header},
     response::IntoResponse,
     routing::{get, Router},
 };
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tower::{ServiceBuilder, limit::ConcurrencyLimitLayer};
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::CorsLayer,
     trace::TraceLayer,
     compression::CompressionLayer,
 };
 use tracing::info;
 use worlds_shared::WorldGenerator;
+
+fn csp_value() -> &'static str {
+    "default-src 'self'; \
+     script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; \
+     style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; \
+     font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; \
+     connect-src 'self' ws://localhost:3000 wss://*; \
+     img-src 'self' data:; \
+     manifest-src 'self'; \
+     frame-ancestors 'none'; \
+     form-action 'none'"
+}
+
+fn security_headers() -> Vec<(HeaderName, HeaderValue)> {
+    vec![
+        (HeaderName::from_static("content-security-policy"), HeaderValue::from_static(csp_value())),
+        (HeaderName::from_static("strict-transport-security"), HeaderValue::from_static("max-age=31536000; includeSubDomains; preload")),
+        (HeaderName::from_static("x-frame-options"), HeaderValue::from_static("DENY")),
+        (HeaderName::from_static("x-content-type-options"), HeaderValue::from_static("nosniff")),
+        (HeaderName::from_static("referrer-policy"), HeaderValue::from_static("strict-origin-when-cross-origin")),
+        (HeaderName::from_static("permissions-policy"), HeaderValue::from_static("geolocation=(), microphone=(), camera=()")),
+    ]
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -63,16 +87,36 @@ async fn get_chunk(
 async fn serve_index(State(state): State<AppState>) -> impl IntoResponse {
     let path = state.assets_dir.join("index.html");
     match tokio::fs::read_to_string(&path).await {
-        Ok(s) => axum::response::Html(s),
-        Err(_) => axum::response::Html("Worlds Server".to_string()),
+        Ok(s) => {
+            let mut res = axum::response::Response::new(axum::body::Body::from(s));
+            res.headers_mut().insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+            for (name, value) in security_headers() {
+                res.headers_mut().insert(name, value);
+            }
+            res
+        }
+        Err(_) => axum::response::Html("Worlds Server".to_string()).into_response(),
     }
 }
 
 async fn serve_asset(State(state): State<AppState>, Path(path): Path<String>) -> impl IntoResponse {
     let clean = path.trim_start_matches('/');
     let file_path = state.assets_dir.join(clean);
+
+    // Sanitize path traversal: canonicalize and verify it stays within assets_dir
+    let canonical = match file_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return (axum::http::StatusCode::NOT_FOUND, "Not found").into_response(),
+    };
+    let assets_canonical = match state.assets_dir.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Config error").into_response(),
+    };
+    if !canonical.starts_with(&assets_canonical) {
+        return (axum::http::StatusCode::FORBIDDEN, "Forbidden").into_response();
+    }
     
-    if !file_path.exists() || !file_path.is_file() {
+    if !canonical.is_file() {
         return (axum::http::StatusCode::NOT_FOUND, "Not found").into_response();
     }
     
@@ -85,7 +129,7 @@ async fn serve_asset(State(state): State<AppState>, Path(path): Path<String>) ->
         _ => "application/octet-stream",
     };
     
-    let bytes = match tokio::fs::read(&file_path).await {
+    let bytes = match tokio::fs::read(&canonical).await {
         Ok(b) => b,
         Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Read error").into_response(),
     };
@@ -101,6 +145,9 @@ async fn serve_asset(State(state): State<AppState>, Path(path): Path<String>) ->
         axum::http::HeaderName::from_static("cross-origin-embedder-policy"),
         "credentialless".parse().unwrap(),
     );
+    for (name, value) in security_headers() {
+        res.headers_mut().insert(name, value);
+    }
     res
 }
 
@@ -116,7 +163,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Iniciando Worlds Server...");
     let state = AppState::new(42, assets_dir);
     
-    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
+    let cors = CorsLayer::new()
+        .allow_origin(tower_http::cors::AllowOrigin::list(vec![
+            "http://localhost:3000".parse().unwrap(),
+            "http://127.0.0.1:3000".parse().unwrap(),
+        ]))
+        .allow_methods(vec![axum::http::Method::GET])
+        .allow_headers(vec![axum::http::header::CONTENT_TYPE]);
     
     let app = Router::new()
         .route("/", get(serve_index))
