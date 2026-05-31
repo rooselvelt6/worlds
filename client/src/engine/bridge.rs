@@ -15,6 +15,16 @@ extern "C" {
         uvs: &js_sys::Float32Array,
     );
 
+    #[wasm_bindgen(js_name = threeBridgeUploadMeshBatch)]
+    pub fn upload_mesh_batch(
+        batch_json: &str,
+        positions: &js_sys::Float32Array,
+        normals: &js_sys::Float32Array,
+        indices: &js_sys::Uint32Array,
+        colors: &js_sys::Float32Array,
+        uvs: &js_sys::Float32Array,
+    );
+
     #[wasm_bindgen(js_name = threeBridgeSetMeshPosition)]
     pub fn set_mesh_position(key: &str, x: f64, y: f64, z: f64);
 

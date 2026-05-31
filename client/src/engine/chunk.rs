@@ -14,6 +14,37 @@ const UNDERGROUND_LAYERS: i32 = 32;
 pub const ATLAS_COLS: u32 = 6;
 pub const ATLAS_ROWS: u32 = 4;
 
+pub struct MeshPool {
+    pub blocks: Vec<u8>,
+    pub zones: Vec<Zone>,
+    pub heights: Vec<f64>,
+    pub surface_iy: Vec<usize>,
+    pub corner_heights: Vec<f64>,
+    pub corner_normals: Vec<[f32; 3]>,
+}
+
+impl MeshPool {
+    pub fn new() -> Self {
+        Self {
+            blocks: Vec::new(),
+            zones: Vec::new(),
+            heights: Vec::new(),
+            surface_iy: Vec::new(),
+            corner_heights: Vec::new(),
+            corner_normals: Vec::new(),
+        }
+    }
+
+    pub fn clear_all(&mut self) {
+        self.blocks.clear();
+        self.zones.clear();
+        self.heights.clear();
+        self.surface_iy.clear();
+        self.corner_heights.clear();
+        self.corner_normals.clear();
+    }
+}
+
 #[derive(Clone)]
 pub struct ChunkData {
     pub cx: i32,
@@ -98,12 +129,13 @@ fn apply_mutation(params: &WorldParams, cx: i32, cz: i32) -> WorldParams {
     p
 }
 
-fn get_height_map(params: &WorldParams, cx: i32, cz: i32) -> Vec<f64> {
+fn get_height_map(params: &WorldParams, cx: i32, cz: i32, heights: &mut Vec<f64>) {
     let ox = cx as f64 * CHUNK_SIZE;
     let oz = cz as f64 * CHUNK_SIZE;
     let step = CHUNK_SIZE / BLOCK_RES as f64;
     let n = BLOCK_RES as usize;
-    let mut heights = vec![0.0_f64; n * n];
+    heights.clear();
+    heights.resize(n * n, 0.0_f64);
     for iz in 0..n {
         for ix in 0..n {
             let wx = ox + ix as f64 * step + BLOCK_SIZE * 0.5;
@@ -113,7 +145,6 @@ fn get_height_map(params: &WorldParams, cx: i32, cz: i32) -> Vec<f64> {
             heights[iz * n + ix] = h;
         }
     }
-    heights
 }
 
 
@@ -490,8 +521,8 @@ fn block_light_level(wx: f64, wy: f64, wz: f64, surface_h: f64,
     total_light.clamp(0.1, 1.0) as f32
 }
 
-pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32) -> ChunkData {
-    compute_chunk_data_lod(params, cx, cz, 0)
+pub fn compute_chunk_data(params: &WorldParams, cx: i32, cz: i32, pool: &mut MeshPool) -> ChunkData {
+    compute_chunk_data_lod(params, cx, cz, 0, pool)
 }
 
 fn underground_layers(lod: u32) -> i32 {
@@ -502,7 +533,7 @@ fn underground_layers(lod: u32) -> i32 {
     }
 }
 
-pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32) -> ChunkData {
+pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32, pool: &mut MeshPool) -> ChunkData {
     let mutated = apply_mutation(params, cx, cz);
     let p = &mutated;
 
@@ -512,15 +543,20 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32) 
     let step = BLOCK_SIZE;
     let ug_layers = underground_layers(lod);
 
-    let heights = get_height_map(p, cx, cz);
+    get_height_map(p, cx, cz, &mut pool.heights);
+    let heights = &pool.heights;
     let max_h = heights.iter().cloned().fold(0.0_f64, f64::max);
 
     let wy_min = -(ug_layers as f64);
     let wy_max = CHUNK_SIZE;
     let grid_ny = (wy_max - wy_min) as usize;
 
-    let mut blocks = vec![0u8; n * grid_ny * n];
-    let mut zones = vec![Zone::Forest; n * n];
+    pool.blocks.clear();
+    pool.blocks.resize(n * grid_ny * n, 0u8);
+    let blocks = &mut pool.blocks;
+    pool.zones.clear();
+    pool.zones.resize(n * n, Zone::Forest);
+    let zones = &mut pool.zones;
 
     // First pass: determine which blocks are solid
     for iz in 0..n {
@@ -542,11 +578,13 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32) 
 
     // Apply underground features only for LOD 0 (full detail)
     if lod == 0 {
-        apply_underground_features(p, cx, cz, &heights, &zones, &mut blocks, n, grid_ny, wy_min);
+        apply_underground_features(p, cx, cz, heights, zones, blocks, n, grid_ny, wy_min);
     }
 
     // Find surface block index for each column (topmost non-air block)
-    let mut surface_iy = vec![0usize; n * n];
+    pool.surface_iy.clear();
+    pool.surface_iy.resize(n * n, 0usize);
+    let surface_iy = &mut pool.surface_iy;
     for iz in 0..n {
         for ix in 0..n {
             let col_offset = iz * n + ix;
@@ -696,7 +734,9 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32) 
     // Uses averaged per-corner normals for smooth shading (R1)
     {
         let cn = n + 1;
-        let mut corner_heights = vec![0.0_f64; cn * cn];
+        pool.corner_heights.clear();
+        pool.corner_heights.resize(cn * cn, 0.0_f64);
+        let corner_heights = &mut pool.corner_heights;
         for iz in 0..=n {
             for ix in 0..=n {
                 let wx = ox + ix as f64 * step;
@@ -708,7 +748,9 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32) 
         }
 
         // First pass: accumulate normals at each corner (iz, ix)
-        let mut corner_normals = vec![[0.0_f32; 3]; cn * cn];
+        let corner_normals = &mut pool.corner_normals;
+        corner_normals.clear();
+        corner_normals.resize(cn * cn, [0.0_f32; 3]);
         for iz in 0..n {
             for ix in 0..n {
                 let h00 = corner_heights[iz * cn + ix] as f32;
@@ -749,7 +791,7 @@ pub fn compute_chunk_data_lod(params: &WorldParams, cx: i32, cz: i32, lod: u32) 
         }
 
         // Normalize corner normals
-        for cn_ref in &mut corner_normals {
+        for cn_ref in &mut *corner_normals {
             let len = (cn_ref[0]*cn_ref[0] + cn_ref[1]*cn_ref[1] + cn_ref[2]*cn_ref[2]).sqrt().max(0.001);
             cn_ref[0] /= len; cn_ref[1] /= len; cn_ref[2] /= len;
         }

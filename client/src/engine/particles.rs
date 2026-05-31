@@ -9,6 +9,7 @@ pub struct ParticleSystem {
     velocities: Vec<[f64; 3]>,
     lifetimes: Vec<f64>,
     max_lifetime: Vec<f64>,
+    scratch: Vec<f32>,
 }
 
 fn simple_rng(seed: &mut u64) -> f64 {
@@ -160,8 +161,9 @@ impl ParticleSystem {
         let vel = vec![[0.0; 3]; count];
         let lt = vec![0.0; count];
         let mlt = vec![0.0; count];
-        let p: Vec<f32> = pos.iter().map(|&v| v as f32).collect();
-        let arr = js_sys::Float32Array::from(&p[..]);
+        let mut scratch = Vec::with_capacity(count * 3);
+        scratch.extend(pos.iter().map(|&v| v as f32));
+        let arr = js_sys::Float32Array::from(&scratch[..]);
         bridge::create_particles(key, count as u32, r, g, b, size);
         bridge::update_particles(key, &arr);
         Self {
@@ -171,6 +173,7 @@ impl ParticleSystem {
             velocities: vel,
             lifetimes: lt,
             max_lifetime: mlt,
+            scratch,
         }
     }
 
@@ -310,8 +313,9 @@ impl ParticleSystem {
                 }
             }
         }
-        let flat: Vec<f32> = self.positions.iter().map(|&v| v as f32).collect();
-        let arr = js_sys::Float32Array::from(&flat[..]);
+        self.scratch.clear();
+        self.scratch.extend(self.positions.iter().map(|&v| v as f32));
+        let arr = js_sys::Float32Array::from(&self.scratch[..]);
         bridge::update_particles(&self.key, &arr);
     }
 }

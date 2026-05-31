@@ -764,6 +764,62 @@ window.threeBridgeRemoveGrass = function (key) {
     grassMeshes.delete(key);
 };
 
+window.threeBridgeUploadMeshBatch = function (batchJson, positions, normals, indices, colors, uvs) {
+    const batch = JSON.parse(batchJson);
+    for (const entry of batch) {
+        if (meshes.has(entry.key)) continue;
+        const geo = new THREE.BufferGeometry();
+        const posCount = entry.pn * 3;
+        const posArr = positions.slice(entry.po, entry.po + posCount);
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+        const normCount = entry.nn * 3;
+        const normArr = normals.slice(entry.no, entry.no + normCount);
+        geo.setAttribute('normal', new THREE.Float32BufferAttribute(normArr, 3));
+        const idxCount = entry.in;
+        const idxArr = indices.slice(entry.io, entry.io + idxCount);
+        geo.setIndex(new THREE.BufferAttribute(idxArr, 1));
+        if (entry.hasCol) {
+            const colCount = entry.cn * 3;
+            const colArr = colors.slice(entry.co, entry.co + colCount);
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+        }
+        if (entry.hasUv) {
+            const uvCount = entry.un * 2;
+            const uvArr = uvs.slice(entry.uo, entry.uo + uvCount);
+            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvArr, 2));
+        }
+        geo.computeBoundingSphere();
+        const hasUVs = entry.hasUv;
+        const hasColors = entry.hasCol;
+        const isTerrain = entry.key.startsWith('chunk_');
+        const isVeg = entry.key.startsWith('veg_');
+        let mat;
+        if (isVeg) {
+            mat = getWindVegMaterial(hasColors).clone();
+            vegWindUniforms.push(mat.uniforms);
+        } else {
+            mat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                vertexColors: hasColors,
+                map: hasUVs ? textureAtlas : undefined,
+                normalMap: hasUVs && textureAtlas && textureAtlas.userData ? textureAtlas.userData.normalMap : undefined,
+                roughness: isTerrain ? 0.8 : 0.6,
+                metalness: isTerrain ? 0.05 : 0.0,
+                envMapIntensity: 0.3,
+            });
+            if (csm) csm.setupMaterial(mat);
+        }
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        meshes.set(entry.key, mesh);
+        if (isTerrain) {
+            createDetailOverlay(entry.key, geo);
+        }
+    }
+};
+
 window.threeBridgeUploadMesh = function (key, positions, normals, indices, colors, uvs) {
     if (meshes.has(key)) return;
     const geo = new THREE.BufferGeometry();

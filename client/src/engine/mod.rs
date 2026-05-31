@@ -396,6 +396,11 @@ struct GameState {
     chunks_awaiting_worker: std::collections::HashSet<(i32, i32)>,
     draw_calls: u32,
     memory_mb: f64,
+    mesh_pool: chunk::MeshPool,
+    lod_bias: f64,
+    target_fps: u32,
+    gerstner_cache: Option<(f64, f64, f64, Vec<f32>, Vec<f32>, Vec<f32>)>,
+    save_dirty: bool,
 }
 
 pub struct Engine {
@@ -761,9 +766,10 @@ fn regenerate_all(s: &mut GameState) {
 }
 
 
-fn lod_for_distance(dist: i32) -> u32 {
-    if dist <= 1 { 0 }
-    else if dist <= 3 { 1 }
+fn lod_for_distance(dist: i32, bias: f64) -> u32 {
+    let d = dist as f64 - bias;
+    if d <= 1.0 { 0 }
+    else if d <= 3.0 { 1 }
     else { 2 }
 }
 
@@ -813,11 +819,11 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     // Compute nearby chunks inline (critical path)
     for &(cx, cz) in &to_compute_inline {
         let dx = (cx - s.prev_cx).abs().max((cz - s.prev_cz).abs());
-        let lod = lod_for_distance(dx);
+        let lod = lod_for_distance(dx, s.lod_bias);
         let data = if lod > 0 {
-            chunk::compute_chunk_data_lod(&s.params, cx, cz, lod)
+            chunk::compute_chunk_data_lod(&s.params, cx, cz, lod, &mut s.mesh_pool)
         } else {
-            chunk::compute_chunk_data(&s.params, cx, cz)
+            chunk::compute_chunk_data(&s.params, cx, cz, &mut s.mesh_pool)
         };
         upload_chunk_mesh(s, &data, cx, cz, lod);
         new_chunks.push(data);
@@ -826,7 +832,7 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
     // Offload far chunks to web worker (rate-limited to 16 in-flight)
     for &(cx, cz) in &to_offload {
         if s.chunks_awaiting_worker.len() >= 16 { break; }
-        let lod = lod_for_distance((cx - s.prev_cx).abs().max((cz - s.prev_cz).abs()));
+        let lod = lod_for_distance((cx - s.prev_cx).abs().max((cz - s.prev_cz).abs()), s.lod_bias);
         let params_json = serde_json::to_string(&s.params).unwrap_or_default();
         bridge::worker_gen_chunk(&params_json, cx, cz, lod);
         s.chunks_awaiting_worker.insert((cx, cz));
@@ -838,70 +844,151 @@ fn generate_chunks(s: &mut GameState, cx: i32, cz: i32) {
 }
 
 fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod: u32) {
-    let key = format!("chunk_{},{}", data.cx, data.cz);
+    #[derive(serde::Serialize)]
+    struct BatchEntry {
+        key: String,
+        po: usize, pn: usize,
+        no: usize, nn: usize,
+        io: usize, #[serde(rename = "in")] in_: usize,
+        co: usize, cn: usize,
+        uo: usize, un: usize,
+        #[serde(rename = "hasCol")] hasCol: bool,
+        #[serde(rename = "hasUv")] hasUv: bool,
+    }
+
+    let mut entries: Vec<BatchEntry> = Vec::new();
+    let mut all_pos = Vec::new();
+    let mut all_norm = Vec::new();
+    let mut all_idx: Vec<u32> = Vec::new();
+    let mut all_col = Vec::new();
+    let mut all_uv = Vec::new();
+
+    // Chunk mesh
     if !data.positions.is_empty() {
-        let pos_arr = js_sys::Float32Array::from(&data.positions[..]);
-        let norm_arr = js_sys::Float32Array::from(&data.normals[..]);
-        let col_arr = js_sys::Float32Array::from(&data.colors[..]);
-        let idx_arr = js_sys::Uint32Array::from(&data.indices[..]);
-        let uv_arr = js_sys::Float32Array::from(&data.uvs[..]);
-        bridge::upload_mesh(&key, &pos_arr, &norm_arr, &idx_arr, &col_arr, &uv_arr);
-        bridge::set_mesh_frustum_culled(&key, true);
+        let pn = data.positions.len() / 3;
+        let nn = data.normals.len() / 3;
+        let cn = data.colors.len() / 3;
+        let un = data.uvs.len() / 2;
+        entries.push(BatchEntry {
+            key: format!("chunk_{},{}", data.cx, data.cz),
+            po: all_pos.len(), pn,
+            no: all_norm.len(), nn,
+            io: all_idx.len(), in_: data.indices.len(),
+            co: all_col.len(), cn,
+            uo: all_uv.len(), un,
+            hasCol: cn > 0,
+            hasUv: un > 0,
+        });
+        all_pos.extend_from_slice(&data.positions);
+        all_norm.extend_from_slice(&data.normals);
+        all_idx.extend_from_slice(&data.indices);
+        all_col.extend_from_slice(&data.colors);
+        all_uv.extend_from_slice(&data.uvs);
     }
 
     if lod < 2 {
+        // Veg mesh
         let veg_data = compute_chunk_vegetation(&s.params, cx, cz, s.params.season);
         if !veg_data.instances.is_empty() {
-            let vkey = format!("veg_{},{}", cx, cz);
             let (vpos, vnorm, vidx, vcol) = generate_veg_mesh_from_data(&veg_data, s.params.season, s.tree_growth_ticks);
-            let vp = js_sys::Float32Array::from(&vpos[..]);
-            let vn = js_sys::Float32Array::from(&vnorm[..]);
-            let vi = js_sys::Uint32Array::from(&vidx[..]);
-            let vc = js_sys::Float32Array::from(&vcol[..]);
-            let vu = empty_uv_arr();
-            bridge::upload_mesh(&vkey, &vp, &vn, &vi, &vc, &vu);
+            let pn = vpos.len() / 3;
+            let nn = vnorm.len() / 3;
+            let cn = vcol.len() / 3;
+            entries.push(BatchEntry {
+                key: format!("veg_{},{}", cx, cz),
+                po: all_pos.len(), pn,
+                no: all_norm.len(), nn,
+                io: all_idx.len(), in_: vidx.len(),
+                co: all_col.len(), cn,
+                uo: all_uv.len(), un: 0,
+                hasCol: cn > 0,
+                hasUv: false,
+            });
+            all_pos.extend_from_slice(&vpos);
+            all_norm.extend_from_slice(&vnorm);
+            all_idx.extend_from_slice(&vidx);
+            all_col.extend_from_slice(&vcol);
         }
         s.veg_chunks.insert((cx, cz), veg_data);
-        // R5: Grass
+
+        // Grass
         let grass_data = compute_chunk_grass(&s.params, cx, cz, s.params.season);
         if grass_data.count > 0 {
             let gkey = format!("grass_{},{}", cx, cz);
             let gi = js_sys::Float32Array::from(&grass_data.instances[..]);
             bridge::upload_grass(&gkey, &gi, grass_data.count as u32, 0.4);
         }
+
+        // Creatures
         {
             let creature_data = creatures::compute_chunk_creatures_with_time(&s.params, cx, cz, s.day_time);
             if !creature_data.creatures.is_empty() {
-                let ckey = format!("crea_{},{}", cx, cz);
                 if let Some((cpos, cnorm, cidx, ccol)) = generate_creature_mesh_from_data(&creature_data) {
-                    let cp = js_sys::Float32Array::from(&cpos[..]);
-                    let cn = js_sys::Float32Array::from(&cnorm[..]);
-                    let ci = js_sys::Uint32Array::from(&cidx[..]);
-                    let cc = js_sys::Float32Array::from(&ccol[..]);
-                    let cu = empty_uv_arr();
-                    bridge::upload_mesh(&ckey, &cp, &cn, &ci, &cc, &cu);
+                    let pn = cpos.len() / 3;
+                    let nn = cnorm.len() / 3;
+                    let cn = ccol.len() / 3;
+                    entries.push(BatchEntry {
+                        key: format!("crea_{},{}", cx, cz),
+                        po: all_pos.len(), pn,
+                        no: all_norm.len(), nn,
+                        io: all_idx.len(), in_: cidx.len(),
+                        co: all_col.len(), cn,
+                        uo: all_uv.len(), un: 0,
+                        hasCol: cn > 0,
+                        hasUv: false,
+                    });
+                    all_pos.extend_from_slice(&cpos);
+                    all_norm.extend_from_slice(&cnorm);
+                    all_idx.extend_from_slice(&cidx);
+                    all_col.extend_from_slice(&ccol);
                 }
                 s.creature_persistent.insert((cx, cz), creature_data);
             }
         }
+
+        // Struct
         if let Some((spos, snorm, sidx, scol)) = generate_struct_mesh(&s.params, cx, cz) {
-            let skey = format!("struct_{},{}", cx, cz);
-            let sp = js_sys::Float32Array::from(&spos[..]);
-            let sn = js_sys::Float32Array::from(&snorm[..]);
-            let si = js_sys::Uint32Array::from(&sidx[..]);
-            let sc = js_sys::Float32Array::from(&scol[..]);
-            let su = empty_uv_arr();
-            bridge::upload_mesh(&skey, &sp, &sn, &si, &sc, &su);
+            let pn = spos.len() / 3;
+            let nn = snorm.len() / 3;
+            let cn = scol.len() / 3;
+            entries.push(BatchEntry {
+                key: format!("struct_{},{}", cx, cz),
+                po: all_pos.len(), pn,
+                no: all_norm.len(), nn,
+                io: all_idx.len(), in_: sidx.len(),
+                co: all_col.len(), cn,
+                uo: all_uv.len(), un: 0,
+                hasCol: cn > 0,
+                hasUv: false,
+            });
+            all_pos.extend_from_slice(&spos);
+            all_norm.extend_from_slice(&snorm);
+            all_idx.extend_from_slice(&sidx);
+            all_col.extend_from_slice(&scol);
         }
+
+        // Mineral
         if let Some((mpos, mnorm, midx, mcol)) = generate_mineral_mesh(&s.params, cx, cz) {
-            let mkey = format!("mineral_{},{}", cx, cz);
-            let mp = js_sys::Float32Array::from(&mpos[..]);
-            let mn = js_sys::Float32Array::from(&mnorm[..]);
-            let mi = js_sys::Uint32Array::from(&midx[..]);
-            let mc = js_sys::Float32Array::from(&mcol[..]);
-            let mu = empty_uv_arr();
-            bridge::upload_mesh(&mkey, &mp, &mn, &mi, &mc, &mu);
+            let pn = mpos.len() / 3;
+            let nn = mnorm.len() / 3;
+            let cn = mcol.len() / 3;
+            entries.push(BatchEntry {
+                key: format!("mineral_{},{}", cx, cz),
+                po: all_pos.len(), pn,
+                no: all_norm.len(), nn,
+                io: all_idx.len(), in_: midx.len(),
+                co: all_col.len(), cn,
+                uo: all_uv.len(), un: 0,
+                hasCol: cn > 0,
+                hasUv: false,
+            });
+            all_pos.extend_from_slice(&mpos);
+            all_norm.extend_from_slice(&mnorm);
+            all_idx.extend_from_slice(&midx);
+            all_col.extend_from_slice(&mcol);
         }
+
+        // Portal (special: separate bridge call with seed + radius)
         if let Some((ppos, pnorm, pidx, pcol, pseed, pradius)) = generate_portal_mesh(&s.params, cx, cz) {
             let pkey = format!("portal_{},{}", cx, cz);
             let pp = js_sys::Float32Array::from(&ppos[..]);
@@ -910,24 +997,65 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
             let pc = js_sys::Float32Array::from(&pcol[..]);
             bridge::upload_portal_mesh(&pkey, &pp, &pn, &pi, &pc, pseed, pradius);
         }
+
+        // Road
         if let Some((rpos, rnorm, ridx, rcol)) = generate_road_mesh(&s.params, cx, cz) {
-            let rkey = format!("road_{},{}", cx, cz);
-            let rp = js_sys::Float32Array::from(&rpos[..]);
-            let rn = js_sys::Float32Array::from(&rnorm[..]);
-            let ri = js_sys::Uint32Array::from(&ridx[..]);
-            let rc = js_sys::Float32Array::from(&rcol[..]);
-            let ru = empty_uv_arr();
-            bridge::upload_mesh(&rkey, &rp, &rn, &ri, &rc, &ru);
+            let pn = rpos.len() / 3;
+            let nn = rnorm.len() / 3;
+            let cn = rcol.len() / 3;
+            entries.push(BatchEntry {
+                key: format!("road_{},{}", cx, cz),
+                po: all_pos.len(), pn,
+                no: all_norm.len(), nn,
+                io: all_idx.len(), in_: ridx.len(),
+                co: all_col.len(), cn,
+                uo: all_uv.len(), un: 0,
+                hasCol: cn > 0,
+                hasUv: false,
+            });
+            all_pos.extend_from_slice(&rpos);
+            all_norm.extend_from_slice(&rnorm);
+            all_idx.extend_from_slice(&ridx);
+            all_col.extend_from_slice(&rcol);
         }
+
+        // Blueprint
         if let Some((bppos, bpnorms, bpidx, bpcols)) = generate_blueprint_mesh(&s.params, cx, cz) {
-            let bkey = format!("bp_{},{}", cx, cz);
-            let bpp = js_sys::Float32Array::from(&bppos[..]);
-            let bpn = js_sys::Float32Array::from(&bpnorms[..]);
-            let bpi = js_sys::Uint32Array::from(&bpidx[..]);
-            let bpc = js_sys::Float32Array::from(&bpcols[..]);
-            let bpu = empty_uv_arr();
-            bridge::upload_mesh(&bkey, &bpp, &bpn, &bpi, &bpc, &bpu);
+            let pn = bppos.len() / 3;
+            let nn = bpnorms.len() / 3;
+            let cn = bpcols.len() / 3;
+            entries.push(BatchEntry {
+                key: format!("bp_{},{}", cx, cz),
+                po: all_pos.len(), pn,
+                no: all_norm.len(), nn,
+                io: all_idx.len(), in_: bpidx.len(),
+                co: all_col.len(), cn,
+                uo: all_uv.len(), un: 0,
+                hasCol: cn > 0,
+                hasUv: false,
+            });
+            all_pos.extend_from_slice(&bppos);
+            all_norm.extend_from_slice(&bpnorms);
+            all_idx.extend_from_slice(&bpidx);
+            all_col.extend_from_slice(&bpcols);
         }
+    }
+
+    // Flush batch
+    if !entries.is_empty() {
+        let batch_json = serde_json::to_string(&entries).unwrap_or_default();
+        let pos_arr = js_sys::Float32Array::from(&all_pos[..]);
+        let norm_arr = js_sys::Float32Array::from(&all_norm[..]);
+        let idx_arr = js_sys::Uint32Array::from(&all_idx[..]);
+        let col_arr = js_sys::Float32Array::from(&all_col[..]);
+        let uv_arr = js_sys::Float32Array::from(&all_uv[..]);
+        bridge::upload_mesh_batch(&batch_json, &pos_arr, &norm_arr, &idx_arr, &col_arr, &uv_arr);
+    }
+
+    // Set frustum culled for chunk mesh separately
+    if !data.positions.is_empty() {
+        let key = format!("chunk_{},{}", data.cx, data.cz);
+        bridge::set_mesh_frustum_culled(&key, true);
     }
 }
 
@@ -1194,6 +1322,11 @@ impl Engine {
             chunks_awaiting_worker: std::collections::HashSet::new(),
             draw_calls: 0,
             memory_mb: 0.0,
+            mesh_pool: chunk::MeshPool::new(),
+            lod_bias: 0.0,
+            target_fps: 60,
+            gerstner_cache: None,
+            save_dirty: false,
         }));
 
         {
@@ -1230,7 +1363,44 @@ impl Engine {
         let char_dirty = s.params.character != params.character
             || s.params.color_scheme != params.color_scheme
             || s.params.char_scale != params.char_scale;
-        s.params = *params;
+
+        // Targeted field copies instead of full struct copy
+        s.params.seed = params.seed;
+        s.params.scale = params.scale;
+        s.params.octaves = params.octaves;
+        s.params.amplitude = params.amplitude;
+        s.params.water_level = params.water_level;
+        s.params.render_distance = params.render_distance;
+        s.params.zone = params.zone;
+        s.params.mutation = params.mutation;
+        s.params.canyons = params.canyons;
+        s.params.hue_shift = params.hue_shift;
+        s.params.saturation = params.saturation;
+        s.params.lightness = params.lightness;
+        s.params.param_a = params.param_a;
+        s.params.param_b = params.param_b;
+        s.params.speed = params.speed;
+        s.params.mouse_sensitivity = params.mouse_sensitivity;
+        s.params.fly_mode = params.fly_mode;
+        s.params.build_mode = params.build_mode;
+        s.params.camera_mode = params.camera_mode;
+        s.params.tour_speed = params.tour_speed;
+        s.params.tour_radius = params.tour_radius;
+        s.params.control_mode = params.control_mode;
+        s.params.particle_mode = params.particle_mode;
+        s.params.character = params.character;
+        s.params.color_scheme = params.color_scheme;
+        s.params.char_scale = params.char_scale;
+        s.params.volume = params.volume;
+        s.params.day_speed = params.day_speed;
+        s.params.season_speed = params.season_speed;
+        s.params.season = params.season;
+        s.params.gravity = params.gravity;
+        s.params.jump_speed = params.jump_speed;
+        s.params.step_height = params.step_height;
+        s.params.movement_accel = params.movement_accel;
+        s.params.movement_friction = params.movement_friction;
+        s.save_dirty = true;
         if dirty {
             s.params_dirty = true;
         }
@@ -1264,6 +1434,12 @@ impl Engine {
                     s.fps = s.frame_count;
                     s.frame_count = 0;
                     s.fps_timer = now;
+                    // FPS-based LOD bias adjustment
+                    if s.fps < s.target_fps && s.lod_bias < 5.0 {
+                        s.lod_bias += 0.5;
+                    } else if s.fps > s.target_fps + 10 && s.lod_bias > 0.0 {
+                        s.lod_bias = (s.lod_bias - 0.25).max(0.0);
+                    }
                 }
 
                 s.time += delta;
@@ -1472,10 +1648,12 @@ impl Engine {
                     }
                     if consumed {
                         let _ = s.inventory.consume(18, 1);
+                        s.save_dirty = true;
                     }
                     if let Some(ct) = discovered_ct {
                         s.codex.discover_creature(ct);
                         s.achievements.check_creatures(1);
+                        s.save_dirty = true;
                     }
                     for msg in messages {
                         if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
@@ -1493,6 +1671,7 @@ impl Engine {
                             let dz = inst.z as f64 - s.char_pos[2];
                             if dx * dx + dz * dz < 9.0 {
                                 s.inventory.add_mineral(18, 1);
+                                s.save_dirty = true;
                                 if s.chat_messages.len() > 50 { s.chat_messages.pop_front(); }
                                 s.chat_messages.push_back(("Sistema".into(), "🍎 Recolectaste fruta".into()));
                                 break;
@@ -1666,28 +1845,46 @@ impl Engine {
                 let nx = 81u32;
                 let nz = 81u32;
                 let nv = nx * nz;
-                let mut wp = Vec::with_capacity(nv as usize * 3);
-                let mut wn = Vec::with_capacity(nv as usize * 3);
-                let mut wa = Vec::with_capacity(nv as usize);
-                for iz in 0..nz {
-                    for ix in 0..nx {
-                        let lx = -half + ix as f64 * spacing;
-                        let lz = -half + iz as f64 * spacing;
-                        let wx = s.char_pos[0] + lx;
-                        let wz = s.char_pos[2] + lz;
-                        let (gdx, gdy, gdz, gnx, gny, gnz) = gerstner_wave(wx, wz, s.time, steepness);
-                        wp.push((lx + gdx) as f32);
-                        wp.push(gdy as f32);
-                        wp.push((lz + gdz) as f32);
-                        wn.push(gnx as f32);
-                        wn.push(gny as f32);
-                        wn.push(gnz as f32);
-                        let terrain_h = terrain::get_height(&s.params, wx, wz);
-                        let shore_dist = (water_level - terrain_h).max(0.0);
-                        let alpha = (shore_dist / blend_dist).min(1.0).max(0.0);
-                        wa.push(alpha as f32);
+                let quantized_px = (s.char_pos[0] / 1.5).round() * 1.5;
+                let quantized_pz = (s.char_pos[2] / 1.5).round() * 1.5;
+                let needs_recompute = match &s.gerstner_cache {
+                    Some((cpx, cpz, last_time, _, _, _)) => {
+                        (*cpx - quantized_px).abs() > 0.01
+                            || (*cpz - quantized_pz).abs() > 0.01
+                            || s.time - last_time > 0.1
                     }
-                }
+                    None => true,
+                };
+                let (wp, wn, wa) = if needs_recompute {
+                    let mut wp = Vec::with_capacity(nv as usize * 3);
+                    let mut wn = Vec::with_capacity(nv as usize * 3);
+                    let mut wa = Vec::with_capacity(nv as usize);
+                    for iz in 0..nz {
+                        for ix in 0..nx {
+                            let lx = -half + ix as f64 * spacing;
+                            let lz = -half + iz as f64 * spacing;
+                            let wx = s.char_pos[0] + lx;
+                            let wz = s.char_pos[2] + lz;
+                            let (gdx, gdy, gdz, gnx, gny, gnz) = gerstner_wave(wx, wz, s.time, steepness);
+                            wp.push((lx + gdx) as f32);
+                            wp.push(gdy as f32);
+                            wp.push((lz + gdz) as f32);
+                            wn.push(gnx as f32);
+                            wn.push(gny as f32);
+                            wn.push(gnz as f32);
+                            let terrain_h = terrain::get_height(&s.params, wx, wz);
+                            let shore_dist = (water_level - terrain_h).max(0.0);
+                            let alpha = (shore_dist / blend_dist).min(1.0).max(0.0);
+                            wa.push(alpha as f32);
+                        }
+                    }
+                    s.gerstner_cache = Some((quantized_px, quantized_pz, s.time, wp, wn, wa));
+                    let (_, _, _, ref wp, ref wn, ref wa) = s.gerstner_cache.as_ref().unwrap();
+                    (wp.clone(), wn.clone(), wa.clone())
+                } else {
+                    let (_, _, _, ref wp, ref wn, ref wa) = s.gerstner_cache.as_ref().unwrap();
+                    (wp.clone(), wn.clone(), wa.clone())
+                };
                 let w_p_arr = js_sys::Float32Array::from(&wp[..]);
                 let w_n_arr = js_sys::Float32Array::from(&wn[..]);
                 let w_a_arr = js_sys::Float32Array::from(&wa[..]);
@@ -2077,10 +2274,11 @@ impl Engine {
                     s.char_pos[2],
                 );
 
-                // Auto-save every 15s
+                // Auto-save every 15s (only if dirty)
                 s.save_timer += delta;
-                if s.save_timer > 15.0 {
+                if s.save_timer > 15.0 && s.save_dirty {
                     s.save_timer = 0.0;
+                    s.save_dirty = false;
                     save_craters();
                     auto_save_full(&s);
                 }
@@ -2099,6 +2297,7 @@ impl Engine {
                             }
                             s.params.seed = target_seed;
                             s.params_dirty = true;
+                            s.save_dirty = true;
                             s.char_pos = [0.0, terrain::get_height(&s.params, 0.0, 0.0).max(0.0), 0.0];
                             s.vel_x = 0.0;
                             s.vel_z = 0.0;
@@ -2144,6 +2343,7 @@ impl Engine {
                 let zone_name = zone.as_str().to_string();
                 if !s.discovered_biomes.contains(&zone_name) {
                     s.discovered_biomes.push(zone_name.clone());
+                    s.save_dirty = true;
                     let discovered = s.discovered_biomes.clone();
                     let all_biome_names: &[&str] = &[];
                     s.achievements.check_biomes(&discovered, all_biome_names);
@@ -2292,13 +2492,50 @@ impl Engine {
 
     pub fn apply_save(&mut self, data: &crate::state::SaveData) {
         let mut s = self.state.borrow_mut();
-        s.params = data.params;
+        // Targeted field copies
+        let p = &data.params;
+        s.params.seed = p.seed;
+        s.params.scale = p.scale;
+        s.params.octaves = p.octaves;
+        s.params.amplitude = p.amplitude;
+        s.params.water_level = p.water_level;
+        s.params.render_distance = p.render_distance;
+        s.params.zone = p.zone;
+        s.params.mutation = p.mutation;
+        s.params.canyons = p.canyons;
+        s.params.hue_shift = p.hue_shift;
+        s.params.saturation = p.saturation;
+        s.params.lightness = p.lightness;
+        s.params.param_a = p.param_a;
+        s.params.param_b = p.param_b;
+        s.params.speed = p.speed;
+        s.params.mouse_sensitivity = p.mouse_sensitivity;
+        s.params.fly_mode = p.fly_mode;
+        s.params.build_mode = p.build_mode;
+        s.params.camera_mode = p.camera_mode;
+        s.params.tour_speed = p.tour_speed;
+        s.params.tour_radius = p.tour_radius;
+        s.params.control_mode = p.control_mode;
+        s.params.particle_mode = p.particle_mode;
+        s.params.character = p.character;
+        s.params.color_scheme = p.color_scheme;
+        s.params.char_scale = p.char_scale;
+        s.params.volume = p.volume;
+        s.params.day_speed = p.day_speed;
+        s.params.season_speed = p.season_speed;
+        s.params.season = p.season;
+        s.params.gravity = p.gravity;
+        s.params.jump_speed = p.jump_speed;
+        s.params.step_height = p.step_height;
+        s.params.movement_accel = p.movement_accel;
+        s.params.movement_friction = p.movement_friction;
         s.char_pos = data.pos;
         s.controls.yaw.set(data.yaw);
         s.controls.pitch.set(data.pitch);
         s.day_time = data.time_of_day;
         s.params.fly_mode = data.fly_mode;
         s.params_dirty = true;
+        s.save_dirty = true;
 
         // Restore inventory
         if let Some(ref json) = data.inventory_json {
@@ -2333,6 +2570,7 @@ impl Engine {
         if recipe_index < inventory::RECIPES.len() {
             let result = inventory::perform_craft(&inventory::RECIPES[recipe_index], &mut s.inventory);
             if !result.is_empty() {
+                s.save_dirty = true;
                 s.achievements.items_crafted += 1;
                 let count = s.achievements.items_crafted;
                 s.achievements.check_craft(count);
