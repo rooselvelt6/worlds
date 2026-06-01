@@ -528,6 +528,7 @@ function createDetailOverlay(key, geometry) {
 }
 
 window.threeBridgeInit = function (canvas) {
+    if (!canvas) { console.error('threeBridgeInit: no canvas provided'); return; }
     if (!textureAtlas) generateTextureAtlas();
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
@@ -649,7 +650,7 @@ window.threeBridgeInit = function (canvas) {
         composer.addPass(outputPass);
     } catch (e) {
         console.warn('Output pass not available:', e.message);
-        ssrPass.renderToScreen = true;
+        if (ssrPass) ssrPass.renderToScreen = true;
     }
 
     new ResizeObserver(() => {
@@ -1776,12 +1777,12 @@ window.threeBridgeSetMeshOpacity = function (key, opacity) {
     if (!mesh) return;
     if (mesh.material) {
         if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(m => { m.opacity = opacity; });
+            mesh.material.forEach(m => { m.opacity = opacity; m.transparent = opacity < 0.99; m.needsUpdate = true; });
         } else {
             mesh.material.opacity = opacity;
+            mesh.material.transparent = opacity < 0.99;
+            mesh.material.needsUpdate = true;
         }
-        mesh.material.transparent = opacity < 0.99;
-        mesh.material.needsUpdate = true;
     }
 };
 
@@ -2020,7 +2021,13 @@ window.threeBridgeUpdateRemotePlayer = function (id, name, x, y, z, yaw, pitch) 
         canvas.height = 64;
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.roundRect(0, 0, 256, 64, 8);
+        const r = 8, w = 256, h = 64;
+        ctx.beginPath();
+        ctx.moveTo(r, 0); ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+        ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h);
+        ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r);
+        ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+        ctx.closePath();
         ctx.fill();
         ctx.fillStyle = 'white';
         ctx.font = '20px monospace';
