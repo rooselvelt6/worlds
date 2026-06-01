@@ -210,7 +210,7 @@ function applyBiomeLUT(ctx, canvas, biome) {
 }
 
 function generateTextureAtlas() {
-    const cols = 6, rows = 4, tileSize = 128;
+    const cols = 6, rows = 4, tileSize = 256;
     const canvas = document.createElement('canvas');
     canvas.width = cols * tileSize;
     canvas.height = rows * tileSize;
@@ -538,12 +538,12 @@ window.threeBridgeInit = function (canvas) {
     camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 500);
 
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(w, h, false);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.7;
+    renderer.toneMappingExposure = 1.2;
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
