@@ -567,10 +567,10 @@ window.threeBridgeInit = function (canvas) {
         ssrPass = null;
     }
 
-    // SSAO Pass
+    // SSAO Pass — full resolution for sharp image
     try {
-        ssaoPass = new SSAOPass(scene, camera, Math.floor(w / 2), Math.floor(h / 2), 32);
-        ssaoPass.kernelRadius = 4;
+        ssaoPass = new SSAOPass(scene, camera, w, h, 32);
+        ssaoPass.kernelRadius = 2;
         ssaoPass.minDistance = 0.005;
         ssaoPass.maxDistance = 0.08;
         ssaoPass.output = SSAOPass.OUTPUT.Default;
@@ -578,18 +578,6 @@ window.threeBridgeInit = function (canvas) {
     } catch (e) {
         console.warn('SSAOPass not available:', e.message);
         ssaoPass = null;
-    }
-
-    // Bokeh Depth of Field pass
-    try {
-        const bokehPass = new BokehPass(scene, camera, {
-            focus: 12.0,
-            aperture: 0.015,
-            maxblur: 0.008,
-        });
-        composer.addPass(bokehPass);
-    } catch (e) {
-        console.warn('BokehPass not available:', e.message);
     }
 
     // LUT colour grading pass
@@ -660,7 +648,7 @@ window.threeBridgeInit = function (canvas) {
         if (rw === 0 || rh === 0) return;
         renderer.setSize(rw, rh, false);
         composer.setSize(rw, rh);
-        if (ssaoPass) ssaoPass.setSize(Math.floor(rw / 2), Math.floor(rh / 2));
+        if (ssaoPass) ssaoPass.setSize(rw, rh);
         if (smaaPass) smaaPass.setSize(rw, rh);
         camera.aspect = rw / rh;
         camera.updateProjectionMatrix();
