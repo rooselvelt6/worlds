@@ -1,3 +1,4 @@
+use crate::engine::creatures::{push_cylinder_rot, push_ellipsoid_rot};
 use crate::engine::terrain::{self, Zone};
 use crate::state::WorldParams;
 
@@ -314,107 +315,6 @@ fn veg_size(veg_type: VegType, zone: Zone, r: f64) -> f32 {
     (base * scale) as f32
 }
 
-fn push_cylinder(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
-    cx: f32, cy: f32, cz: f32, radius: f32, height: f32, segments: u32,
-    r: f32, g: f32, b: f32, base_idx: &mut u32,
-) {
-    let nv = pos.len() as u32 / 3;
-    for ring in 0..2 {
-        let y = cy + if ring == 0 { -height * 0.5 } else { height * 0.5 };
-        for seg in 0..segments {
-            let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
-            let nx = theta.cos();
-            let nz = theta.sin();
-            pos.push(cx + radius * nx);
-            pos.push(y);
-            pos.push(cz + radius * nz);
-            norms.push(nx);
-            norms.push(0.0);
-            norms.push(nz);
-            cols.push(r); cols.push(g); cols.push(b);
-        }
-    }
-    for seg in 0..segments {
-        let a = nv + seg;
-        let b = nv + (seg + 1) % segments;
-        let c = nv + segments + seg;
-        let d = nv + segments + (seg + 1) % segments;
-        idx.push(a); idx.push(c); idx.push(b);
-        idx.push(b); idx.push(c); idx.push(d);
-    }
-    *base_idx = nv + segments * 2;
-}
-
-fn push_sphere(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
-    cx: f32, cy: f32, cz: f32, radius: f32, rings: u32, segments: u32,
-    r: f32, g: f32, b: f32, base_idx: &mut u32,
-) {
-    let nv = pos.len() as u32 / 3;
-    let vpr = segments + 1;
-    for ring in 0..=rings {
-        let phi = ring as f32 / rings as f32 * std::f32::consts::PI;
-        for seg in 0..=segments {
-            let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
-            let nx = theta.cos() * phi.sin();
-            let nz = theta.sin() * phi.sin();
-            let ny = phi.cos();
-            pos.push(cx + radius * nx);
-            pos.push(cy + radius * ny);
-            pos.push(cz + radius * nz);
-            norms.push(nx); norms.push(ny); norms.push(nz);
-            cols.push(r); cols.push(g); cols.push(b);
-        }
-    }
-    for ring in 0..rings {
-        for seg in 0..segments {
-            let a = nv + ring * vpr + seg;
-            let b = a + 1;
-            let c = nv + (ring + 1) * vpr + seg;
-            let d = c + 1;
-            idx.push(a); idx.push(c); idx.push(b);
-            idx.push(b); idx.push(c); idx.push(d);
-        }
-    }
-    *base_idx = nv + vpr * (rings + 1);
-}
-
-fn push_box(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
-    cx: f32, cy: f32, cz: f32, hw: f32, hh: f32, hd: f32,
-    r: f32, g: f32, b: f32, base_idx: &mut u32,
-) {
-    let verts: [[f32; 3]; 24] = [
-        [ hw, -hh, -hd], [ hw,  hh, -hd], [ hw,  hh,  hd], [ hw, -hh,  hd],
-        [-hw, -hh,  hd], [-hw,  hh,  hd], [-hw,  hh, -hd], [-hw, -hh, -hd],
-        [-hw,  hh,  hd], [ hw,  hh,  hd], [ hw,  hh, -hd], [-hw,  hh, -hd],
-        [-hw, -hh, -hd], [ hw, -hh, -hd], [ hw, -hh,  hd], [-hw, -hh,  hd],
-        [-hw, -hh,  hd], [ hw, -hh,  hd], [ hw,  hh,  hd], [-hw,  hh,  hd],
-        [ hw, -hh, -hd], [-hw, -hh, -hd], [-hw,  hh, -hd], [ hw,  hh, -hd],
-    ];
-    let norms_data: [[f32; 3]; 24] = [
-        [1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],
-        [-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],
-        [0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],
-        [0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],
-        [0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],
-        [0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],
-    ];
-    let nv = pos.len() as u32 / 3;
-    for &v in &verts { pos.push(cx + v[0]); pos.push(cy + v[1]); pos.push(cz + v[2]); }
-    for &n in &norms_data { norms.push(n[0]); norms.push(n[1]); norms.push(n[2]); }
-    for _ in 0..24 { cols.push(r); cols.push(g); cols.push(b); }
-    let ibase = nv;
-    let ipat: [u32; 36] = [
-        0,1,2, 0,2,3, 4,5,6, 4,6,7,
-        8,9,10, 8,10,11, 12,13,14, 12,14,15,
-        16,17,18, 16,18,19, 20,21,22, 20,22,23,
-    ];
-    for &i in &ipat { idx.push(ibase + i); }
-    *base_idx = nv + 24;
-}
-
 fn emit_veg(
     veg_type: VegType, x: f32, y: f32, z: f32, size: f32, season: u8,
     pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
@@ -428,8 +328,8 @@ fn emit_veg(
             let canopy_radius = size * 0.3;
             let canopy_center_y = trunk_height + canopy_radius;
             let canopy = tree_canopy_color(season);
-            push_cylinder(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height, 8, 0.4, 0.25, 0.1, base_idx);
-            push_sphere(pos, norms, idx, cols, x, y + canopy_center_y, z, canopy_radius, 6, 8, canopy[0], canopy[1], canopy[2], base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, 0.4, 0.25, 0.1, base_idx, 8, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + canopy_center_y, z, canopy_radius, canopy_radius, canopy_radius, canopy[0], canopy[1], canopy[2], base_idx, 6, 8, 0.0);
             if season == 1 || season == 2 {
                 let fruit_color = if season == 1 { [0.9, 0.2, 0.1] } else { [1.0, 0.5, 0.1] };
                 let fruit_r = canopy_radius * 0.15;
@@ -438,79 +338,78 @@ fn emit_veg(
                     let fx = x + angle.cos() * canopy_radius * 0.6;
                     let fz = z + angle.sin() * canopy_radius * 0.6;
                     let fy = y + trunk_height + canopy_radius * 0.3 + (fi as f32 * 0.1);
-                    push_box(pos, norms, idx, cols, fx, fy, fz, fruit_r, fruit_r, fruit_r, fruit_color[0], fruit_color[1], fruit_color[2], base_idx);
+                    push_ellipsoid_rot(pos, norms, idx, cols, fx, fy, fz, fruit_r, fruit_r, fruit_r, fruit_color[0], fruit_color[1], fruit_color[2], base_idx, 4, 4, 0.0);
                 }
             }
         }
         VegType::DeadTree => {
             let trunk_height = size * 0.7;
             let trunk_radius = size * 0.05;
-            push_cylinder(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height, 8, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x + size * 0.1, y + trunk_height * 0.6, z + size * 0.05, trunk_radius * 0.5, size * 0.15, trunk_radius * 0.5, c[0], c[1], c[2], base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, c[0], c[1], c[2], base_idx, 8, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x + size * 0.1, y + trunk_height * 0.6, z + size * 0.05, trunk_radius * 0.5, size * 0.15, trunk_radius * 0.5, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
         }
         VegType::Bush => {
             let r = size * 0.35;
-            push_sphere(pos, norms, idx, cols, x, y + r, z, r, 4, 6, c[0], c[1], c[2], base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + r, z, r, r, r, c[0], c[1], c[2], base_idx, 4, 6, 0.0);
         }
         VegType::Rock => {
             let s = size * 0.35;
-            push_box(pos, norms, idx, cols, x, y + s, z, s * 0.9, s * 0.7, s * 0.8, c[0], c[1], c[2], base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.9, s * 0.7, s * 0.8, c[0], c[1], c[2], base_idx, 4, 5, 0.0);
         }
         VegType::Cactus => {
             let trunk_height = size * 0.7;
             let trunk_radius = size * 0.05;
-            push_cylinder(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height, 8, c[0], c[1], c[2], base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, c[0], c[1], c[2], base_idx, 8, 0.0);
             let arm_height = size * 0.3;
             let arm_radius = size * 0.04;
-            push_cylinder(pos, norms, idx, cols, x + size * 0.12, y + trunk_height * 0.6 + arm_height * 0.5, z, arm_radius, arm_height, 8, c[0], c[1], c[2], base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x + size * 0.12, y + trunk_height * 0.6 + arm_height * 0.5, z, arm_radius, arm_height * 0.5, arm_radius, c[0], c[1], c[2], base_idx, 8, 0.0);
         }
         VegType::Mushroom => {
             let stem_height = size * 0.5;
             let stem_radius = size * 0.04;
-            push_cylinder(pos, norms, idx, cols, x, y + stem_height * 0.5, z, stem_radius, stem_height, 8, 0.9, 0.85, 0.75, base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + stem_height * 0.5, z, stem_radius, stem_height * 0.5, stem_radius, 0.9, 0.85, 0.75, base_idx, 8, 0.0);
             let cap_radius = size * 0.25;
-            push_sphere(pos, norms, idx, cols, x, y + stem_height + cap_radius, z, cap_radius, 4, 6, c[0], c[1], c[2], base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + stem_height + cap_radius * 0.6, z, cap_radius, cap_radius * 0.6, cap_radius, c[0], c[1], c[2], base_idx, 4, 6, 0.0);
         }
         VegType::Crystal => {
             let s = size * 0.3;
-            push_box(pos, norms, idx, cols, x, y + s, z, s * 0.4, s, s * 0.4, c[0], c[1], c[2], base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.4, s, s * 0.4, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
         }
         VegType::Flower => {
             let sh = size * 0.4;
-            push_box(pos, norms, idx, cols, x, y + sh * 0.5, z, 0.02, sh * 0.5, 0.02, 0.3, 0.6, 0.2, base_idx);
-            push_box(pos, norms, idx, cols, x, y + sh + size * 0.08, z, size * 0.08, size * 0.08, size * 0.08, c[0], c[1], c[2], base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + sh * 0.25, z, 0.02, sh * 0.25, 0.02, 0.3, 0.6, 0.2, base_idx, 4, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh + size * 0.08, z, size * 0.08, size * 0.08, size * 0.08, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
         }
         VegType::Coral => {
             let s = size * 0.25;
-            push_box(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x + s * 0.5, y + s * 0.8, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x + s * 0.5, y + s * 0.8, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
         }
         VegType::Kelp => {
             let h = size * 0.5;
             let w = size * 0.02;
-            push_box(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx, 4, 0.0);
         }
         VegType::Seaweed => {
             let h = size * 0.35;
             let w = size * 0.015;
-            push_box(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x + w * 2.0, y + h * 0.6, z, w, h * 0.6, w, c[0] * 0.8, c[1] * 1.1, c[2] * 0.8, base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx, 4, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x + w * 2.0, y + h * 0.6, z, w, h * 0.6, w, c[0] * 0.8, c[1] * 1.1, c[2] * 0.8, base_idx, 4, 0.0);
         }
         VegType::Anemone => {
             let s = size * 0.2;
-            push_box(pos, norms, idx, cols, x, y + s * 0.5, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx);
-            // tentacles
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s * 0.5, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
             for di in 0..4 {
                 let angle = di as f32 * std::f32::consts::PI * 0.5;
                 let tx = x + angle.cos() * s * 0.6;
                 let tz = z + angle.sin() * s * 0.6;
-                push_box(pos, norms, idx, cols, tx, y + s * 0.5 + s * 0.4, tz, s * 0.08, s * 0.4, s * 0.08, c[0] * 0.9, c[1] * 0.8, c[2] * 1.1, base_idx);
+                push_cylinder_rot(pos, norms, idx, cols, tx, y + s * 0.5 + s * 0.4, tz, s * 0.08, s * 0.4, s * 0.08, c[0] * 0.9, c[1] * 0.8, c[2] * 1.1, base_idx, 4, 0.0);
             }
         }
         VegType::Sponge => {
             let s = size * 0.2;
-            push_box(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x - s * 0.2, y + s * 0.7, z - s * 0.2, s * 0.4, s * 0.4, s * 0.4, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x - s * 0.2, y + s * 0.7, z - s * 0.2, s * 0.4, s * 0.4, s * 0.4, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 4, 4, 0.0);
         }
     }
 }

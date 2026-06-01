@@ -505,27 +505,27 @@ pub fn App() -> impl IntoView {
                 <button aria-label="Day and Night" on:click=move |_| toggle_menu("daynight") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Day/Night">{ "☀️" }</button>
                 <button aria-label="Map" on:click=move |_| map_open.set(!map_open.get()) class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Map">{ "🧭" }</button>
                 <button aria-label="Save and Load" on:click=move |_| toggle_menu("saves") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Save/Load">{ "💾" }</button>
-                <button aria-label="Crafting" on:click=move |_| toggle_menu("crafting") class="max-sm:hidden w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Crafting">{ "⚒️" }</button>
-                <button aria-label="Codex" on:click=move |_| toggle_menu("codex") class="max-sm:hidden w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Codex">{ "📖" }</button>
-                <button aria-label="Multiplayer" on:click=move |_| toggle_menu("multiplayer") class="max-sm:hidden w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Multiplayer">{ "🌐" }</button>
+                <button aria-label="Crafting" on:click=move |_| toggle_menu("crafting") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Crafting">{ "⚒️" }</button>
+                <button aria-label="Codex" on:click=move |_| toggle_menu("codex") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Codex">{ "📖" }</button>
+                <button aria-label="Multiplayer" on:click=move |_| toggle_menu("multiplayer") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12] focus:outline-none focus:ring-2 focus:ring-cyan-400/50" title="Multiplayer">{ "🌐" }</button>
             </div>
 
-            <div class="absolute left-[78px] top-1/2 -translate-y-1/2 z-20 flex-col gap-2.5 max-sm:hidden max-sm:left-[52px] hidden sm:flex">
-                <button on:click=move |_| toggle_menu("scale") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Scale / Escala">{ "⚙️" }</button>
-                <button on:click=move |_| toggle_menu("amplitude") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Amplitude / Amplitud">{ "📏" }</button>
-                <button on:click=move |_| toggle_menu("octaves") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Octaves / Octavas">{ "🔢" }</button>
-                <button on:click=move |_| toggle_menu("water") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Water / Agua">{ "💧" }</button>
-                <button on:click=move |_| toggle_menu("zone") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Zone / Zona">{ "🌍" }</button>
-                <button on:click=move |_| toggle_menu("canyons") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Canyons / Cañones">{ "🏔️" }</button>
-                <button on:click=move |_| toggle_menu("particles") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Particles / Partículas">{ "🌧️" }</button>
-                <button on:click=move |_| toggle_menu("profiling") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Profiling / Rendimiento">{ "📊" }</button>
+            <div class="absolute left-[78px] max-sm:left-[52px] top-1/2 -translate-y-1/2 z-20 flex-col gap-2.5 max-sm:gap-1.5">
+                <button on:click=move |_| toggle_menu("scale") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Scale / Escala">{ "⚙️" }</button>
+                <button on:click=move |_| toggle_menu("amplitude") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Amplitude / Amplitud">{ "📏" }</button>
+                <button on:click=move |_| toggle_menu("octaves") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Octaves / Octavas">{ "🔢" }</button>
+                <button on:click=move |_| toggle_menu("water") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Water / Agua">{ "💧" }</button>
+                <button on:click=move |_| toggle_menu("zone") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Zone / Zona">{ "🌍" }</button>
+                <button on:click=move |_| toggle_menu("canyons") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Canyons / Cañones">{ "🏔️" }</button>
+                <button on:click=move |_| toggle_menu("particles") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Particles / Partículas">{ "🌧️" }</button>
+                <button on:click=move |_| toggle_menu("profiling") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Profiling / Rendimiento">{ "📊" }</button>
             </div>
 
-            <div class="absolute left-[156px] top-1/2 -translate-y-1/2 z-20 flex-col gap-2.5 max-sm:hidden hidden sm:flex">
-                <button on:click=move |_| toggle_menu("character") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Character / Personaje">{ "🧑" }</button>
-                <button on:click=move |_| toggle_menu("color") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Color / Esquema de color">{ "🎨" }</button>
-                <button on:click=move |_| toggle_menu("charscale") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Char Size / Tamaño">{ "📐" }</button>
-                <button on:click=move |_| toggle_menu("season") class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Seasons / Estaciones">{ "🍂" }</button>
+            <div class="absolute left-[156px] max-sm:left-[100px] top-1/2 -translate-y-1/2 z-20 flex-col gap-2.5 max-sm:gap-1.5">
+                <button on:click=move |_| toggle_menu("character") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Character / Personaje">{ "🧑" }</button>
+                <button on:click=move |_| toggle_menu("color") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Color / Esquema de color">{ "🎨" }</button>
+                <button on:click=move |_| toggle_menu("charscale") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Char Size / Tamaño">{ "📐" }</button>
+                <button on:click=move |_| toggle_menu("season") class="max-sm:w-9 max-sm:h-9 max-sm:text-base w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all duration-200 active:scale-85 shadow-lg backdrop-blur-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/[0.12]" title="Seasons / Estaciones">{ "🍂" }</button>
             </div>
 
             {move || open_menu.get().map(|_| {
@@ -874,6 +874,61 @@ pub fn App() -> impl IntoView {
                                     <div class="text-[9px] font-mono text-white/20 text-center mt-1">
                                         Presiona G para cambiar clima
                                     </div>
+                                </div>
+                            }) } else { None }}
+
+                            {move || if open_menu.get() == Some("crafting") { Some(view! {
+                                <div class="flex flex-col gap-2 min-w-[220px]">
+                                    <div class="text-white/80 text-[10px] font-mono uppercase tracking-widest mb-1">"⚒️ Inventario"</div>
+                                    {move || {
+                                        let h = hud.get();
+                                        let names = ["Hierro","Cobre","Carbón","Zafiro","Esmeralda","Rubí","Oro","Amatista","Fruta"];
+                                        let cols = ["#8B5A2B","#B87333","#333","#3355CC","#22AA44","#CC2222","#CCAA22","#AA22AA","#FF6666"];
+                                        let icons = ["⛏️","🪙","⬛","💎","💚","🔴","🟡","🟣","🍎"];
+                                        let items: Vec<_> = h.minerals.iter().filter(|(_,c)| *c > 0).map(|(mt, count)| {
+                                            let i = *mt as usize;
+                                            let icon = if i < icons.len() { icons[i] } else { "?" };
+                                            let name = if i < names.len() { names[i] } else { "?" };
+                                            let color = if i < cols.len() { cols[i] } else { "#888" };
+                                            view! {
+                                                <div class="flex items-center gap-2 py-1 px-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                                                    <span style={format!("color: {}", color)} class="text-sm">{icon}</span>
+                                                    <span class="flex-1 text-[10px] font-mono text-white/60">{name}</span>
+                                                    <span class="text-[10px] font-mono text-white/80">{count.to_string()}</span>
+                                                </div>
+                                            }
+                                        }).collect();
+                                        if items.is_empty() {
+                                            view! { <div class="text-[10px] font-mono text-white/30 text-center py-2">"Vacío — explora y recolecta minerales"</div> }.into_any()
+                                        } else {
+                                            view! { <div class="flex flex-col gap-1">{items}</div> }.into_any()
+                                        }
+                                    }}
+                                    <div class="text-white/80 text-[10px] font-mono uppercase tracking-widest mt-2 mb-1">"🔨 Crafteo"</div>
+                                    {move || {
+                                        let recipe_names = ["Pico hierro","Espada piedra","Antorcha","Varita cristal","Poción vida","Pico avanzado","Escudo oro","Anillo poder","Mermelada"];
+                                        let recipe_icons = ["⛏️","🗡️","🔥","🪄","🧪","⚒️","🛡️","💍","🍯"];
+                                        let recipe_ingredients: [&[&str]; 9] = [
+                                            &["Hierro x3"],
+                                            &["Cobre x2","Carbón x1"],
+                                            &["Carbón x1","Amatista x1"],
+                                            &["Zafiro x2","Oro x1"],
+                                            &["Amatista x2"],
+                                            &["Hierro x2","Zafiro x1","Rubí x1"],
+                                            &["Oro x3","Cobre x2"],
+                                            &["Rubí x2","Oro x1","Amatista x1"],
+                                            &["Fruta x2"],
+                                        ];
+                                        (0..9).map(|i| {
+                                            view! {
+                                                <div class="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-white/60">
+                                                    <span class="text-sm">{recipe_icons[i]}</span>
+                                                    <span class="flex-1 text-[10px] font-mono">{recipe_names[i]}</span>
+                                                    <span class="text-[8px] font-mono text-white/30">{recipe_ingredients[i].join(" + ")}</span>
+                                                </div>
+                                            }
+                                        }).collect::<Vec<_>>()
+                                    }}
                                 </div>
                             }) } else { None }}
 

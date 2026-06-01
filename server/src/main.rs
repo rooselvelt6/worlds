@@ -17,8 +17,8 @@ use tracing::info;
 use worlds_shared::WorldGenerator;
 
 fn csp_value() -> &'static str {
-    "default-src 'self'; \
-     script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; \
+     "default-src 'self'; \
+     script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; \
      style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; \
      font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; \
      connect-src 'self' ws://localhost:3000 wss://*; \

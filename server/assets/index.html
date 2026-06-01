@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>WORLDS — Phase 1 Foundation</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" integrity="sha384-AIH1kL7JmmReCxSwiSyaRNwzSFO7h4Ir4F/PO28EKezqFza1LwIMgEPLd83KwmZ4" crossorigin="anonymous"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha384-nRgPTkuX86pH8yjPJUAFuASXQSSl2/bBUiNV47vSYpKFxHJhbcrGnmlYpYJMeD7a" crossorigin="anonymous" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" crossorigin="anonymous" />
     <script type="importmap">
     {
         "imports": {
@@ -21,7 +21,6 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#0a0a12" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' ws://localhost:3000 wss://*; img-src 'self' data:; manifest-src 'self'; frame-ancestors 'none'; form-action 'none'" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet" />
@@ -116,18 +115,53 @@
             -webkit-backdrop-filter: blur(24px) saturate(1.4);
         }
     </style>
-<link rel="modulepreload" href="/worlds-app-63e62fb277af4fcf.js" crossorigin="anonymous" integrity="sha384-7Bg5/xeDIsjfCqxskMhQ0NbnEbm7/nUneyG3lJqfIcfJ7tH0wckOLHIsmKB1zzT4"><link rel="preload" href="/worlds-app-63e62fb277af4fcf_bg.wasm" crossorigin="anonymous" integrity="sha384-1bF6TLDs1ex5ChhN4yxfa9r9JsC+m8E2rtEo1EyB6ZxyVTavABMJis6j68zr7Q+m" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/worlds-app-f1360b804a3b80de.js" crossorigin="anonymous" integrity="sha384-NK+5n07u4oanZ92kUkzapH3+fTFKSmRP78xRblGSQ71GOkR5ObU3ma56EH8Iyzvc"><link rel="preload" href="/worlds-app-f1360b804a3b80de_bg.wasm" crossorigin="anonymous" integrity="sha384-mkO3CqhNHB1BBuIuqj3m7OxW80RGgo527uUyV0MKj+pesWpEpwmp6ZcwaJblabjb" as="fetch" type="application/wasm"></head>
 <body class="bg-[#0a0a12]">
 
+<div id="loading-screen" style="position:fixed;inset:0;z-index:99999;background:#0a0a12;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;transition:opacity 0.5s;pointer-events:auto">
+    <div id="loading-icon" style="font-size:48px;margin-bottom:16px">🌍</div>
+    <div id="loading-status" style="color:rgba(255,255,255,0.6);font-size:14px;text-align:center">Cargando m&oacute;dulos...</div>
+    <div id="loading-error" style="display:none;color:#ff4444;font-size:12px;margin-top:16px;max-width:420px;text-align:center;word-break:break-all;line-height:1.5"></div>
+    <div id="loading-hint" style="display:none;color:rgba(255,255,255,0.25);font-size:10px;margin-top:24px;max-width:360px;text-align:center;line-height:1.4"></div>
+</div>
+
 <script type="module">
-import init, * as bindings from '/worlds-app-63e62fb277af4fcf.js';
-const wasm = await init({ module_or_path: '/worlds-app-63e62fb277af4fcf_bg.wasm' });
+const $s = (id) => document.getElementById(id);
+const status = (msg) => { const el = $s('loading-status'); if (el) el.textContent = msg; };
+const error = (msg, hint) => {
+    const el = $s('loading-error');
+    const hl = $s('loading-hint');
+    if (el) { el.textContent = msg; el.style.display = 'block'; }
+    if (hl && hint) { hl.textContent = hint; hl.style.display = 'block'; }
+    console.error('LOADING ERROR:', msg);
+};
+const done = () => {
+    const el = $s('loading-screen');
+    if (el) {
+        $s('loading-status').textContent = '✅ Listo';
+        el.style.pointerEvents = 'none';
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 500);
+    }
+};
 
+try {
+    status('Compilando WebAssembly...');
+    const bindings = await import('/worlds-app-f1360b804a3b80de.js');
+    const wasm = await bindings.default({ module_or_path: '/worlds-app-f1360b804a3b80de_bg.wasm' });
 
-window.wasmBindings = bindings;
+    window.wasmBindings = bindings;
+    status('Inicializando motor gr\u00e1fico...');
 
+    addEventListener('worldsInitComplete', () => done(), { once: true });
+    setTimeout(() => { if ($s('loading-screen')) done(); }, 10000);
 
-dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
-
+    dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+} catch (e) {
+    const msg = e.message || e.toString() || 'Error desconocido';
+    const hint = 'Abre la consola (F12) para m\u00e1s detalles o revisa la conexi\u00f3n al servidor.';
+    status('\u274c Error');
+    error(msg, hint);
+}
 </script></body>
 </html>

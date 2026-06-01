@@ -2839,7 +2839,6 @@ dependencies = [
  "console_error_panic_hook",
  "js-sys",
  "leptos",
- "rayon",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -2873,7 +2872,6 @@ name = "worlds-shared"
 version = "0.1.0"
 dependencies = [
  "noise",
- "rayon",
  "serde",
  "serde_json",
 ]

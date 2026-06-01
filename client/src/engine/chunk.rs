@@ -8,7 +8,6 @@ use crate::state::WorldParams;
 pub const CHUNK_SIZE: f64 = 24.0;
 pub const BLOCK_RES: u32 = 24;
 const BLOCK_SIZE: f64 = CHUNK_SIZE / BLOCK_RES as f64;
-const BLOCK_HALF: f32 = (BLOCK_SIZE * 0.5) as f32;
 const UNDERGROUND_LAYERS: i32 = 32;
 
 pub const ATLAS_COLS: u32 = 6;
@@ -92,13 +91,6 @@ fn tile_uv(tile: u32) -> (f32, f32, f32, f32) {
     let ty = (tile / ATLAS_COLS) as f32;
     (tx / cols, ty / rows, (tx + 1.0) / cols, (ty + 1.0) / rows)
 }
-
-// ── Marching Cubes data ──
-// Corner positions within a unit cube; order matches 8-bit mask bit positions.
-const CORNER_OFFSETS: [[f64; 3]; 8] = [
-    [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
-];
 
 // Which two corners each edge (0-11) connects.
 const EDGE_VERTS: [[usize; 2]; 12] = [
@@ -509,24 +501,6 @@ pub fn extract_isosurface(
     }
 }
 
-fn height_bilerp(heights: &[f64], n: usize, fx: f64, fz: f64) -> f64 {
-    let ix = fx.floor() as i32;
-    let iz = fz.floor() as i32;
-    let tx = (fx - ix as f64).clamp(0.0, 1.0);
-    let tz = (fz - iz as f64).clamp(0.0, 1.0);
-    let ix0 = ix.max(0).min(n as i32 - 1) as usize;
-    let ix1 = (ix + 1).max(0).min(n as i32 - 1) as usize;
-    let iz0 = iz.max(0).min(n as i32 - 1) as usize;
-    let iz1 = (iz + 1).max(0).min(n as i32 - 1) as usize;
-    let h00 = heights[iz0 * n + ix0];
-    let h10 = heights[iz0 * n + ix1];
-    let h01 = heights[iz1 * n + ix0];
-    let h11 = heights[iz1 * n + ix1];
-    let h0 = h00 * (1.0 - tx) + h10 * tx;
-    let h1 = h01 * (1.0 - tx) + h11 * tx;
-    h0 * (1.0 - tz) + h1 * tz
-}
-
 impl ChunkData {
     pub fn key(&self) -> (i32, i32) {
         (self.cx, self.cz)
@@ -564,98 +538,6 @@ fn get_height_map(params: &WorldParams, cx: i32, cz: i32, heights: &mut Vec<f64>
             heights[iz * n + ix] = h;
         }
     }
-}
-
-
-
-fn push_face(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>, uvs: &mut Vec<f32>,
-    v: [[f32; 3]; 4], nx: f32, ny: f32, nz: f32,
-    r: f32, g: f32, b: f32,
-    uv_rect: (f32, f32, f32, f32),
-) {
-    let nv = (pos.len() / 3) as u32;
-    let (u0, v0, u1, v1) = uv_rect;
-    let uv_verts = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
-    for (i, &vert) in v.iter().enumerate() {
-        pos.push(vert[0]); pos.push(vert[1]); pos.push(vert[2]);
-        norms.push(nx); norms.push(ny); norms.push(nz);
-        cols.push(r); cols.push(g); cols.push(b);
-        uvs.push(uv_verts[i][0]); uvs.push(uv_verts[i][1]);
-    }
-    idx.push(nv); idx.push(nv + 1); idx.push(nv + 2);
-    idx.push(nv); idx.push(nv + 2); idx.push(nv + 3);
-}
-
-fn emit_face(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>, uvs: &mut Vec<f32>,
-    wx: f32, wy: f32, wz: f32, dir: u8, r: f32, g: f32, b: f32, block_type: u8,
-    heights: Option<&[f64]>, n: usize,
-) {
-    let hs = BLOCK_HALF;
-    let tile = block_atlas_tile(block_type);
-    let uv_rect = if dir == 2 && block_type == terrain::BLK_GRASS {
-        tile_uv(0)
-    } else if dir == 3 {
-        tile_uv(block_atlas_tile(terrain::BLK_DIRT))
-    } else {
-        tile_uv(tile)
-    };
-    let verts = match dir {
-        // +X
-        0 => [[wx + hs, wy - hs, wz - hs], [wx + hs, wy + hs, wz - hs],
-              [wx + hs, wy + hs, wz + hs], [wx + hs, wy - hs, wz + hs]],
-        // -X
-        1 => [[wx - hs, wy - hs, wz + hs], [wx - hs, wy + hs, wz + hs],
-              [wx - hs, wy + hs, wz - hs], [wx - hs, wy - hs, wz - hs]],
-        // +Y (top) — smooth surface
-        2 => {
-            if let Some(h) = heights {
-                let nf = n as f64;
-                let fx = (wx as f64 / BLOCK_SIZE).fract().abs() * nf;
-                let fz = (wz as f64 / BLOCK_SIZE).fract().abs() * nf;
-                let h00 = height_bilerp(h, n, fx - 0.5, fz - 0.5) as f32;
-                let h10 = height_bilerp(h, n, fx + 0.5, fz - 0.5) as f32;
-                let h11 = height_bilerp(h, n, fx + 0.5, fz + 0.5) as f32;
-                let h01 = height_bilerp(h, n, fx - 0.5, fz + 0.5) as f32;
-                let top = wy + hs;
-                [[wx - hs, top + (h00 - top).clamp(-hs, hs), wz - hs],
-                 [wx + hs, top + (h10 - top).clamp(-hs, hs), wz - hs],
-                 [wx + hs, top + (h11 - top).clamp(-hs, hs), wz + hs],
-                 [wx - hs, top + (h01 - top).clamp(-hs, hs), wz + hs]]
-            } else {
-                [[wx - hs, wy + hs, wz - hs], [wx + hs, wy + hs, wz - hs],
-                 [wx + hs, wy + hs, wz + hs], [wx - hs, wy + hs, wz + hs]]
-            }
-        },
-        // -Y (bottom)
-        3 => [[wx - hs, wy - hs, wz + hs], [wx + hs, wy - hs, wz + hs],
-              [wx + hs, wy - hs, wz - hs], [wx - hs, wy - hs, wz - hs]],
-        // +Z
-        4 => [[wx - hs, wy - hs, wz + hs], [wx + hs, wy - hs, wz + hs],
-              [wx + hs, wy + hs, wz + hs], [wx - hs, wy + hs, wz + hs]],
-        // -Z
-        5 => [[wx + hs, wy - hs, wz - hs], [wx - hs, wy - hs, wz - hs],
-              [wx - hs, wy + hs, wz - hs], [wx + hs, wy + hs, wz - hs]],
-        _ => return,
-    };
-    let norm = match dir {
-        0 => (1.0, 0.0, 0.0),
-        1 => (-1.0, 0.0, 0.0),
-        2 => (0.0, 1.0, 0.0),
-        3 => (0.0, -1.0, 0.0),
-        4 => (0.0, 0.0, 1.0),
-        5 => (0.0, 0.0, -1.0),
-        _ => (0.0, 0.0, 0.0),
-    };
-    push_face(pos, norms, idx, cols, uvs, verts, norm.0, norm.1, norm.2, r, g, b, uv_rect);
-}
-
-fn is_air(params: &WorldParams, wx: f64, wy: f64, wz: f64) -> bool {
-    let h = terrain::get_height(params, wx, wz);
-    let mut h2 = h;
-    terrain::zone_effects(params, wx, wz, &mut h2);
-    wy > h2
 }
 
 fn feature_hash(cx: i32, cz: i32, seed: u32, index: u32) -> f64 {

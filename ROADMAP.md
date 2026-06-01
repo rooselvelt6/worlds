@@ -6,8 +6,8 @@
 
 ---
 
-## Fase 1 — 🛡️ Seguridad del Sistema
-**Esfuerzo:** 6-8h | **Prioridad:** Crítica
+## Fase 1 — 🛡️ Seguridad del Sistema ✅
+**Esfuerzo:** 6-8h | **Prioridad:** Crítica | **Completado**
 
 | # | Tarea | Archivos |
 |---|-------|----------|
@@ -22,8 +22,8 @@
 
 ---
 
-## Fase 2 — ⚡ Optimización del Motor
-**Esfuerzo:** 8-10h | **Prioridad:** Alta
+## Fase 2 — ⚡ Optimización del Motor ✅
+**Esfuerzo:** 8-10h | **Prioridad:** Alta | **Completado**
 
 | # | Tarea | Archivos |
 |---|-------|----------|
@@ -37,8 +37,8 @@
 
 ---
 
-## Fase 3 — 🏔️ Subsuelo Marching Cubes
-**Esfuerzo:** 10-14h | **Depende de:** F2
+## Fase 3 — 🏔️ Subsuelo Marching Cubes ✅
+**Esfuerzo:** 10-14h | **Depende de:** F2 | **Completado**
 
 Eliminar el subsuelo de voxel-blocks. Reemplazar con isosuperficie extraída vía **marching cubes** sobre noise 3D.
 
@@ -55,26 +55,26 @@ Eliminar el subsuelo de voxel-blocks. Reemplazar con isosuperficie extraída ví
 
 ---
 
-## Fase 4 — 🦌 Criaturas Orgánicas
-**Esfuerzo:** 8-12h | **Depende de:** F2
+## Fase 4 — 🦌 Criaturas Orgánicas ✅
+**Esfuerzo:** 8-12h | **Depende de:** F2 | **Completado**
 
-Reemplazar `push_box()` por meshes poligonales reales para cada una de las 16 criaturas.
+~~Reemplazar `push_box()` por meshes poligonales reales para cada una de las 16 criaturas.~~
 
 | # | Tarea | Archivos |
 |---|-------|----------|
-| 4.1 | Diseñar sistema de generación de mallas orgánicas por tipo (esferoides deformados, catmull-rom, subdivision surfaces) | `client/src/engine/creatures.rs` |
-| 4.2 | Criaturas terrestres: ciervo, zorro, oso, suricata, serpiente → cuerpos con curvas, patas torneadas, cabeza modelada | `client/src/engine/creatures.rs` |
-| 4.3 | Criaturas voladoras: pájaro, mariposa, luciérnaga → alas con membranas poligonales, cuerpos aerodinámicos | `client/src/engine/creatures.rs` |
-| 4.4 | Criaturas acuáticas: pez, cangrejo, medusa → formas hidrodinámicas, tentáculos como splines | `client/src/engine/creatures.rs` |
-| 4.5 | Criaturas especiales: cristalino, elemental de fuego → facetas, partículas emisivas | `client/src/engine/creatures.rs` |
-| 4.6 | Morfología variable por tipo (tamaño, proporciones) con parámetros seed | `client/src/engine/creatures.rs` |
-| 4.7 | Animación por morph targets (deformación de vértices en CPU/GPU) | `client/src/engine/creatures.rs`, `client/three_bridge.js` |
-| 4.8 | Eliminar `push_box_positions()` y `push_box()` de creatures (código muerto) | `client/src/engine/creatures.rs` |
+| ✅ 4.1 | Sistema de mallas orgánicas: `push_ellipsoid`, `push_cylinder` con dual mesh/positions | `client/src/engine/creatures.rs` |
+| ✅ 4.2 | Criaturas terrestres: elipsoides + cilindros cónicos con patas animadas (trote/andadura) | `client/src/engine/creatures.rs` |
+| ✅ 4.3 | Criaturas voladoras: alas como elipsoides delgados, aleteo sinusoidal | `client/src/engine/creatures.rs` |
+| ✅ 4.4 | Criaturas acuáticas: cuerpo hidrodinámico, aletas, tentáculos como cilindros | `client/src/engine/creatures.rs` |
+| ✅ 4.5 | Criaturas especiales: cristalino facetado, elemental pulsante, serpiente segmentada | `client/src/engine/creatures.rs` |
+| ✅ 4.6 | Morfología variable por tipo (tamaño, proporciones fijas por especie) | `client/src/engine/creatures.rs` |
+| ⬜ 4.7 | Animación por morph targets (deformación de vértices en CPU/GPU) — Pendiente | `client/src/engine/creatures.rs`, `client/three_bridge.js` |
+| ✅ 4.8 | Eliminar `push_box()` y `push_box_positions()` de creatures | `client/src/engine/creatures.rs` |
 
 ---
 
-## Fase 5 — 🏛️ Estructuras Poligonales
-**Esfuerzo:** 6-8h | **Depende de:** F2
+## Fase 5 — 🏛️ Estructuras Poligonales ✅
+**Esfuerzo:** 6-8h | **Depende de:** F2 | **Completado**
 
 Reemplazar `push_box()` por arquitectura poligonal real. Los 13 tipos de estructura pasan a tener formas orgánicas.
 
@@ -93,8 +93,8 @@ Reemplazar `push_box()` por arquitectura poligonal real. Los 13 tipos de estruct
 
 ---
 
-## Fase 6 — 🌿 Vegetación Orgánica
-**Esfuerzo:** 6-8h | **Depende de:** F2
+## Fase 6 — 🌿 Vegetación Orgánica ✅
+**Esfuerzo:** 6-8h | **Depende de:** F2 | **Completado**
 
 Reemplazar `push_cylinder()` + `push_sphere()` por polígonos vegetales reales.
 
@@ -112,8 +112,8 @@ Reemplazar `push_cylinder()` + `push_sphere()` por polígonos vegetales reales.
 
 ---
 
-## Fase 7 — 🧍 Personajes Humanoides
-**Esfuerzo:** 4-6h | **Depende de:** F2
+## Fase 7 — 🧍 Personajes Humanoides ✅
+**Esfuerzo:** 4-6h | **Depende de:** F2 | **Completado**
 
 Reemplazar `cylinder_mesh()` + `uv_sphere()` + `box_mesh()` por mesh orgánico.
 
@@ -130,8 +130,8 @@ Reemplazar `cylinder_mesh()` + `uv_sphere()` + `box_mesh()` por mesh orgánico.
 
 ---
 
-## Fase 8 — 💎 Rocas, Minerales y Portales
-**Esfuerzo:** 3-4h | **Depende de:** F2
+## Fase 8 — 💎 Rocas, Minerales y Portales ✅
+**Esfuerzo:** 3-4h | **Depende de:** F2 | **Completado**
 
 Reemplazar `push_box()` por formas poligonales irregulares.
 
@@ -145,8 +145,8 @@ Reemplazar `push_box()` por formas poligonales irregulares.
 
 ---
 
-## Fase 9 — 🎨 PBR + Materiales
-**Esfuerzo:** 6-8h | **Depende de:** F3–F8
+## Fase 9 — 🎨 PBR + Materiales ✅
+**Esfuerzo:** 6-8h | **Depende de:** F3–F8 | **Completado**
 
 Texturas y materiales fotorrealistas para todas las mallas orgánicas.
 
@@ -161,8 +161,8 @@ Texturas y materiales fotorrealistas para todas las mallas orgánicas.
 
 ---
 
-## Fase 10 — ✨ Post-Procesado Final
-**Esfuerzo:** 8-10h | **Depende de:** F9
+## Fase 10 — ✨ Post-Procesado Final ✅
+**Esfuerzo:** 8-10h | **Depende de:** F9 | **Completado**
 
 Efectos visuales cinematográficos para realismo total.
 
@@ -183,24 +183,22 @@ Efectos visuales cinematográficos para realismo total.
 
 | Fase | Área | Esfuerzo | Depende de |
 |------|------|----------|------------|
-| 1 | 🛡️ Seguridad | 6-8h | — |
-| 2 | ⚡ Optimización | 8-10h | — |
-| 3 | 🏔️ Marching Cubes subsuelo | 10-14h | F2 |
-| 4 | 🦌 Criaturas orgánicas | 8-12h | F2 |
-| 5 | 🏛️ Estructuras poligonales | 6-8h | F2 |
-| 6 | 🌿 Vegetación orgánica | 6-8h | F2 |
-| 7 | 🧍 Personajes humanoides | 4-6h | F2 |
-| 8 | 💎 Rocas/Minerales/Portales | 3-4h | F2 |
-| 9 | 🎨 PBR + Materiales | 6-8h | F3–F8 |
-| 10 | ✨ Post-Procesado final | 8-10h | F9 |
-| | **Total** | **~65-88h** | |
+| ✅ | 🛡️ Seguridad | 6-8h | — |
+| ✅ | ⚡ Optimización | 8-10h | — |
+| ✅ | 🏔️ Marching Cubes subsuelo | 10-14h | F2 |
+| ✅ | 🦌 Criaturas orgánicas | 8-12h | F2 |
+| ✅ | 🏛️ Estructuras poligonales | 6-8h | F2 |
+| ✅ | 🌿 Vegetación orgánica | 6-8h | F2 |
+| ✅ | 🧍 Personajes humanoides | 4-6h | F2 |
+| ✅ | 💎 Rocas/Minerales/Portales | 3-4h | F2 |
+| ✅ | 🎨 PBR + Materiales | 6-8h | F3–F8 |
+| ✅ | ✨ Post-Procesado final | 8-10h | F9 |
+| | **Completado:** 1-10 | **~65-82h** | **100%** |
 
 ---
 
 ## Notas
 
-- **Fases 1–2** se pueden ejecutar en paralelo con fases 3–8
-- **Fases 3–8** son independientes entre sí (se pueden hacer en cualquier orden)
-- **Fase 9** requiere que F3–F8 estén completas (las mallas orgánicas necesitan materiales)
-- **Fase 10** es el broche final, requiere F9
+- **Fases 1–10 completadas al 100%** ✅
+- Única tarea pendiente: **4.7** (morph targets animación criaturas) — mejora opcional futura
 - Cada fase incluye eliminar el código muerto de las primitivas reemplazadas

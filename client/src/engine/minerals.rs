@@ -1,3 +1,4 @@
+use crate::engine::creatures::push_ellipsoid_rot;
 use crate::engine::terrain::{self, Zone};
 use crate::state::WorldParams;
 
@@ -110,41 +111,6 @@ fn mineral_color(mt: u8) -> [f32; 3] {
     }
 }
 
-fn push_box(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
-    cx: f32, cy: f32, cz: f32, hw: f32, hh: f32, hd: f32,
-    r: f32, g: f32, b: f32, base_idx: &mut u32,
-) {
-    let verts: [[f32; 3]; 24] = [
-        [ hw, -hh, -hd], [ hw,  hh, -hd], [ hw,  hh,  hd], [ hw, -hh,  hd],
-        [-hw, -hh,  hd], [-hw,  hh,  hd], [-hw,  hh, -hd], [-hw, -hh, -hd],
-        [-hw,  hh,  hd], [ hw,  hh,  hd], [ hw,  hh, -hd], [-hw,  hh, -hd],
-        [-hw, -hh, -hd], [ hw, -hh, -hd], [ hw, -hh,  hd], [-hw, -hh,  hd],
-        [-hw, -hh,  hd], [ hw, -hh,  hd], [ hw,  hh,  hd], [-hw,  hh,  hd],
-        [ hw, -hh, -hd], [-hw, -hh, -hd], [-hw,  hh, -hd], [ hw,  hh, -hd],
-    ];
-    let norms_data: [[f32; 3]; 24] = [
-        [1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],
-        [-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],
-        [0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],
-        [0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],
-        [0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],
-        [0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],
-    ];
-    let nv = pos.len() as u32 / 3;
-    for &v in &verts { pos.push(cx + v[0]); pos.push(cy + v[1]); pos.push(cz + v[2]); }
-    for &n in &norms_data { norms.push(n[0]); norms.push(n[1]); norms.push(n[2]); }
-    for _ in 0..24 { cols.push(r); cols.push(g); cols.push(b); }
-    let ibase = nv;
-    let ipat: [u32; 36] = [
-        0,1,2, 0,2,3, 4,5,6, 4,6,7,
-        8,9,10, 8,10,11, 12,13,14, 12,14,15,
-        16,17,18, 16,18,19, 20,21,22, 20,22,23,
-    ];
-    for &i in &ipat { idx.push(ibase + i); }
-    *base_idx = nv + 24;
-}
-
 pub fn generate_mineral_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>)> {
     let data = compute_chunk_minerals(params, cx, cz);
     if data.deposits.is_empty() { return None; }
@@ -156,7 +122,7 @@ pub fn generate_mineral_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(
     for d in &data.deposits {
         let c = mineral_color(d.mineral_type);
         let s = d.size * 0.5;
-        push_box(&mut pos, &mut norms, &mut idx, &mut cols, d.x, d.y + s, d.z, s, s, s, c[0], c[1], c[2], &mut base_idx);
+        push_ellipsoid_rot(&mut pos, &mut norms, &mut idx, &mut cols, d.x, d.y + s, d.z, s, s, s, c[0], c[1], c[2], &mut base_idx, 4, 5, 0.0);
     }
     Some((pos, norms, idx, cols))
 }

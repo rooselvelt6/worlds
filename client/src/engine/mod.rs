@@ -34,6 +34,7 @@ use achievements::AchievementState;
 use codex::Codex;
 use foam::FoamSystem;
 use particles::BubbleSystem;
+use crate::engine::creatures::{push_cylinder_rot, push_ellipsoid_rot};
 use crate::state::{CameraMode, CharacterPreset, ParticleMode, WorldParams};
 use terrain::Zone;
 use camera::Camera;
@@ -58,6 +59,9 @@ const WALK_AMP: f64 = 0.35;
 const RUN_AMP: f64 = 0.6;
 const WALK_FREQ: f64 = 5.0;
 const RUN_FREQ: f64 = 8.0;
+const BODY_BOUNCE: f64 = 0.04;
+const LIMB_STRETCH: f64 = 0.12;
+const LIMB_SQUASH: f64 = 0.06;
 
 #[derive(Clone, Default)]
 pub struct HudData {
@@ -169,12 +173,8 @@ fn load_craters() {
 
 
 // ── R10.1 Footprints ──
-#[allow(dead_code)]
 struct Footprint {
     key: String,
-    x: f64,
-    y: f64,
-    z: f64,
     lifetime: f64,
     max_lifetime: f64,
 }
@@ -201,7 +201,6 @@ impl FootprintSystem {
                 bridge::create_footprint(&key, px, py, pz, rot);
                 self.footprints.push(Footprint {
                     key,
-                    x: px, y: py, z: pz,
                     lifetime: 8.0,
                     max_lifetime: 8.0,
                 });
@@ -310,15 +309,9 @@ impl MeteorSystem {
     }
 }
 
-#[allow(dead_code)]
-struct RemotePlayerData {
-    name: String,
-    x: f64, y: f64, z: f64,
-}
-
-#[allow(dead_code)]
 struct GameState {
     canvas: web_sys::HtmlCanvasElement,
+    #[allow(dead_code)]
     camera: Camera,
     controls: Controls,
     params: WorldParams,
@@ -346,6 +339,7 @@ struct GameState {
     gamepad_state: gamepad::GamepadState,
     inventory: Inventory,
     tour_prev: bool,
+    #[allow(dead_code)]
     spawned: bool,
     weather_power: f64,
     weather_target: f64,
@@ -365,7 +359,6 @@ struct GameState {
     char_dirty: bool,
     portal_prev: bool,
     g_prev: bool,
-    f_prev: bool,
     mounted_creature_id: Option<String>,
     waterfalls: WaterfallSystem,
     foam: FoamSystem,
@@ -388,7 +381,7 @@ struct GameState {
     ws_player_id: String,
     ws_send_timer: f64,
     chat_messages: std::collections::VecDeque<(String, String)>,
-    remote_players: std::collections::HashMap<String, RemotePlayerData>,
+    remote_players: std::collections::HashSet<String>,
     fade_timer: f64,
     pending_portal: Option<u32>,
     visited_seeds: Vec<u32>,
@@ -410,170 +403,49 @@ pub struct Engine {
     _closure: Option<Rc<RefCell<Option<Closure<dyn FnMut()>>>>>,
 }
 
-fn uv_sphere(radius: f64, rings: u32, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
-    let verts_per_ring = segments + 1;
-    let total = verts_per_ring * (rings + 1);
-    let mut positions = Vec::with_capacity(total as usize * 3);
-    let mut normals = Vec::with_capacity(total as usize * 3);
-    for ring in 0..=rings {
-        let phi = ring as f64 / rings as f64 * std::f64::consts::PI;
-        for seg in 0..=segments {
-            let theta = seg as f64 / segments as f64 * std::f64::consts::TAU;
-            let x = radius * phi.sin() * theta.cos();
-            let y = radius * phi.cos();
-            let z = radius * phi.sin() * theta.sin();
-            positions.push(x as f32);
-            positions.push(y as f32);
-            positions.push(z as f32);
-            normals.push(x as f32 / radius as f32);
-            normals.push(y as f32 / radius as f32);
-            normals.push(z as f32 / radius as f32);
-        }
-    }
-    let mut indices = Vec::with_capacity(rings as usize * segments as usize * 6);
-    for ring in 0..rings {
-        for seg in 0..segments {
-            let a = ring * verts_per_ring + seg;
-            let b = a + 1;
-            let c = (ring + 1) * verts_per_ring + seg;
-            let d = c + 1;
-            indices.push(a);
-            indices.push(c);
-            indices.push(b);
-            indices.push(b);
-            indices.push(c);
-            indices.push(d);
-        }
-    }
-    (positions, normals, indices)
-}
-
-fn box_mesh(w: f64, h: f64, d: f64) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
-    let hw = (w * 0.5) as f32;
-    let hh = (h * 0.5) as f32;
-    let hd = (d * 0.5) as f32;
-    let positions = vec![
-        -hw, -hh,  hd,  hw, -hh,  hd,  hw,  hh,  hd, -hw,  hh,  hd,
-        -hw, -hh, -hd, -hw,  hh, -hd,  hw,  hh, -hd,  hw, -hh, -hd,
-        -hw,  hh, -hd, -hw,  hh,  hd,  hw,  hh,  hd,  hw,  hh, -hd,
-        -hw, -hh, -hd,  hw, -hh, -hd,  hw, -hh,  hd, -hw, -hh,  hd,
-         hw, -hh, -hd,  hw,  hh, -hd,  hw,  hh,  hd,  hw, -hh,  hd,
-        -hw, -hh, -hd, -hw, -hh,  hd, -hw,  hh,  hd, -hw,  hh, -hd,
-    ];
-    let normals = vec![
-        0.0f32, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
-        0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0,
-        0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0,
-        0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0,
-        1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-        -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0,
-    ];
-    let indices = vec![
-        0u32, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7,
-        8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15,
-        16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
-    ];
-    (positions, normals, indices)
+fn make_mesh(
+    build: impl FnOnce(&mut Vec<f32>, &mut Vec<f32>, &mut Vec<u32>, &mut u32),
+) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let mut pos = Vec::new();
+    let mut norms = Vec::new();
+    let mut idx = Vec::new();
+    let mut base_idx = 0;
+    let mut _cols: Vec<f32> = Vec::new();
+    build(&mut pos, &mut norms, &mut idx, &mut base_idx);
+    (pos, norms, idx)
 }
 
 fn cylinder_mesh(radius: f64, height: f64, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
     let r = radius as f32;
     let hh = (height * 0.5) as f32;
-    let mut pos = Vec::new();
-    let mut norms = Vec::new();
-    let mut idx = Vec::new();
-
-    let tc = 0u32;
-    pos.push(0.0); pos.push(hh); pos.push(0.0);
-    norms.push(0.0); norms.push(1.0); norms.push(0.0);
-
-    let bc = 1u32;
-    pos.push(0.0); pos.push(-hh); pos.push(0.0);
-    norms.push(0.0); norms.push(-1.0); norms.push(0.0);
-
-    let ts = 2u32;
-    for seg in 0..segments {
-        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
-        let (nx, nz) = (theta.cos(), theta.sin());
-        pos.push(r * nx); pos.push(hh); pos.push(r * nz);
-        norms.push(nx); norms.push(0.0); norms.push(nz);
-    }
-
-    let bs = ts + segments;
-    for seg in 0..segments {
-        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
-        let (nx, nz) = (theta.cos(), theta.sin());
-        pos.push(r * nx); pos.push(-hh); pos.push(r * nz);
-        norms.push(nx); norms.push(0.0); norms.push(nz);
-    }
-
-    for seg in 0..segments {
-        let a = ts + seg;
-        let b = ts + (seg + 1) % segments;
-        let c = bs + seg;
-        let d = bs + (seg + 1) % segments;
-        idx.push(a); idx.push(c); idx.push(b);
-        idx.push(b); idx.push(c); idx.push(d);
-    }
-
-    for seg in 0..segments {
-        let a = ts + seg;
-        let b = ts + (seg + 1) % segments;
-        idx.push(tc); idx.push(a); idx.push(b);
-        idx.push(bc); idx.push(b); idx.push(a);
-    }
-
-    (pos, norms, idx)
+    make_mesh(|pos, norms, idx, bi| {
+        push_cylinder_rot(pos, norms, idx, &mut vec![], 0.0, 0.0, 0.0, r, hh, r, 0.0, 0.0, 0.0, bi, segments, 0.0);
+    })
 }
 
 fn cylinder_pivot_top(radius: f64, height: f64, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
     let r = radius as f32;
     let h = height as f32;
-    let mut pos = Vec::new();
-    let mut norms = Vec::new();
-    let mut idx = Vec::new();
-
-    let tc = 0u32;
-    pos.push(0.0); pos.push(0.0); pos.push(0.0);
-    norms.push(0.0); norms.push(1.0); norms.push(0.0);
-
-    let bc = 1u32;
-    pos.push(0.0); pos.push(-h); pos.push(0.0);
-    norms.push(0.0); norms.push(-1.0); norms.push(0.0);
-
-    let ts = 2u32;
-    for seg in 0..segments {
-        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
-        let (nx, nz) = (theta.cos(), theta.sin());
-        pos.push(r * nx); pos.push(0.0); pos.push(r * nz);
-        norms.push(nx); norms.push(0.0); norms.push(nz);
-    }
-
-    let bs = ts + segments;
-    for seg in 0..segments {
-        let theta = seg as f32 / segments as f32 * std::f32::consts::TAU;
-        let (nx, nz) = (theta.cos(), theta.sin());
-        pos.push(r * nx); pos.push(-h); pos.push(r * nz);
-        norms.push(nx); norms.push(0.0); norms.push(nz);
-    }
-
-    for seg in 0..segments {
-        let a = ts + seg;
-        let b = ts + (seg + 1) % segments;
-        let c = bs + seg;
-        let d = bs + (seg + 1) % segments;
-        idx.push(a); idx.push(c); idx.push(b);
-        idx.push(b); idx.push(c); idx.push(d);
-    }
-
-    for seg in 0..segments {
-        let a = ts + seg;
-        let b = ts + (seg + 1) % segments;
-        idx.push(tc); idx.push(a); idx.push(b);
-        idx.push(bc); idx.push(b); idx.push(a);
-    }
-
+    let (pos, norms, idx) = make_mesh(|pos, norms, idx, bi| {
+        push_cylinder_rot(pos, norms, idx, &mut vec![], 0.0, -h * 0.5, 0.0, r, h * 0.5, r, 0.0, 0.0, 0.0, bi, segments, 0.0);
+    });
     (pos, norms, idx)
+}
+
+fn uv_sphere(radius: f64, rings: u32, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let r = radius as f32;
+    make_mesh(|pos, norms, idx, bi| {
+        push_ellipsoid_rot(pos, norms, idx, &mut vec![], 0.0, 0.0, 0.0, r, r, r, 0.0, 0.0, 0.0, bi, rings, segments, 0.0);
+    })
+}
+
+fn box_mesh(w: f64, h: f64, d: f64) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let rw = (w * 0.5) as f32;
+    let rh = (h * 0.5) as f32;
+    let rd = (d * 0.5) as f32;
+    make_mesh(|pos, norms, idx, bi| {
+        push_ellipsoid_rot(pos, norms, idx, &mut vec![], 0.0, 0.0, 0.0, rw, rh, rd, 0.0, 0.0, 0.0, bi, 4, 4, 0.0);
+    })
 }
 
 fn gerstner_wave(wx: f64, wz: f64, time: f64, steepness: f64) -> (f64, f64, f64, f64, f64, f64) {
@@ -607,6 +479,110 @@ fn gerstner_wave(wx: f64, wz: f64, time: f64, steepness: f64) -> (f64, f64, f64,
     let ny = (1.0 + ndy) / nl;
     let nz = ndz / nl;
     (dx, dy, dz, nx, ny, nz)
+}
+
+fn torso_mesh(width: f64, height: f64, depth: f64) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let seg = 12;
+    let rings = 6;
+    let w = width as f32;
+    let h = height as f32;
+    let d = depth as f32;
+    let mut pos = Vec::new();
+    let mut norms = Vec::new();
+    let mut idx = Vec::new();
+    let hh = h * 0.5;
+    for ring in 0..=rings {
+        let t = ring as f32 / rings as f32;
+        let y = -hh + t * h;
+        let waist = 1.0 - 0.25 * (1.0 - (2.0 * t - 1.0).abs());
+        let rx = w * 0.5 * waist;
+        let rz = d * 0.5 * waist;
+        for s in 0..=seg {
+            let theta = s as f32 / seg as f32 * std::f32::consts::TAU;
+            let (nx, nz) = (theta.cos(), theta.sin());
+            pos.push(rx * nx); pos.push(y); pos.push(rz * nz);
+            norms.push(nx); norms.push(0.0); norms.push(nz);
+        }
+    }
+    for ring in 0..rings {
+        for s in 0..seg {
+            let a = ring * (seg + 1) + s;
+            let b = a + 1;
+            let c = (ring + 1) * (seg + 1) + s;
+            let d = c + 1;
+            idx.push(a); idx.push(c); idx.push(b);
+            idx.push(b); idx.push(c); idx.push(d);
+        }
+    }
+    let center_b = pos.len() as u32 / 3;
+    pos.push(0.0); pos.push(-hh); pos.push(0.0);
+    norms.push(0.0); norms.push(-1.0); norms.push(0.0);
+    for s in 0..seg {
+        let a = s as u32;
+        let b = (s + 1) % seg;
+        idx.push(center_b); idx.push(a); idx.push(b);
+    }
+    let center_t = pos.len() as u32 / 3;
+    pos.push(0.0); pos.push(hh); pos.push(0.0);
+    norms.push(0.0); norms.push(1.0); norms.push(0.0);
+    let base_top = rings as u32 * (seg + 1);
+    for s in 0..seg {
+        let a = base_top + s;
+        let b = base_top + (s + 1) % seg;
+        idx.push(center_t); idx.push(b); idx.push(a);
+    }
+    (pos, norms, idx)
+}
+
+fn tapered_limb(top_r: f64, bot_r: f64, height: f64, seg: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let tr = top_r as f32;
+    let br = bot_r as f32;
+    let h = height as f32;
+    let mut pos = Vec::new();
+    let mut norms = Vec::new();
+    let mut idx = Vec::new();
+    for s in 0..=seg {
+        let theta = s as f32 / seg as f32 * std::f32::consts::TAU;
+        let (nx, nz) = (theta.cos(), theta.sin());
+        pos.push(tr * nx); pos.push(0.0); pos.push(tr * nz);
+        norms.push(nx); norms.push(0.0); norms.push(nz);
+        pos.push(br * nx); pos.push(-h); pos.push(br * nz);
+        norms.push(nx); norms.push(0.0); norms.push(nz);
+    }
+    for s in 0..seg {
+        let a = s * 2;
+        let b = a + 2;
+        let c = a + 1;
+        let d = c + 2;
+        idx.push(a); idx.push(b); idx.push(c);
+        idx.push(c); idx.push(b); idx.push(d);
+    }
+    let center_b = pos.len() as u32 / 3;
+    pos.push(0.0); pos.push(-h); pos.push(0.0);
+    norms.push(0.0); norms.push(-1.0); norms.push(0.0);
+    for s in 0..seg {
+        let a = s * 2 + 1;
+        let b = ((s + 1) % seg) * 2 + 1;
+        idx.push(center_b); idx.push(a); idx.push(b);
+    }
+    (pos, norms, idx)
+}
+
+fn build_tentacle(length: f64, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let len = length as f32;
+    let mut all_pos = Vec::new();
+    let mut all_norms = Vec::new();
+    let mut all_idx = Vec::new();
+    let mut bi = 0u32;
+    let mut cols: Vec<f32> = Vec::new();
+    for i in 0..segments {
+        let t = i as f32 / segments as f32;
+        let y = -t * len;
+        let r = 0.05 * (1.0 - t * 0.8);
+        let sway = t.sin() * 0.1;
+        push_ellipsoid_rot(&mut all_pos, &mut all_norms, &mut all_idx, &mut cols, sway, y, 0.0, r, r * 0.6, r, 0.0, 0.0, 0.0, &mut bi, 4, 4, 0.0);
+    }
+    (all_pos, all_norms, all_idx)
 }
 
 fn generate_sky_dome(radius: f64) -> (Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>) {
@@ -852,8 +828,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
         io: usize, #[serde(rename = "in")] in_: usize,
         co: usize, cn: usize,
         uo: usize, un: usize,
-        #[serde(rename = "hasCol")] hasCol: bool,
-        #[serde(rename = "hasUv")] hasUv: bool,
+        #[serde(rename = "hasCol")] has_col: bool,
+        #[serde(rename = "hasUv")] has_uv: bool,
     }
 
     let mut entries: Vec<BatchEntry> = Vec::new();
@@ -876,8 +852,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
             io: all_idx.len(), in_: data.indices.len(),
             co: all_col.len(), cn,
             uo: all_uv.len(), un,
-            hasCol: cn > 0,
-            hasUv: un > 0,
+            has_col: cn > 0,
+            has_uv: un > 0,
         });
         all_pos.extend_from_slice(&data.positions);
         all_norm.extend_from_slice(&data.normals);
@@ -901,8 +877,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
                 io: all_idx.len(), in_: vidx.len(),
                 co: all_col.len(), cn,
                 uo: all_uv.len(), un: 0,
-                hasCol: cn > 0,
-                hasUv: false,
+                has_col: cn > 0,
+                has_uv: false,
             });
             all_pos.extend_from_slice(&vpos);
             all_norm.extend_from_slice(&vnorm);
@@ -934,8 +910,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
                         io: all_idx.len(), in_: cidx.len(),
                         co: all_col.len(), cn,
                         uo: all_uv.len(), un: 0,
-                        hasCol: cn > 0,
-                        hasUv: false,
+                        has_col: cn > 0,
+                        has_uv: false,
                     });
                     all_pos.extend_from_slice(&cpos);
                     all_norm.extend_from_slice(&cnorm);
@@ -958,8 +934,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
                 io: all_idx.len(), in_: sidx.len(),
                 co: all_col.len(), cn,
                 uo: all_uv.len(), un: 0,
-                hasCol: cn > 0,
-                hasUv: false,
+                has_col: cn > 0,
+                has_uv: false,
             });
             all_pos.extend_from_slice(&spos);
             all_norm.extend_from_slice(&snorm);
@@ -979,8 +955,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
                 io: all_idx.len(), in_: midx.len(),
                 co: all_col.len(), cn,
                 uo: all_uv.len(), un: 0,
-                hasCol: cn > 0,
-                hasUv: false,
+                has_col: cn > 0,
+                has_uv: false,
             });
             all_pos.extend_from_slice(&mpos);
             all_norm.extend_from_slice(&mnorm);
@@ -1010,8 +986,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
                 io: all_idx.len(), in_: ridx.len(),
                 co: all_col.len(), cn,
                 uo: all_uv.len(), un: 0,
-                hasCol: cn > 0,
-                hasUv: false,
+                has_col: cn > 0,
+                has_uv: false,
             });
             all_pos.extend_from_slice(&rpos);
             all_norm.extend_from_slice(&rnorm);
@@ -1031,8 +1007,8 @@ fn upload_chunk_mesh(s: &mut GameState, data: &ChunkData, cx: i32, cz: i32, lod:
                 io: all_idx.len(), in_: bpidx.len(),
                 co: all_col.len(), cn,
                 uo: all_uv.len(), un: 0,
-                hasCol: cn > 0,
-                hasUv: false,
+                has_col: cn > 0,
+                has_uv: false,
             });
             all_pos.extend_from_slice(&bppos);
             all_norm.extend_from_slice(&bpnorms);
@@ -1121,30 +1097,58 @@ fn regenerate_character(s: &mut GameState) {
     let (aw, ah, ad) = preset_arm;
     let (lw, lh, ld) = preset_leg;
 
-    let (b_pos, b_norm, b_idx) = cylinder_mesh(((bw + bd) * 0.25 * scale) as f64, bh * scale, 8);
+    let (mut b_pos, mut b_norm, mut b_idx) = torso_mesh(bw * scale, bh * scale, bd * scale);
+    if s.params.character == CharacterPreset::Robot {
+        let mut bbi = (b_pos.len() / 3) as u32;
+        let mut _bc: Vec<f32> = Vec::new();
+        let bw2 = (bw * scale * 0.5) as f32;
+        let bh2 = (bh * scale * 0.5) as f32;
+        let bd2 = (bd * scale * 0.5) as f32;
+        push_ellipsoid_rot(&mut b_pos, &mut b_norm, &mut b_idx, &mut _bc, 0.0, bh2 * 0.1, bd2 * 1.1, bw2 * 0.5, bh2 * 0.2, bd2 * 0.3, 0.0, 0.0, 0.0, &mut bbi, 4, 4, 0.0);
+        push_ellipsoid_rot(&mut b_pos, &mut b_norm, &mut b_idx, &mut _bc, -bw2 * 1.05, bh2 * 0.6, 0.0, bw2 * 0.2, bh2 * 0.2, bd2 * 0.3, 0.0, 0.0, 0.0, &mut bbi, 4, 4, 0.0);
+        push_ellipsoid_rot(&mut b_pos, &mut b_norm, &mut b_idx, &mut _bc, bw2 * 1.05, bh2 * 0.6, 0.0, bw2 * 0.2, bh2 * 0.2, bd2 * 0.3, 0.0, 0.0, 0.0, &mut bbi, 4, 4, 0.0);
+    }
     let b_col = fill_color(b_pos.len() / 3, body_col[0], body_col[1], body_col[2]);
     upload_part("char_body", &b_pos, &b_norm, &b_idx, &b_col);
 
-    let (h_pos, h_norm, h_idx) = if hbox > 0.0 {
+    let (mut h_pos, mut h_norm, mut h_idx) = if hbox > 0.0 {
         box_mesh(hs * scale * 0.8, hs * scale, hs * scale * 0.7)
     } else {
         uv_sphere(hr as f64 * scale, hseg as u32, hseg as u32)
     };
+    let mut bi = (h_pos.len() / 3) as u32;
+    let mut _tc: Vec<f32> = Vec::new();
+    if hbox > 0.0 {
+        let hw = (hs * scale * 0.4) as f32;
+        let hh = (hs * scale * 0.5) as f32;
+        let hd = (hs * scale * 0.35) as f32;
+        push_ellipsoid_rot(&mut h_pos, &mut h_norm, &mut h_idx, &mut _tc, -hw * 1.1, hh * 0.4, hd * 0.7, hw * 0.15, hh * 0.25, hd * 0.2, 0.0, 0.0, 0.0, &mut bi, 4, 4, 0.0);
+        push_ellipsoid_rot(&mut h_pos, &mut h_norm, &mut h_idx, &mut _tc, hw * 1.1, hh * 0.4, hd * 0.7, hw * 0.15, hh * 0.25, hd * 0.2, 0.0, 0.0, 0.0, &mut bi, 4, 4, 0.0);
+    } else {
+        let h_rad = hr as f64 * scale;
+        let nose_z = (h_rad * 0.85) as f32;
+        let nose_r = (h_rad * 0.12) as f32;
+        push_ellipsoid_rot(&mut h_pos, &mut h_norm, &mut h_idx, &mut _tc, 0.0, (h_rad * 0.05) as f32, nose_z, nose_r * 0.6, nose_r * 0.8, nose_r, 0.0, 0.0, 0.0, &mut bi, 4, 4, 0.0);
+    }
     let h_col = fill_color(h_pos.len() / 3, head_col[0], head_col[1], head_col[2]);
     upload_part("char_head", &h_pos, &h_norm, &h_idx, &h_col);
 
-    let (a_pos, a_norm, a_idx) = cylinder_pivot_top(((aw + ad) * 0.25 * scale) as f64, ah * scale, 8);
+    let arm_top = (aw + ad) * 0.35 * scale;
+    let arm_bot = (aw + ad) * 0.15 * scale;
+    let (a_pos, a_norm, a_idx) = tapered_limb(arm_top, arm_bot, ah * scale, 8);
     let a_col = fill_color(a_pos.len() / 3, head_col[0], head_col[1], head_col[2]);
     upload_part("char_arm_l", &a_pos, &a_norm, &a_idx, &a_col);
     upload_part("char_arm_r", &a_pos, &a_norm, &a_idx, &a_col);
 
-    let (l_pos, l_norm, l_idx) = cylinder_pivot_top(((lw + ld) * 0.25 * scale) as f64, lh * scale, 8);
+    let leg_top = (lw + ld) * 0.35 * scale;
+    let leg_bot = (lw + ld) * 0.2 * scale;
+    let (l_pos, l_norm, l_idx) = tapered_limb(leg_top, leg_bot, lh * scale, 8);
     let l_col = fill_color(l_pos.len() / 3, body_col[0], body_col[1], body_col[2]);
     upload_part("char_leg_l", &l_pos, &l_norm, &l_idx, &l_col);
     upload_part("char_leg_r", &l_pos, &l_norm, &l_idx, &l_col);
 
     if s.params.character == CharacterPreset::Kraken {
-        let (t_pos, t_norm, t_idx) = cylinder_pivot_top(0.05 * scale, 0.7 * scale, 6);
+        let (t_pos, t_norm, t_idx) = build_tentacle(0.7 * scale, 8);
         let t_col = fill_color(t_pos.len() / 3, 0.2, 0.7, 0.3);
         for i in 1..=4 {
             upload_part(&format!("char_tent_{}", i), &t_pos, &t_norm, &t_idx, &t_col);
@@ -1172,7 +1176,10 @@ impl Engine {
         let b_col = fill_color(b_pos.len() / 3, 0.2, 0.4, 0.8);
         upload_part("char_body", &b_pos, &b_norm, &b_idx, &b_col);
 
-        let (h_pos, h_norm, h_idx) = uv_sphere(0.5, 10, 10);
+        let (mut h_pos, mut h_norm, mut h_idx) = uv_sphere(0.5, 10, 10);
+        let mut hbi = (h_pos.len() / 3) as u32;
+        let mut _htc: Vec<f32> = Vec::new();
+        push_ellipsoid_rot(&mut h_pos, &mut h_norm, &mut h_idx, &mut _htc, 0.0, 0.025, 0.425, 0.036, 0.048, 0.06, 0.0, 0.0, 0.0, &mut hbi, 4, 4, 0.0);
         let h_col = fill_color(h_pos.len() / 3, 1.0, 0.85, 0.75);
         upload_part("char_head", &h_pos, &h_norm, &h_idx, &h_col);
 
@@ -1202,8 +1209,9 @@ impl Engine {
         let w_a = js_sys::Float32Array::from(&vec![0.5f32; w_pos.len() / 3][..]);
         bridge::upload_water_mesh("water", &w_p, &w_n, &w_i, &w_a);
 
-        // Fog and sun
+        // Fog, sky background, and sun
         bridge::set_fog(0.6, 0.75, 0.92, 0.006);
+        bridge::set_sky(0.6, 0.75, 0.92);
         bridge::set_sun_light(50.0, 80.0, 50.0, 1.0, 0.95, 0.85, 2.0);
 
         // Particle system (initialized with default zone, will update on first frame)
@@ -1292,7 +1300,6 @@ impl Engine {
             char_dirty: false,
             portal_prev: false,
             g_prev: false,
-            f_prev: false,
             mounted_creature_id: None,
             waterfalls: WaterfallSystem::new(),
             foam: FoamSystem::new(),
@@ -1314,7 +1321,7 @@ impl Engine {
             ws_player_id: String::new(),
             ws_send_timer: 0.0,
             chat_messages: std::collections::VecDeque::new(),
-            remote_players: std::collections::HashMap::new(),
+            remote_players: std::collections::HashSet::new(),
             fade_timer: 0.0,
             pending_portal: None,
             visited_seeds: Vec::new(),
@@ -1695,7 +1702,7 @@ impl Engine {
                     }
                 }
 
-                // Walk/run animation
+                // Walk/run animation with stretch/squash
                 if moving {
                     s.walk_time += delta;
                 }
@@ -1711,6 +1718,24 @@ impl Engine {
                 bridge::set_mesh_rotation("char_leg_r", leg_r, cyaw, 0.0);
                 bridge::set_mesh_rotation("char_arm_l", -leg_r, cyaw, 0.0);
                 bridge::set_mesh_rotation("char_arm_r", -leg_l, cyaw, 0.0);
+
+                // Stretch/squash deformation
+                let body_cyc = (2.0 * t).cos();
+                let body_sy = 1.0 + BODY_BOUNCE * body_cyc;
+                let body_sx = 1.0 - BODY_BOUNCE * 0.5 * body_cyc;
+                bridge::set_mesh_scale("char_body", body_sx, body_sy, body_sx);
+
+                let lf = if amp > 0.0 { (leg_l / amp).abs() } else { 0.0 };
+                let rf = if amp > 0.0 { (leg_r / amp).abs() } else { 0.0 };
+                let af_l = if amp > 0.0 { (-leg_r / amp).abs() } else { 0.0 };
+                let af_r = if amp > 0.0 { (-leg_l / amp).abs() } else { 0.0 };
+                bridge::set_mesh_scale("char_leg_l", 1.0 - LIMB_SQUASH * lf, 1.0 + LIMB_STRETCH * lf, 1.0 - LIMB_SQUASH * lf);
+                bridge::set_mesh_scale("char_leg_r", 1.0 - LIMB_SQUASH * rf, 1.0 + LIMB_STRETCH * rf, 1.0 - LIMB_SQUASH * rf);
+                bridge::set_mesh_scale("char_arm_l", 1.0 - LIMB_SQUASH * af_l, 1.0 + LIMB_STRETCH * af_l, 1.0 - LIMB_SQUASH * af_l);
+                bridge::set_mesh_scale("char_arm_r", 1.0 - LIMB_SQUASH * af_r, 1.0 + LIMB_STRETCH * af_r, 1.0 - LIMB_SQUASH * af_r);
+
+                let head_cyc = (2.0 * t + std::f64::consts::PI).sin();
+                bridge::set_mesh_scale("char_head", 1.0, 1.0 + 0.015 * head_cyc, 1.0);
 
                 if s.params.character == CharacterPreset::Kraken {
                     let tent_phases = [0.0, 1.57, 3.14, 4.71];
@@ -2345,7 +2370,12 @@ impl Engine {
                     s.discovered_biomes.push(zone_name.clone());
                     s.save_dirty = true;
                     let discovered = s.discovered_biomes.clone();
-                    let all_biome_names: &[&str] = &[];
+                    let all_biome_names: &[&str] = &[
+                        "forest", "plains", "desert", "tundra", "jungle",
+                        "volcanic", "ocean", "crystal", "cave", "lava",
+                        "fungus", "abyss", "storm", "aurora", "magma",
+                        "coral_reef", "kelp_forest", "sandy_plain", "rocky_reef", "deep_ocean",
+                    ];
                     s.achievements.check_biomes(&discovered, all_biome_names);
                     s.codex.discover_biome(&zone_name);
                 }
@@ -2676,9 +2706,7 @@ impl Engine {
                                 let z = p["z"].as_f64().unwrap_or(0.0);
                                 let yaw = p["yaw"].as_f64().unwrap_or(0.0);
                                 let pitch = p["pitch"].as_f64().unwrap_or(0.0);
-                                s.remote_players.insert(pid.to_string(), RemotePlayerData {
-                                    name: name.clone(), x, y, z,
-                                });
+                                s.remote_players.insert(pid.to_string());
                                 bridge::ws_update_remote_player(pid, &name, x, y, z, yaw, pitch);
                             }
                         }

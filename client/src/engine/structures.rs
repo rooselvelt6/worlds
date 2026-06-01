@@ -1,3 +1,4 @@
+use crate::engine::creatures::{push_cylinder_rot, push_ellipsoid_rot};
 use crate::engine::terrain::{self, Zone};
 use crate::state::WorldParams;
 
@@ -198,41 +199,6 @@ fn struct_size(struct_type: StructType, zone: Zone, r: f64) -> f32 {
     (base * scale) as f32
 }
 
-fn push_box(
-    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
-    cx: f32, cy: f32, cz: f32, hw: f32, hh: f32, hd: f32,
-    r: f32, g: f32, b: f32, base_idx: &mut u32,
-) {
-    let verts: [[f32; 3]; 24] = [
-        [ hw, -hh, -hd], [ hw,  hh, -hd], [ hw,  hh,  hd], [ hw, -hh,  hd],
-        [-hw, -hh,  hd], [-hw,  hh,  hd], [-hw,  hh, -hd], [-hw, -hh, -hd],
-        [-hw,  hh,  hd], [ hw,  hh,  hd], [ hw,  hh, -hd], [-hw,  hh, -hd],
-        [-hw, -hh, -hd], [ hw, -hh, -hd], [ hw, -hh,  hd], [-hw, -hh,  hd],
-        [-hw, -hh,  hd], [ hw, -hh,  hd], [ hw,  hh,  hd], [-hw,  hh,  hd],
-        [ hw, -hh, -hd], [-hw, -hh, -hd], [-hw,  hh, -hd], [ hw,  hh, -hd],
-    ];
-    let norms_data: [[f32; 3]; 24] = [
-        [1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],
-        [-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],
-        [0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],
-        [0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],
-        [0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],
-        [0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],
-    ];
-    let nv = pos.len() as u32 / 3;
-    for &v in &verts { pos.push(cx + v[0]); pos.push(cy + v[1]); pos.push(cz + v[2]); }
-    for &n in &norms_data { norms.push(n[0]); norms.push(n[1]); norms.push(n[2]); }
-    for _ in 0..24 { cols.push(r); cols.push(g); cols.push(b); }
-    let ibase = nv;
-    let ipat: [u32; 36] = [
-        0,1,2, 0,2,3, 4,5,6, 4,6,7,
-        8,9,10, 8,10,11, 12,13,14, 12,14,15,
-        16,17,18, 16,18,19, 20,21,22, 20,22,23,
-    ];
-    for &i in &ipat { idx.push(ibase + i); }
-    *base_idx = nv + 24;
-}
-
 fn struct_color(st: StructType, cv: u8) -> [f32; 3] {
     let varied = cv as f32 / 5.0;
     match st {
@@ -253,114 +219,103 @@ fn struct_color(st: StructType, cv: u8) -> [f32; 3] {
 }
 
 fn emit_struct(
-    st: StructType, x: f32, y: f32, z: f32, scale: f32, _rot: f32, cv: u8,
+    st: StructType, x: f32, y: f32, z: f32, scale: f32, rot: f32, cv: u8,
     pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
     base_idx: &mut u32,
 ) {
     let s = scale;
     let c = struct_color(st, cv);
+    let seg = 6;
     match st {
         StructType::Hut => {
             let hw = s * 0.5; let hh = s * 0.3; let hd = s * 0.5;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            // Roof
+            push_cylinder_rot(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx, seg, rot);
             let rh = s * 0.2;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + rh, z, hw * 0.9, rh, hd * 0.9, 0.6, 0.3, 0.15, base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + hh * 2.0 + rh, z, hw * 0.9, rh, hd * 0.9, 0.6, 0.3, 0.15, base_idx, seg, seg, rot);
         }
         StructType::Tower => {
-            let hw = s * 0.2; let hh = s * 0.6; let hd = s * 0.2;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            // Cone top
-            let th = s * 0.15;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + th, z, hw * 0.5, th, hd * 0.5, 0.5, 0.3, 0.15, base_idx);
+            let hw = s * 0.22; let hh = s * 0.6; let hd = s * 0.22;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx, seg, rot);
+            let th = s * 0.18;
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + hh * 2.0 + th, z, hw * 0.5, th, hd * 0.5, 0.5, 0.3, 0.15, base_idx, seg, seg, rot);
         }
         StructType::Ruins => {
             let hw = s * 0.4; let hh = s * 0.3; let hd = s * 0.4;
-            push_box(pos, norms, idx, cols, x + s * 0.1, y + hh, z - s * 0.05, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x - s * 0.15, y + hh * 0.7, z + s * 0.1, hw * 0.6, hh * 0.7, hd * 0.6, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx);
+            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.1, y + hh, z - s * 0.05, hw, hh, hd, c[0], c[1], c[2], base_idx, 5, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.15, y + hh * 0.6, z + s * 0.1, hw * 0.6, hh * 0.6, hd * 0.6, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 5, rot);
         }
         StructType::Arch => {
-            let hw = s * 0.08; let hh = s * 0.5; let hd = s * 0.15;
-            push_box(pos, norms, idx, cols, x - s * 0.3, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x + s * 0.3, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x, y + s, z, s * 0.35, s * 0.06, hd, c[0], c[1], c[2], base_idx);
+            let pw = s * 0.1; let ph = s * 0.5; let pd = s * 0.15;
+            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.3, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.3, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.35, s * 0.06, pd, c[0], c[1], c[2], base_idx, 5, 5, rot);
         }
         StructType::Pillar => {
-            let hw = s * 0.12; let hh = s * 0.6; let hd = s * 0.12;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
+            let pw = s * 0.15; let ph = s * 0.6; let pd = s * 0.15;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 8, rot);
         }
         StructType::Dome => {
-            let hw = s * 0.45; let hh = s * 0.2; let hd = s * 0.45;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            // Dome top (approximated)
-            let dh = s * 0.2;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + dh, z, hw * 0.7, dh, hd * 0.7, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, base_idx);
+            let bw = s * 0.45; let bh = s * 0.15; let bd = s * 0.45;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + bh, z, bw, bh, bd, c[0], c[1], c[2], base_idx, 8, rot);
+            let dw = s * 0.4; let dh = s * 0.25; let dd = s * 0.4;
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + bh * 2.0 + dh, z, dw, dh, dd, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, base_idx, seg, seg, rot);
         }
         StructType::Pyramid => {
-            let hw = s * 0.4; let hh = s * 0.15; let hd = s * 0.4;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            let hw2 = hw * 0.7; let hh2 = s * 0.2; let hd2 = hd * 0.55;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + hh2, z, hw2, hh2, hd2, c[0], c[1], c[2], base_idx);
-            let hw3 = hw * 0.35; let hh3 = s * 0.25; let hd3 = hd * 0.3;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + hh2 * 2.0 + hh3, z, hw3, hh3, hd3, c[0], c[1], c[2], base_idx);
+            let bw = s * 0.4; let bh = s * 0.15; let bd = s * 0.4;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + bh, z, bw, bh, bd, c[0], c[1], c[2], base_idx, 6, rot);
+            let mw = s * 0.28; let mh = s * 0.2; let md = s * 0.28;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + bh * 2.0 + mh, z, mw, mh, md, c[0], c[1], c[2], base_idx, 6, rot);
+            let tw = s * 0.14; let th = s * 0.25; let td = s * 0.14;
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + bh * 2.0 + mh * 2.0 + th, z, tw, th, td, c[0], c[1], c[2], base_idx, seg, seg, rot);
         }
         StructType::CrystalSpire => {
-            let hw = s * 0.06; let hh = s * 0.7; let hd = s * 0.06;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            let hw2 = s * 0.15; let hh2 = s * 0.05; let hd2 = s * 0.15;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 - hh2, z, hw2, hh2, hd2, c[0], c[1], c[2], base_idx);
+            let sw = s * 0.07; let sh = s * 0.7; let sd = s * 0.07;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + sh, z, sw, sh, sd, c[0], c[1], c[2], base_idx, 6, rot);
+            let bw = s * 0.18; let bh = s * 0.05; let bd = s * 0.18;
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh * 2.0 - bh, z, bw, bh, bd, c[0] * 1.1, c[1] * 1.1, c[2] * 1.1, base_idx, 5, 5, rot);
         }
         StructType::MushroomHut => {
-            let hw = s * 0.06; let hh = s * 0.3; let hd = s * 0.06;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            let cw = s * 0.5; let ch = s * 0.12; let cd = s * 0.5;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + ch, z, cw, ch, cd, 0.75, 0.2, 0.2, base_idx);
+            let sw = s * 0.07; let sh = s * 0.3; let sd = s * 0.07;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + sh, z, sw, sh, sd, c[0], c[1], c[2], base_idx, 6, rot);
+            let cw = s * 0.5; let ch = s * 0.15; let cd = s * 0.5;
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh * 2.0 + ch, z, cw, ch, cd, 0.75, 0.2, 0.2, base_idx, seg, seg, rot);
         }
         StructType::Obelisk => {
-            let hw = s * 0.08; let hh = s * 0.7; let hd = s * 0.08;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            let th = s * 0.15;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + th, z, hw * 0.3, th, hd * 0.3, c[0], c[1], c[2], base_idx);
+            let ow = s * 0.09; let oh = s * 0.7; let od = s * 0.09;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + oh, z, ow, oh, od, c[0], c[1], c[2], base_idx, 6, rot);
+            let tw = s * 0.03; let th = s * 0.15; let td = s * 0.03;
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + oh * 2.0 + th, z, tw, th, td, c[0], c[1], c[2], base_idx, 5, 5, rot);
         }
         StructType::Plaza => {
-            // Flat octagonal platform with decorative center
-            let hw = s * 0.6; let hd = s * 0.6; let hh = s * 0.08;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            // Inner decorative ring
-            let rw = hw * 0.5; let rd = hd * 0.5; let rh = hh * 0.3;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + rh, z, rw, rh, rd, c[0] * 1.1, c[1] * 1.1, c[2] * 0.9, base_idx);
-            // Central pillar/fountain
-            let pw = s * 0.06; let ph = s * 0.2; let pd = s * 0.06;
-            push_box(pos, norms, idx, cols, x, y + hh * 2.0 + ph, z, pw, ph, pd, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, base_idx);
+            let pw = s * 0.6; let ph = s * 0.08; let pd = s * 0.6;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 8, rot);
+            let rw = pw * 0.5; let rh = ph * 0.4; let rd = pd * 0.5;
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + ph * 2.0 + rh, z, rw, rh, rd, c[0] * 1.1, c[1] * 1.1, c[2] * 0.9, base_idx, 6, 6, rot);
+            let cw = s * 0.07; let ch = s * 0.2; let cd = s * 0.07;
+            push_cylinder_rot(pos, norms, idx, cols, x, y + ph * 2.0 + ch, z, cw, ch, cd, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, base_idx, 6, rot);
         }
         StructType::Muralla => {
-            // Wall segment: long horizontal bar with crenellation
             let hw = s * 0.4; let hh = s * 0.25; let hd = s * 0.06;
-            push_box(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            // Crenellation (battlements)
+            push_cylinder_rot(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx, 6, rot);
             let ch = s * 0.08; let cw = s * 0.08;
             let num_cren = 3;
             for i in 0..num_cren {
                 let cx2 = x - hw + (i as f32 + 0.5) * (hw * 2.0 / num_cren as f32);
-                push_box(pos, norms, idx, cols, cx2, y + hh * 2.0 + ch, z, cw, ch, hd, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, base_idx);
+                push_cylinder_rot(pos, norms, idx, cols, cx2, y + hh * 2.0 + ch, z, cw, ch, hd, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, base_idx, 5, rot);
             }
         }
         StructType::DungeonEntrance => {
-            // Archway entrance with stairs going down
-            let hw = s * 0.15; let hh = s * 0.35; let hd = s * 0.15;
-            push_box(pos, norms, idx, cols, x - s * 0.2, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            push_box(pos, norms, idx, cols, x + s * 0.2, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx);
-            // Arch top
+            let pw = s * 0.15; let ph = s * 0.35; let pd = s * 0.15;
+            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.2, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.2, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
             let ah = s * 0.06;
-            push_box(pos, norms, idx, cols, x, y + s * 0.85, z, s * 0.18, ah, hd, c[0], c[1], c[2], base_idx);
-            // Stair steps going down
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s * 0.85, z, s * 0.18, ah, pd, c[0], c[1], c[2], base_idx, 5, 5, rot);
             for i in 0..3 {
                 let step_y = y - (i as f32) * s * 0.06;
                 let step_z = z + (i as f32 + 1.0) * s * 0.1;
-                push_box(pos, norms, idx, cols, x, step_y, step_z, s * 0.1, s * 0.03, s * 0.05, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx);
+                push_cylinder_rot(pos, norms, idx, cols, x, step_y, step_z, s * 0.1, s * 0.03, s * 0.05, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 4, rot);
             }
-            // Dark entrance interior
-            push_box(pos, norms, idx, cols, x, y + hh * 0.6, z + hd * 0.5, hw * 0.8, hh * 0.6, hd * 0.3, 0.05, 0.05, 0.08, base_idx);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + ph * 0.6, z + pd * 0.5, pw * 0.8, ph * 0.6, pd * 0.3, 0.05, 0.05, 0.08, base_idx, 5, 5, rot);
         }
     }
 }
@@ -502,38 +457,34 @@ pub fn generate_road_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(Vec
             let len = (dx * dx + dz * dz).sqrt().max(0.01);
             let nx = -dz / len;
             let nz = dx / len;
-            let deck_hw = 0.5;
-            let deck_hh = 0.04;
-            let deck_hd = 0.5;
             let bridge_y = water_level + 0.5;
-            // Center of bridge at midpoint
-            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
-                mid_x, bridge_y + deck_hh, mid_z,
-                deck_hw, deck_hh, deck_hd,
-                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx);
+            push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
+                mid_x, bridge_y + 0.04, mid_z,
+                0.5, 0.04, 0.5,
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 8, 0.0);
             // Railings
             let rail_h = 0.25;
-            let rail_w = 0.02;
+            let rail_w = 0.03;
             let r_offset = 0.45;
-            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
-                mid_x + nx * r_offset, bridge_y + deck_hh * 2.0 + rail_h, mid_z + nz * r_offset,
-                rail_w, rail_h, 0.02,
-                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx);
-            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
-                mid_x - nx * r_offset, bridge_y + deck_hh * 2.0 + rail_h, mid_z - nz * r_offset,
-                rail_w, rail_h, 0.02,
-                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx);
+            push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
+                mid_x + nx * r_offset, bridge_y + 0.08 + rail_h, mid_z + nz * r_offset,
+                rail_w, rail_h, rail_w,
+                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx, 5, 0.0);
+            push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
+                mid_x - nx * r_offset, bridge_y + 0.08 + rail_h, mid_z - nz * r_offset,
+                rail_w, rail_h, rail_w,
+                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx, 5, 0.0);
             // Bridge supports at ends
             let sup_h = (bridge_y - seg.y1).max(0.1);
-            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+            push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                 seg.x1, seg.y1 + sup_h * 0.5, seg.z1,
-                0.04, sup_h * 0.5, 0.04,
-                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx);
+                0.05, sup_h * 0.5, 0.05,
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 5, 0.0);
             let sup_h2 = (bridge_y - seg.y2).max(0.1);
-            push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+            push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                 seg.x2, seg.y2 + sup_h2 * 0.5, seg.z2,
-                0.04, sup_h2 * 0.5, 0.04,
-                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx);
+                0.05, sup_h2 * 0.5, 0.05,
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 5, 0.0);
         } else {
                     push_road_quad(
                         &mut pos, &mut norms, &mut idx, &mut cols,
@@ -596,13 +547,13 @@ pub fn generate_blueprint_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option
             let name = &bp_names[idx2.min(bp_names.len() - 1)];
             if let Some(bp) = ctx.get_blueprint(name) {
                 for block in &bp.blocks {
-                    push_box(&mut pos, &mut norms, &mut idx, &mut cols,
+                    push_ellipsoid_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                         wx as f32 + block.x,
                         h as f32 + block.y,
                         wz as f32 + block.z,
                         block.w * 0.5, block.h * 0.5, block.d * 0.5,
                         block.color[0], block.color[1], block.color[2],
-                        &mut base_idx);
+                        &mut base_idx, 4, 4, 0.0);
                 }
                 placed = true;
             }

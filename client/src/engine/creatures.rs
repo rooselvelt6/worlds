@@ -13,6 +13,9 @@ pub const ANIM_WALK: u8 = 1;
 pub const ANIM_RUN: u8 = 2;
 pub const ANIM_ATTACK: u8 = 3;
 
+const SEG: u32 = 6;
+const SEG2: u32 = 4;
+
 #[derive(Clone)]
 pub struct CreatureInstance {
     pub id: String,
@@ -79,19 +82,18 @@ pub fn compute_chunk_creatures_with_time(params: &crate::state::WorldParams, cx:
             let is_night = day_time.sin() < 0.0;
             let is_dusk = (day_time.sin() - 0.1).abs() < 0.3;
             match ct {
-                4 | 15 => if !is_night && !is_dusk { continue; } // bats, fireflies: nocturnal
-                13 | 14 => if is_night { continue; } // butterflies, birds: diurnal
+                4 | 15 => if !is_night && !is_dusk { continue; }
+                13 | 14 => if is_night { continue; }
                 _ => {}
             }
         }
 
         let y_pos = if ct == 13 || ct == 14 || ct == 15 {
-            // Flying creatures float above ground
             let base_y = if is_underwater { params.water_level } else { h };
             base_y + match ct {
-                13 => 0.8 + (rng >> 4) as f64 * 0.5,  // butterfly: 0.8-1.3 above
-                14 => 4.0 + (rng >> 4) as f64 * 3.0,  // bird: 4-7 above
-                15 => 0.3 + (rng >> 4) as f64 * 0.5,  // firefly: 0.3-0.8 above
+                13 => 0.8 + (rng >> 4) as f64 * 0.5,
+                14 => 4.0 + (rng >> 4) as f64 * 3.0,
+                15 => 0.3 + (rng >> 4) as f64 * 0.5,
                 _ => 0.0,
             }
         } else if is_underwater {
@@ -159,47 +161,230 @@ fn creature_color_size(ct: u8) -> ([f32; 3], f32) {
         10 => ([0.60, 0.60, 0.70], 0.35),
         11 => ([0.80, 0.20, 0.15], 0.3),
         12 => ([0.70, 0.30, 0.70], 0.35),
-        13 => ([1.00, 0.60, 0.10], 0.18),  // butterfly — tiny, bright orange/gold
-        14 => ([0.30, 0.30, 0.30], 0.40),  // bird — dark silhouette
-        15 => ([0.80, 0.90, 0.20], 0.15),  // firefly — yellow-green glow
+        13 => ([1.00, 0.60, 0.10], 0.18),
+        14 => ([0.30, 0.30, 0.30], 0.40),
+        15 => ([0.80, 0.90, 0.20], 0.15),
         _ => ([0.50, 0.50, 0.50], 0.3),
     }
 }
 
-fn push_box(
+// ── Organic mesh helpers ──
+
+fn push_ellipsoid_impl(
     pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
-    cx: f32, cy: f32, cz: f32, hw: f32, hh: f32, hd: f32,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
     r: f32, g: f32, b: f32, base_idx: &mut u32,
+    seg_lat: u32, seg_lon: u32,
+    rot_y: f32,
 ) {
-    let verts: [[f32; 3]; 24] = [
-        [ hw, -hh, -hd], [ hw,  hh, -hd], [ hw,  hh,  hd], [ hw, -hh,  hd],
-        [-hw, -hh,  hd], [-hw,  hh,  hd], [-hw,  hh, -hd], [-hw, -hh, -hd],
-        [-hw,  hh,  hd], [ hw,  hh,  hd], [ hw,  hh, -hd], [-hw,  hh, -hd],
-        [-hw, -hh, -hd], [ hw, -hh, -hd], [ hw, -hh,  hd], [-hw, -hh,  hd],
-        [-hw, -hh,  hd], [ hw, -hh,  hd], [ hw,  hh,  hd], [-hw,  hh,  hd],
-        [ hw, -hh, -hd], [-hw, -hh, -hd], [-hw,  hh, -hd], [ hw,  hh, -hd],
-    ];
-    let norms_data: [[f32; 3]; 24] = [
-        [1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],[1.0,0.0,0.0],
-        [-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],[-1.0,0.0,0.0],
-        [0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],[0.0,1.0,0.0],
-        [0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],[0.0,-1.0,0.0],
-        [0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],[0.0,0.0,1.0],
-        [0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],[0.0,0.0,-1.0],
-    ];
-    let nv = pos.len() as u32 / 3;
-    for &v in &verts { pos.push(cx + v[0]); pos.push(cy + v[1]); pos.push(cz + v[2]); }
-    for &n in &norms_data { norms.push(n[0]); norms.push(n[1]); norms.push(n[2]); }
-    for _ in 0..24 { cols.push(r); cols.push(g); cols.push(b); }
-    let ibase = nv;
-    let ipat: [u32; 36] = [
-        0,1,2, 0,2,3, 4,5,6, 4,6,7,
-        8,9,10, 8,10,11, 12,13,14, 12,14,15,
-        16,17,18, 16,18,19, 20,21,22, 20,22,23,
-    ];
-    for &i in &ipat { idx.push(ibase + i); }
-    *base_idx = nv + 24;
+    let start = *base_idx;
+    let (sin_rot, cos_rot) = rot_y.sin_cos();
+    for j in 0..=seg_lat {
+        let theta = j as f32 * std::f32::consts::PI / seg_lat as f32;
+        let st = theta.sin();
+        let ct = theta.cos();
+        for i in 0..=seg_lon {
+            let phi = i as f32 * 2.0 * std::f32::consts::PI / seg_lon as f32;
+            let sp = phi.sin();
+            let cp = phi.cos();
+            let nx = st * cp;
+            let ny = ct;
+            let nz = st * sp;
+            let dx = nx * rx;
+            let dy = ny * ry;
+            let dz = nz * rz;
+            let rdx = dx * cos_rot - dz * sin_rot;
+            let rdz = dx * sin_rot + dz * cos_rot;
+            pos.push(cx + rdx);
+            pos.push(cy + dy);
+            pos.push(cz + rdz);
+            let rnx = nx * cos_rot - nz * sin_rot;
+            let rnz = nx * sin_rot + nz * cos_rot;
+            norms.push(rnx); norms.push(ny); norms.push(rnz);
+            cols.push(r); cols.push(g); cols.push(b);
+        }
+    }
+    for j in 0..seg_lat {
+        for i in 0..seg_lon {
+            let a = start + j * (seg_lon + 1) + i;
+            let b = a + seg_lon + 1;
+            idx.push(a); idx.push(b); idx.push(a + 1);
+            idx.push(b); idx.push(b + 1); idx.push(a + 1);
+        }
+    }
+    *base_idx += (seg_lat + 1) * (seg_lon + 1);
 }
+
+fn push_ellipsoid(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+    seg_lat: u32, seg_lon: u32,
+) {
+    push_ellipsoid_impl(pos, norms, idx, cols, cx, cy, cz, rx, ry, rz, r, g, b, base_idx, seg_lat, seg_lon, 0.0);
+}
+
+pub(crate) fn push_ellipsoid_rot(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+    seg_lat: u32, seg_lon: u32,
+    rot_y: f32,
+) {
+    push_ellipsoid_impl(pos, norms, idx, cols, cx, cy, cz, rx, ry, rz, r, g, b, base_idx, seg_lat, seg_lon, rot_y);
+}
+
+fn push_ellipsoid_pos_impl(
+    pos: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    seg_lat: u32, seg_lon: u32,
+    rot_y: f32,
+) {
+    let (sin_rot, cos_rot) = rot_y.sin_cos();
+    for j in 0..=seg_lat {
+        let theta = j as f32 * std::f32::consts::PI / seg_lat as f32;
+        let st = theta.sin();
+        let ct = theta.cos();
+        for i in 0..=seg_lon {
+            let phi = i as f32 * 2.0 * std::f32::consts::PI / seg_lon as f32;
+            let sp = phi.sin();
+            let cp = phi.cos();
+            let nx = st * cp;
+            let nz = st * sp;
+            let dx = nx * rx;
+            let dz = nz * rz;
+            let rdx = dx * cos_rot - dz * sin_rot;
+            let rdz = dx * sin_rot + dz * cos_rot;
+            pos.push(cx + rdx);
+            pos.push(cy + ct * ry);
+            pos.push(cz + rdz);
+        }
+    }
+}
+
+fn push_ellipsoid_pos(
+    pos: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    seg_lat: u32, seg_lon: u32,
+) {
+    push_ellipsoid_pos_impl(pos, cx, cy, cz, rx, ry, rz, seg_lat, seg_lon, 0.0);
+}
+
+fn push_cylinder_impl(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+    seg: u32,
+    rot_y: f32,
+) {
+    let start = *base_idx;
+    let (sin_rot, cos_rot) = rot_y.sin_cos();
+    // Side vertices (bottom ring then top ring)
+    for i in 0..=seg {
+        let phi = i as f32 * 2.0 * std::f32::consts::PI / seg as f32;
+        let sp = phi.sin();
+        let cp = phi.cos();
+        let dx = cp * rx;
+        let dz = sp * rz;
+        let rdx = dx * cos_rot - dz * sin_rot;
+        let rdz = dx * sin_rot + dz * cos_rot;
+        let rnx = cp * cos_rot - sp * sin_rot;
+        let rnz = cp * sin_rot + sp * cos_rot;
+        // Bottom
+        pos.push(cx + rdx); pos.push(cy - ry); pos.push(cz + rdz);
+        norms.push(rnx); norms.push(0.0); norms.push(rnz);
+        cols.push(r); cols.push(g); cols.push(b);
+        // Top
+        pos.push(cx + rdx); pos.push(cy + ry); pos.push(cz + rdz);
+        norms.push(rnx); norms.push(0.0); norms.push(rnz);
+        cols.push(r); cols.push(g); cols.push(b);
+    }
+    // Bottom cap center
+    pos.push(cx); pos.push(cy - ry); pos.push(cz);
+    norms.push(0.0); norms.push(-1.0); norms.push(0.0);
+    cols.push(r); cols.push(g); cols.push(b);
+    // Top cap center
+    pos.push(cx); pos.push(cy + ry); pos.push(cz);
+    norms.push(0.0); norms.push(1.0); norms.push(0.0);
+    cols.push(r); cols.push(g); cols.push(b);
+
+    let side = start;
+    let bot_cap = start + (seg + 1) * 2;
+    let top_cap = bot_cap + 1;
+    // Side quads
+    for i in 0..seg {
+        let a = side + i * 2;
+        let b = a + 2;
+        idx.push(a); idx.push(b); idx.push(a + 1);
+        idx.push(b); idx.push(b + 1); idx.push(a + 1);
+    }
+    // Bottom cap triangles
+    for i in 0..seg {
+        let a = side + i * 2;
+        let na = (i + 1) % seg;
+        let b = side + na * 2;
+        idx.push(bot_cap); idx.push(b); idx.push(a);
+    }
+    // Top cap triangles
+    for i in 0..seg {
+        let a = side + i * 2 + 1;
+        let na = (i + 1) % seg;
+        let b = side + na * 2 + 1;
+        idx.push(top_cap); idx.push(a); idx.push(b);
+    }
+    *base_idx += (seg + 1) * 2 + 2;
+}
+
+fn push_cylinder(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+    seg: u32,
+) {
+    push_cylinder_impl(pos, norms, idx, cols, cx, cy, cz, rx, ry, rz, r, g, b, base_idx, seg, 0.0);
+}
+
+pub(crate) fn push_cylinder_rot(
+    pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    r: f32, g: f32, b: f32, base_idx: &mut u32,
+    seg: u32,
+    rot_y: f32,
+) {
+    push_cylinder_impl(pos, norms, idx, cols, cx, cy, cz, rx, ry, rz, r, g, b, base_idx, seg, rot_y);
+}
+
+fn push_cylinder_pos_impl(
+    pos: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    seg: u32,
+    rot_y: f32,
+) {
+    let (sin_rot, cos_rot) = rot_y.sin_cos();
+    for i in 0..=seg {
+        let phi = i as f32 * 2.0 * std::f32::consts::PI / seg as f32;
+        let sp = phi.sin();
+        let cp = phi.cos();
+        let dx = cp * rx;
+        let dz = sp * rz;
+        let rdx = dx * cos_rot - dz * sin_rot;
+        let rdz = dx * sin_rot + dz * cos_rot;
+        pos.push(cx + rdx); pos.push(cy - ry); pos.push(cz + rdz);
+        pos.push(cx + rdx); pos.push(cy + ry); pos.push(cz + rdz);
+    }
+    pos.push(cx); pos.push(cy - ry); pos.push(cz);
+    pos.push(cx); pos.push(cy + ry); pos.push(cz);
+}
+
+fn push_cylinder_pos(
+    pos: &mut Vec<f32>,
+    cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
+    seg: u32,
+) {
+    push_cylinder_pos_impl(pos, cx, cy, cz, rx, ry, rz, seg, 0.0);
+}
+
+// ── Creature mesh generation ──
 
 fn emit_creature(
     ct: u8, x: f32, y: f32, z: f32,
@@ -208,100 +393,332 @@ fn emit_creature(
 ) {
     let (color, size) = creature_color_size(ct);
     let s = size * 0.5;
-    // ── Special emissive/transparent creatures ──
     match ct {
         13 => {
-            // Butterfly: two crossed wings (flat rectangles)
-            let ws = size * 0.5;
-            let wt = 0.015;
-            // Wing pair 1 (XY plane)
-            push_box(pos, norms, idx, cols, x, y + size * 0.15, z + wt, size * 0.25, ws, wt, color[0] * 1.2, color[1] * 0.7, color[2] * 0.2, base_idx);
-            push_box(pos, norms, idx, cols, x, y + size * 0.15, z - wt, size * 0.25, ws, wt, color[0] * 0.8, color[1] * 0.5, color[2] * 0.5, base_idx);
-            // Wing pair 2 (XZ plane — rotated, simulated as thin box)
-            push_box(pos, norms, idx, cols, x + wt, y + size * 0.15, z, wt, ws, size * 0.25, color[0] * 0.9, color[1] * 0.6, color[2] * 0.3, base_idx);
-            push_box(pos, norms, idx, cols, x - wt, y + size * 0.15, z, wt, ws, size * 0.25, color[0] * 1.1, color[1] * 0.8, color[2] * 0.1, base_idx);
-            // Tiny body
-            push_box(pos, norms, idx, cols, x, y + size * 0.1, z, 0.02, 0.04, 0.06, 0.2, 0.15, 0.1, base_idx);
+            // Butterfly: 4 thin wings + body
+            let ws = size * 0.35;
+            let wt = 0.008;
+            let by = y + size * 0.12;
+            // Upper-left wing
+            push_ellipsoid(pos, norms, idx, cols, x - ws * 0.35, by, z + wt, ws * 0.4, ws * 0.25, wt, color[0]*1.2, color[1]*0.7, color[2]*0.2, base_idx, SEG2, SEG2);
+            // Upper-right wing
+            push_ellipsoid(pos, norms, idx, cols, x + ws * 0.35, by, z - wt, ws * 0.4, ws * 0.25, wt, color[0]*0.9, color[1]*0.6, color[2]*0.3, base_idx, SEG2, SEG2);
+            // Lower-left wing
+            push_ellipsoid(pos, norms, idx, cols, x - ws * 0.2, by - ws * 0.1, z + wt, ws * 0.25, ws * 0.15, wt, color[0]*0.8, color[1]*0.5, color[2]*0.5, base_idx, SEG2, SEG2);
+            // Lower-right wing
+            push_ellipsoid(pos, norms, idx, cols, x + ws * 0.2, by - ws * 0.1, z - wt, ws * 0.25, ws * 0.15, wt, color[0]*1.1, color[1]*0.8, color[2]*0.1, base_idx, SEG2, SEG2);
+            // Body
+            push_ellipsoid(pos, norms, idx, cols, x, by, z, 0.015, 0.035, 0.04, 0.2, 0.15, 0.1, base_idx, 4, 4);
             return;
         }
         14 => {
-            // Bird: V-shaped wings + body, positioned higher
+            // Bird: ellipsoid body + swept wings
+            let by = y + size * 0.18;
             let ws = size * 0.3;
-            let wt = 0.03;
             // Body
-            push_box(pos, norms, idx, cols, x, y + size * 0.2, z, 0.05, 0.06, 0.1, color[0], color[1], color[2], base_idx);
-            // Left wing (angled — approximated as thin box tilted with position)
-            push_box(pos, norms, idx, cols, x - ws * 0.4, y + size * 0.25, z, ws * 0.6, wt, 0.06, color[0], color[1], color[2], base_idx);
+            push_ellipsoid(pos, norms, idx, cols, x, by + size * 0.05, z, 0.04, 0.05, 0.08, color[0], color[1], color[2], base_idx, SEG2, SEG2);
+            // Left wing
+            push_ellipsoid(pos, norms, idx, cols, x - ws * 0.4, by + size * 0.08, z, ws * 0.5, 0.015, 0.04, color[0], color[1], color[2], base_idx, SEG2, 4);
             // Right wing
-            push_box(pos, norms, idx, cols, x + ws * 0.4, y + size * 0.25, z, ws * 0.6, wt, 0.06, color[0], color[1], color[2], base_idx);
+            push_ellipsoid(pos, norms, idx, cols, x + ws * 0.4, by + size * 0.08, z, ws * 0.5, 0.015, 0.04, color[0], color[1], color[2], base_idx, SEG2, 4);
+            // Head
+            push_ellipsoid(pos, norms, idx, cols, x, by + size * 0.15, z + 0.05, 0.025, 0.025, 0.025, color[0], color[1], color[2], base_idx, 4, 4);
             return;
         }
         15 => {
-            // Firefly: small glow dot
-            let gs = 0.04;
-            push_box(pos, norms, idx, cols, x, y + gs, z, gs, gs * 0.5, gs, color[0], color[1], color[2], base_idx);
-            // Brighter center
-            push_box(pos, norms, idx, cols, x, y + gs, z, gs * 0.4, gs * 0.4, gs * 0.4, 1.0, 1.0, 0.6, base_idx);
+            // Firefly: glowing ellipsoid
+            let gs = 0.03;
+            push_ellipsoid(pos, norms, idx, cols, x, y + gs, z, gs, gs*0.4, gs, color[0], color[1], color[2], base_idx, 4, 4);
+            push_ellipsoid(pos, norms, idx, cols, x, y + gs * 0.8, z, gs*0.3, gs*0.3, gs*0.3, 1.0, 1.0, 0.6, base_idx, 4, 4);
             return;
         }
         _ => {}
     }
     let body_h = match ct {
-        0 => size * 0.5,  // deer
-        3 => size * 0.6,  // crystal
-        6 => size * 0.7,  // snake
-        9 => size * 0.45, // meerkat
-        _ => size * 0.35,
+        0 => size * 0.45,
+        3 => size * 0.55,
+        6 => size * 0.65,
+        9 => size * 0.42,
+        _ => size * 0.32,
     };
     let body_w = match ct {
-        0 => size * 0.2,
-        6 => size * 0.08,
-        7 => size * 0.3,
-        10 => size * 0.15,
-        11 => size * 0.25,
-        _ => size * 0.18,
+        0 => size * 0.18,
+        6 => size * 0.07,
+        7 => size * 0.28,
+        10 => size * 0.12,
+        11 => size * 0.22,
+        _ => size * 0.16,
     };
     let body_d = match ct {
-        0 => size * 0.25,
-        6 => size * 0.08,
-        7 => size * 0.25,
-        10 => size * 0.3,
-        _ => size * 0.18,
+        0 => size * 0.22,
+        6 => size * 0.07,
+        7 => size * 0.22,
+        10 => size * 0.28,
+        _ => size * 0.16,
     };
     // Body
-    push_box(pos, norms, idx, cols, x, y + body_h, z, body_w, body_h, body_d, color[0], color[1], color[2], base_idx);
-    // Head and legs (most creatures)
+    push_ellipsoid(pos, norms, idx, cols, x, y + body_h, z, body_w, body_h, body_d, color[0], color[1], color[2], base_idx, SEG, SEG);
     match ct {
         0 | 1 | 2 | 3 | 4 | 7 | 8 | 9 => {
-            let hh = s * 0.3;
-            push_box(pos, norms, idx, cols, x, y + body_h * 2.0 + hh, z, hh, hh, hh, color[0], color[1], color[2], base_idx);
+            // Head
+            let hh = s * 0.28;
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h * 1.8 + hh, z, hh*0.9, hh, hh*0.9, color[0], color[1], color[2], base_idx, SEG2, SEG2);
+            // Neck
+            push_cylinder(pos, norms, idx, cols, x, y + body_h * 1.3, z, body_w*0.4, body_h*0.3, body_d*0.4, color[0]*0.9, color[1]*0.9, color[2]*0.9, base_idx, 4);
             // Four legs
-            let lw = body_w * 0.3;
-            let lh = body_h * 0.6;
-            let ld = body_d * 0.3;
-            let ly = y + lh;
+            let lw = body_w * 0.25;
+            let lh = body_h * 0.55;
+            let ld = body_d * 0.25;
             let leg_color = [color[0] * 0.85, color[1] * 0.85, color[2] * 0.85];
-            push_box(pos, norms, idx, cols, x - body_w * 0.55, ly, z + body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
-            push_box(pos, norms, idx, cols, x + body_w * 0.55, ly, z + body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
-            push_box(pos, norms, idx, cols, x - body_w * 0.55, ly, z - body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
-            push_box(pos, norms, idx, cols, x + body_w * 0.55, ly, z - body_d * 0.55, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx);
+            let leg_off = body_w * 0.5;
+            let leg_off_z = body_d * 0.5;
+            push_cylinder(pos, norms, idx, cols, x - leg_off, y + lh, z + leg_off_z, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx, 4);
+            push_cylinder(pos, norms, idx, cols, x + leg_off, y + lh, z + leg_off_z, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx, 4);
+            push_cylinder(pos, norms, idx, cols, x - leg_off, y + lh, z - leg_off_z, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx, 4);
+            push_cylinder(pos, norms, idx, cols, x + leg_off, y + lh, z - leg_off_z, lw, lh, ld, leg_color[0], leg_color[1], leg_color[2], base_idx, 4);
+            // Tail for fox (8)
+            if ct == 8 {
+                let tl = s * 0.4;
+                push_ellipsoid(pos, norms, idx, cols, x, y + body_h * 0.5, z - body_d - tl*0.5, 0.03, 0.03, tl*0.5, color[0]*1.1, color[1]*0.9, color[2]*0.7, base_idx, 4, 4);
+            }
+            // Antlers for deer (0)
+            if ct == 0 {
+                let ah = s * 0.25;
+                push_cylinder(pos, norms, idx, cols, x - 0.04, y + body_h * 1.8 + hh + ah*0.5, z - 0.02, 0.008, ah, 0.008, 0.5, 0.35, 0.15, base_idx, 4);
+                push_cylinder(pos, norms, idx, cols, x + 0.04, y + body_h * 1.8 + hh + ah*0.5, z - 0.02, 0.008, ah, 0.008, 0.5, 0.35, 0.15, base_idx, 4);
+            }
+            // Wings for bat (4)
+            if ct == 4 {
+                let ws = s * 0.4;
+                push_ellipsoid(pos, norms, idx, cols, x - ws*0.4, y + body_h*0.8, z, ws*0.5, 0.015, s*0.15, 0.25, 0.15, 0.25, base_idx, SEG2, 4);
+                push_ellipsoid(pos, norms, idx, cols, x + ws*0.4, y + body_h*0.8, z, ws*0.5, 0.015, s*0.15, 0.25, 0.15, 0.25, base_idx, SEG2, 4);
+            }
         }
         5 => {
-            // Fire elemental: brighter core
-            push_box(pos, norms, idx, cols, x, y + body_h, z, body_w * 0.6, body_h * 0.8, body_w * 0.6, 1.0, 0.8, 0.3, base_idx);
+            // Fire elemental: brighter inner core
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h, z, body_w*0.4, body_h*0.7, body_w*0.4, 1.0, 0.8, 0.3, base_idx, SEG, SEG);
+        }
+        6 => {
+            // Snake: body segments along Z
+            let segs = 5;
+            for si in 0..segs {
+                let t = si as f32 / (segs - 1) as f32;
+                let sz = z + (t - 0.5) * s * 0.8;
+                let sy = y + body_h + (t - 0.5).sin() * 0.03;
+                let sr = body_w * (1.0 - 0.3 * t);
+                push_ellipsoid(pos, norms, idx, cols, x, sy, sz, sr, sr, body_d*0.3, color[0], color[1], color[2], base_idx, SEG2, SEG2);
+            }
+            // Head
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h + 0.02, z + s*0.45, body_w*0.6, body_w*0.6, body_d*0.15, color[0], color[1], color[2], base_idx, 4, 4);
         }
         10 => {
-            // Fish tail
-            let th = s * 0.2;
-            push_box(pos, norms, idx, cols, x, y + body_h * 0.5, z - body_d - th, th * 0.5, th, th * 0.5, color[0], color[1], color[2], base_idx);
+            // Fish: streamlined body + tail
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h, z, body_w, body_h, body_d, color[0], color[1], color[2], base_idx, SEG, SEG);
+            // Tail fin
+            let tf = s * 0.25;
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h*0.5, z - body_d - tf*0.4, tf*0.3, tf*0.4, tf*0.3, color[0], color[1], color[2], base_idx, 4, 4);
+            // Dorsal fin
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h*1.3, z, 0.01, body_h*0.3, body_d*0.3, color[0]*0.8, color[1]*0.8, color[2]*0.8, base_idx, 4, 4);
+        }
+        11 => {
+            // Crab: flat body + legs
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h, z, body_w, body_h*0.5, body_d, color[0], color[1], color[2], base_idx, SEG, SEG);
+            // 6 legs
+            for li in 0..3 {
+                let la = li as f32 * 0.4 - 0.4;
+                let lx = (la * 0.5).sin() * body_w * 0.6;
+                let lz = body_d * 0.5 + li as f32 * body_d * 0.15;
+                let ll = s * 0.2;
+                push_cylinder(pos, norms, idx, cols, x - body_w*0.3 + lx, y + ll, z + lz, 0.015, ll, 0.015, color[0]*0.9, color[1]*0.9, color[2]*0.9, base_idx, 4);
+                push_cylinder(pos, norms, idx, cols, x + body_w*0.3 - lx, y + ll, z + lz, 0.015, ll, 0.015, color[0]*0.9, color[1]*0.9, color[2]*0.9, base_idx, 4);
+            }
+            // Claws
+            push_ellipsoid(pos, norms, idx, cols, x - body_w*0.8, y + body_h*0.3, z + body_d*0.6, 0.035, 0.02, 0.02, color[0]*0.7, color[1]*0.2, color[2]*0.1, base_idx, 4, 4);
+            push_ellipsoid(pos, norms, idx, cols, x + body_w*0.8, y + body_h*0.3, z + body_d*0.6, 0.035, 0.02, 0.02, color[0]*0.7, color[1]*0.2, color[2]*0.1, base_idx, 4, 4);
         }
         12 => {
-            // Jellyfish tentacles
-            for ti in 0..3 {
-                let tx = x + (ti as f32 - 1.0) * s * 0.2;
-                let tz = z;
-                let th = s * 0.3;
-                push_box(pos, norms, idx, cols, tx, y + th * 0.3, tz, 0.02, th, 0.02, 0.9, 0.5, 0.8, base_idx);
+            // Jellyfish: dome + tentacles
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h, z, body_w*0.8, body_h*0.4, body_w*0.8, color[0], color[1], color[2], base_idx, SEG, SEG);
+            // Dome top
+            push_ellipsoid(pos, norms, idx, cols, x, y + body_h*1.2, z, body_w*0.6, body_h*0.3, body_w*0.6, 0.9, 0.5, 0.8, base_idx, SEG, SEG);
+            // Tentacles
+            for ti in 0..5 {
+                let ta = ti as f32 * 1.256;
+                let tx = x + ta.cos() * body_w * 0.5;
+                let tz = z + ta.sin() * body_w * 0.5;
+                let tt = s * 0.3;
+                push_cylinder(pos, norms, idx, cols, tx, y + tt*0.3, tz, 0.012, tt, 0.012, 0.9, 0.4, 0.7, base_idx, 4);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn emit_creature_positions(
+    ct: u8, x: f32, y: f32, z: f32,
+    pos: &mut Vec<f32>,
+    anim_state: u8, anim_time: f32,
+) {
+    let (_color, size) = creature_color_size(ct);
+    let s = size * 0.5;
+    let (leg_amp, leg_speed) = match anim_state {
+        ANIM_RUN => (0.15, 8.0),
+        ANIM_WALK => (0.08, 4.5),
+        ANIM_ATTACK => (0.04, 2.0),
+        _ => (0.01, 0.5),
+    };
+    let t = anim_time * leg_speed;
+    match ct {
+        13 => {
+            // Butterfly
+            let ws = size * 0.35;
+            let wt = 0.008;
+            let by = y + size * 0.12;
+            let wing_angle = t.sin() * 0.15;
+            push_ellipsoid_pos(pos, x - ws * 0.35 + wing_angle*0.3, by + wing_angle*0.1, z + wt, ws * 0.4, ws * 0.25, wt, SEG2, SEG2);
+            push_ellipsoid_pos(pos, x + ws * 0.35 - wing_angle*0.3, by - wing_angle*0.1, z - wt, ws * 0.4, ws * 0.25, wt, SEG2, SEG2);
+            push_ellipsoid_pos(pos, x - ws * 0.2 + wing_angle*0.2, by - ws * 0.1 + wing_angle*0.05, z + wt, ws * 0.25, ws * 0.15, wt, SEG2, SEG2);
+            push_ellipsoid_pos(pos, x + ws * 0.2 - wing_angle*0.2, by - ws * 0.1 - wing_angle*0.05, z - wt, ws * 0.25, ws * 0.15, wt, SEG2, SEG2);
+            push_ellipsoid_pos(pos, x, by, z, 0.015, 0.035, 0.04, 4, 4);
+            return;
+        }
+        14 => {
+            // Bird
+            let by = y + size * 0.18;
+            let ws = size * 0.3;
+            let wing_flap = t.sin() * 0.04;
+            push_ellipsoid_pos(pos, x, by + size * 0.05, z, 0.04, 0.05, 0.08, SEG2, SEG2);
+            push_ellipsoid_pos(pos, x - ws * 0.4 - wing_flap*0.5, by + size * 0.08 + wing_flap*0.3, z, ws * 0.5, 0.015, 0.04, SEG2, 4);
+            push_ellipsoid_pos(pos, x + ws * 0.4 + wing_flap*0.5, by + size * 0.08 - wing_flap*0.3, z, ws * 0.5, 0.015, 0.04, SEG2, 4);
+            push_ellipsoid_pos(pos, x, by + size * 0.15, z + 0.05, 0.025, 0.025, 0.025, 4, 4);
+            return;
+        }
+        15 => {
+            // Firefly
+            let gs = 0.03;
+            let glow = t.sin() * 0.008;
+            push_ellipsoid_pos(pos, x, y + gs + glow, z, gs, gs*0.4, gs, 4, 4);
+            push_ellipsoid_pos(pos, x, y + gs*0.8 + glow, z, gs*0.3, gs*0.3, gs*0.3, 4, 4);
+            return;
+        }
+        _ => {}
+    }
+    let body_h = match ct {
+        0 => size * 0.45,
+        3 => size * 0.55,
+        6 => size * 0.65,
+        9 => size * 0.42,
+        _ => size * 0.32,
+    };
+    let body_w = match ct {
+        0 => size * 0.18,
+        6 => size * 0.07,
+        7 => size * 0.28,
+        10 => size * 0.12,
+        11 => size * 0.22,
+        _ => size * 0.16,
+    };
+    let body_d = match ct {
+        0 => size * 0.22,
+        6 => size * 0.07,
+        7 => size * 0.22,
+        10 => size * 0.28,
+        _ => size * 0.16,
+    };
+    let body_sway = t.sin() * leg_amp * 0.3;
+    let body_y = y + body_h + body_sway;
+    // Body
+    push_ellipsoid_pos(pos, x, body_y, z, body_w, body_h, body_d, SEG, SEG);
+    match ct {
+        0 | 1 | 2 | 3 | 4 | 7 | 8 | 9 => {
+            let hh = s * 0.28;
+            let head_nod = t.sin() * 0.02 * leg_amp * 5.0;
+            push_ellipsoid_pos(pos, x + head_nod, y + body_h * 1.8 + hh, z, hh*0.9, hh, hh*0.9, SEG2, SEG2);
+            push_cylinder_pos(pos, x, y + body_h * 1.3, z, body_w*0.4, body_h*0.3, body_d*0.4, 4);
+            let lw = body_w * 0.25;
+            let lh = body_h * 0.55;
+            let ld = body_d * 0.25;
+            let leg_off = body_w * 0.5;
+            let leg_off_z = body_d * 0.5;
+            let fl_z = leg_off_z + t.sin() * leg_amp;
+            let fr_z = leg_off_z - t.sin() * leg_amp;
+            let bl_z = -leg_off_z - t.sin() * leg_amp;
+            let br_z = -leg_off_z + t.sin() * leg_amp;
+            push_cylinder_pos(pos, x - leg_off, y + lh, z + fl_z, lw, lh, ld, 4);
+            push_cylinder_pos(pos, x + leg_off, y + lh, z + fr_z, lw, lh, ld, 4);
+            push_cylinder_pos(pos, x - leg_off, y + lh, z + bl_z, lw, lh, ld, 4);
+            push_cylinder_pos(pos, x + leg_off, y + lh, z + br_z, lw, lh, ld, 4);
+            if ct == 8 {
+                let tl = s * 0.4;
+                let tail_wag = t.sin() * 0.02;
+                push_ellipsoid_pos(pos, x + tail_wag, y + body_h * 0.5, z - body_d - tl*0.5, 0.03, 0.03, tl*0.5, 4, 4);
+            }
+            if ct == 0 {
+                let ah = s * 0.25;
+                push_cylinder_pos(pos, x - 0.04, y + body_h * 1.8 + hh + ah*0.5, z - 0.02, 0.008, ah, 0.008, 4);
+                push_cylinder_pos(pos, x + 0.04, y + body_h * 1.8 + hh + ah*0.5, z - 0.02, 0.008, ah, 0.008, 4);
+            }
+            if ct == 4 {
+                let ws = s * 0.4;
+                let wf = t.sin() * 0.03;
+                push_ellipsoid_pos(pos, x - ws*0.4 - wf, y + body_h*0.8 + wf*0.3, z, ws*0.5, 0.015, s*0.15, SEG2, 4);
+                push_ellipsoid_pos(pos, x + ws*0.4 + wf, y + body_h*0.8 - wf*0.3, z, ws*0.5, 0.015, s*0.15, SEG2, 4);
+            }
+        }
+        5 => {
+            // Fire elemental pulse
+            let pulse = t.sin() * 0.03;
+            push_ellipsoid_pos(pos, x, y + body_h + pulse, z, body_w*0.4, body_h*0.7, body_w*0.4, SEG, SEG);
+        }
+        6 => {
+            // Snake slither
+            let segs = 5;
+            for si in 0..segs {
+                let st = si as f32 / (segs - 1) as f32;
+                let sz = z + (st - 0.5) * s * 0.8;
+                let sw = (t + st * 2.0).sin() * 0.04;
+                let sy = y + body_h + (st - 0.5).sin() * 0.03;
+                let sr = body_w * (1.0 - 0.3 * st);
+                push_ellipsoid_pos(pos, x + sw, sy, sz, sr, sr, body_d*0.3, SEG2, SEG2);
+            }
+            push_ellipsoid_pos(pos, x + (t + 1.0).sin()*0.02, y + body_h + 0.02, z + s*0.45, body_w*0.6, body_w*0.6, body_d*0.15, 4, 4);
+        }
+        10 => {
+            // Fish swim
+            let swim = t.sin() * 0.04;
+            push_ellipsoid_pos(pos, x + swim*0.3, y + body_h, z, body_w, body_h, body_d, SEG, SEG);
+            let tf = s * 0.25;
+            let tail_swish = t.sin() * 0.03;
+            push_ellipsoid_pos(pos, x + tail_swish, y + body_h*0.5, z - body_d - tf*0.4, tf*0.3, tf*0.4, tf*0.3, 4, 4);
+            push_ellipsoid_pos(pos, x, y + body_h*1.3, z, 0.01, body_h*0.3, body_d*0.3, 4, 4);
+        }
+        11 => {
+            // Crab
+            push_ellipsoid_pos(pos, x, y + body_h, z, body_w, body_h*0.5, body_d, SEG, SEG);
+            for li in 0..3 {
+                let la = li as f32 * 0.4 - 0.4;
+                let lx = (la * 0.5).sin() * body_w * 0.6;
+                let lz = body_d * 0.5 + li as f32 * body_d * 0.15;
+                let ll = s * 0.2;
+                let leg_sway = (t + li as f32).sin() * 0.015;
+                push_cylinder_pos(pos, x - body_w*0.3 + lx + leg_sway, y + ll, z + lz, 0.015, ll, 0.015, 4);
+                push_cylinder_pos(pos, x + body_w*0.3 - lx - leg_sway, y + ll, z + lz, 0.015, ll, 0.015, 4);
+            }
+            push_ellipsoid_pos(pos, x - body_w*0.8, y + body_h*0.3, z + body_d*0.6, 0.035, 0.02, 0.02, 4, 4);
+            push_ellipsoid_pos(pos, x + body_w*0.8, y + body_h*0.3, z + body_d*0.6, 0.035, 0.02, 0.02, 4, 4);
+        }
+        12 => {
+            // Jellyfish pulse
+            let pulse = t.sin() * 0.02;
+            push_ellipsoid_pos(pos, x, y + body_h + pulse, z, body_w*0.8, body_h*0.4, body_w*0.8, SEG, SEG);
+            push_ellipsoid_pos(pos, x, y + body_h*1.2 + pulse, z, body_w*0.6, body_h*0.3, body_w*0.6, SEG, SEG);
+            for ti in 0..5 {
+                let ta = ti as f32 * 1.256;
+                let tx = x + ta.cos() * body_w * 0.5;
+                let tz = z + ta.sin() * body_w * 0.5;
+                let tt = s * 0.3;
+                let tentacle_sway = (t + ti as f32 * 1.3).sin() * 0.03;
+                push_cylinder_pos(pos, tx + tentacle_sway, y + tt*0.3, tz + tentacle_sway*0.5, 0.012, tt, 0.012, 4);
             }
         }
         _ => {}
@@ -322,7 +739,6 @@ pub fn generate_creature_mesh(params: &crate::state::WorldParams, cx: i32, cz: i
     Some((pos, norms, idx, cols))
 }
 
-// Same as generate_creature_mesh but uses pre-computed CreatureData (for persistent AI data)
 pub fn generate_creature_mesh_from_data(data: &CreatureData) -> Option<(Vec<f32>, Vec<f32>, Vec<u32>, Vec<f32>)> {
     if data.creatures.is_empty() { return None; }
     let mut pos = Vec::new();
@@ -334,137 +750,6 @@ pub fn generate_creature_mesh_from_data(data: &CreatureData) -> Option<(Vec<f32>
         emit_creature(c.creature_type, c.x as f32, c.y as f32, c.z as f32, &mut pos, &mut norms, &mut idx, &mut cols, &mut base_idx);
     }
     Some((pos, norms, idx, cols))
-}
-
-fn push_box_positions(
-    pos: &mut Vec<f32>,
-    cx: f32, cy: f32, cz: f32, hw: f32, hh: f32, hd: f32,
-) {
-    let verts: [[f32; 3]; 24] = [
-        [ hw, -hh, -hd], [ hw,  hh, -hd], [ hw,  hh,  hd], [ hw, -hh,  hd],
-        [-hw, -hh,  hd], [-hw,  hh,  hd], [-hw,  hh, -hd], [-hw, -hh, -hd],
-        [-hw,  hh,  hd], [ hw,  hh,  hd], [ hw,  hh, -hd], [-hw,  hh, -hd],
-        [-hw, -hh, -hd], [ hw, -hh, -hd], [ hw, -hh,  hd], [-hw, -hh,  hd],
-        [-hw, -hh,  hd], [ hw, -hh,  hd], [ hw,  hh,  hd], [-hw,  hh,  hd],
-        [ hw, -hh, -hd], [-hw, -hh, -hd], [-hw,  hh, -hd], [ hw,  hh, -hd],
-    ];
-    for &v in &verts { pos.push(cx + v[0]); pos.push(cy + v[1]); pos.push(cz + v[2]); }
-}
-
-fn emit_creature_positions(
-    ct: u8, x: f32, y: f32, z: f32,
-    pos: &mut Vec<f32>,
-    anim_state: u8, anim_time: f32,
-) {
-    let (_color, size) = creature_color_size(ct);
-    let s = size * 0.5;
-
-    let (leg_amp, leg_speed) = match anim_state {
-        ANIM_RUN => (0.15, 8.0),
-        ANIM_WALK => (0.08, 4.5),
-        ANIM_ATTACK => (0.04, 2.0),
-        _ => (0.01, 0.5),
-    };
-    let t = anim_time * leg_speed;
-    let body_sway = t.sin() * leg_amp * 0.3;
-
-    match ct {
-        13 => {
-            let ws = size * 0.5;
-            let wt = 0.015;
-            let wing_angle = t.sin() * 0.2;
-            push_box_positions(pos, x + wing_angle, y + size * 0.15, z + wt, size * 0.25, ws, wt);
-            push_box_positions(pos, x - wing_angle, y + size * 0.15, z - wt, size * 0.25, ws, wt);
-            push_box_positions(pos, x + wt, y + size * 0.15, z + wing_angle, wt, ws, size * 0.25);
-            push_box_positions(pos, x - wt, y + size * 0.15, z - wing_angle, wt, ws, size * 0.25);
-            push_box_positions(pos, x, y + size * 0.1, z, 0.02, 0.04, 0.06);
-            return;
-        }
-        14 => {
-            let ws = size * 0.3;
-            let wt = 0.03;
-            let wing_flap = t.sin() * 0.06;
-            push_box_positions(pos, x, y + size * 0.2, z, 0.05, 0.06, 0.1);
-            push_box_positions(pos, x - ws * 0.4 - wing_flap, y + size * 0.25, z, ws * 0.6, wt, 0.06);
-            push_box_positions(pos, x + ws * 0.4 + wing_flap, y + size * 0.25, z, ws * 0.6, wt, 0.06);
-            return;
-        }
-        15 => {
-            let gs = 0.04;
-            let glow = t.sin() * 0.01;
-            push_box_positions(pos, x, y + gs + glow, z, gs, gs * 0.5, gs);
-            push_box_positions(pos, x, y + gs + glow, z, gs * 0.4, gs * 0.4, gs * 0.4);
-            return;
-        }
-        _ => {}
-    }
-    let body_h = match ct {
-        0 => size * 0.5,
-        3 => size * 0.6,
-        6 => size * 0.7,
-        9 => size * 0.45,
-        _ => size * 0.35,
-    };
-    let body_w = match ct {
-        0 => size * 0.2,
-        6 => size * 0.08,
-        7 => size * 0.3,
-        10 => size * 0.15,
-        11 => size * 0.25,
-        _ => size * 0.18,
-    };
-    let body_d = match ct {
-        0 => size * 0.25,
-        6 => size * 0.08,
-        7 => size * 0.25,
-        10 => size * 0.3,
-        _ => size * 0.18,
-    };
-
-    let body_y = y + body_h + body_sway;
-
-    // Body
-    push_box_positions(pos, x, body_y, z, body_w, body_h, body_d);
-    // Head or extras
-    match ct {
-        0 | 1 | 2 | 3 | 4 | 7 | 8 | 9 => {
-            let hh = s * 0.3;
-            let head_nod = t.sin() * 0.03 * leg_amp * 5.0;
-            push_box_positions(pos, x + head_nod, y + body_h * 2.0 + hh, z, hh, hh, hh);
-            // Four legs with trot animation
-            let lw = body_w * 0.3;
-            let lh = body_h * 0.6;
-            let ld = body_d * 0.3;
-            let ly = y + lh;
-            let fl_z = body_d * 0.55 + t.sin() * leg_amp;
-            let fr_z = body_d * 0.55 - t.sin() * leg_amp;
-            let bl_z = -body_d * 0.55 - t.sin() * leg_amp;
-            let br_z = -body_d * 0.55 + t.sin() * leg_amp;
-            push_box_positions(pos, x - body_w * 0.55, ly, z + fl_z, lw, lh, ld);
-            push_box_positions(pos, x + body_w * 0.55, ly, z + fr_z, lw, lh, ld);
-            push_box_positions(pos, x - body_w * 0.55, ly, z + bl_z, lw, lh, ld);
-            push_box_positions(pos, x + body_w * 0.55, ly, z + br_z, lw, lh, ld);
-        }
-        5 => {
-            let pulse = t.sin() * 0.03;
-            push_box_positions(pos, x, y + body_h + pulse, z, body_w * 0.6, body_h * 0.8, body_w * 0.6);
-        }
-        10 => {
-            let swim = t.sin() * 0.05;
-            let th = s * 0.2;
-            push_box_positions(pos, x + swim * 0.3, y + body_h * 0.5, z - body_d - th, th * 0.5, th, th * 0.5);
-        }
-        12 => {
-            for ti in 0..3 {
-                let tx = x + (ti as f32 - 1.0) * s * 0.2;
-                let tz = z;
-                let th = s * 0.3;
-                let tentacle_sway = (t + ti as f32 * 1.5).sin() * 0.04;
-                push_box_positions(pos, tx + tentacle_sway, y + th * 0.3, tz, 0.02, th, 0.02);
-            }
-        }
-        _ => {}
-    }
 }
 
 pub fn creature_animated_positions(params: &crate::state::WorldParams, cx: i32, cz: i32, time: f64) -> Option<Vec<f32>> {
@@ -508,7 +793,6 @@ fn is_walkable(
     true
 }
 
-// ── A* pathfinding on 2D grid ──
 #[derive(Clone, PartialEq)]
 struct ANode {
     gx: i32, gz: i32,
@@ -624,7 +908,6 @@ pub fn update_creature_ai(
     let mut positions = Vec::new();
 
     for creature in &mut data.creatures {
-        // Mounted creatures skip AI and animation
         if creature.mounted {
             let h = crate::engine::terrain::get_height(params, creature.x, creature.z);
             creature.y = h;
@@ -640,13 +923,11 @@ pub fn update_creature_ai(
         let dz = creature.z - player_z;
         let dist_to_player = (dx * dx + dz * dz).sqrt();
 
-        // Flee from player if too close (unless tamed)
         if !creature.tamed && dist_to_player < 5.0 {
             creature.state = STATE_FLEE;
             creature.state_timer = 1.5;
         }
 
-        // Set animation state based on behavior state
         creature.anim_state = match creature.state {
             STATE_IDLE | STATE_EAT => ANIM_IDLE,
             STATE_WANDER => ANIM_WALK,

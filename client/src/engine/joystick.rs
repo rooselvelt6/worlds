@@ -118,7 +118,7 @@ impl Joystick {
         el.add_event_listener_with_callback("touchmove", touch_move.as_ref().unchecked_ref()).ok();
         el.add_event_listener_with_callback("touchend", touch_end.as_ref().unchecked_ref()).ok();
         el.add_event_listener_with_callback("pointerdown", pointer_down.as_ref().unchecked_ref()).ok();
-        let doc = web_sys::window().unwrap().document().unwrap();
+        let doc = web_sys::window().expect("no window in joystick new").document().expect("no document in joystick new");
         doc.add_event_listener_with_callback("pointermove", pointer_move.as_ref().unchecked_ref()).ok();
         doc.add_event_listener_with_callback("pointerup", pointer_up.as_ref().unchecked_ref()).ok();
 
@@ -181,7 +181,7 @@ impl Joystick {
             ctx.stroke();
 
             if let Some(ref c) = *closure2.borrow() {
-                web_sys::window().unwrap()
+                web_sys::window().expect("no window in anim frame")
                     .request_animation_frame(c.as_ref().unchecked_ref()).ok();
             }
         });
@@ -191,7 +191,7 @@ impl Joystick {
         let id = {
             let borrow = closure.borrow();
             borrow.as_ref().and_then(|c| {
-                web_sys::window().unwrap()
+                web_sys::window().expect("no window in start_rendering")
                     .request_animation_frame(c.as_ref().unchecked_ref()).ok()
             })
         };
@@ -210,7 +210,7 @@ impl Joystick {
 impl Drop for Joystick {
     fn drop(&mut self) {
         if let Some(id) = self.anim_id {
-            web_sys::window().unwrap().cancel_animation_frame(id).ok();
+            web_sys::window().expect("no window in Drop joystick").cancel_animation_frame(id).ok();
         }
     }
 }

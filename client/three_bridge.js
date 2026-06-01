@@ -4,6 +4,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { SSRPass } from 'three/addons/postprocessing/SSRPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CSM } from 'three/addons/csm/CSM.js';
 
@@ -19,6 +21,7 @@ let detailTexture = null;
 // ── R2 Ocean / SSR / Underwater ──
 let ssrPass = null;
 let ssaoPass = null;
+let smaaPass = null;
 let finalPass = null;
 let waterMesh = null;
 let underwaterActive = false;
@@ -364,8 +367,60 @@ function generateTextureAtlas() {
     textureAtlas.userData = textureAtlas.userData || {};
     textureAtlas.userData.normalMap = nTex;
 
+    // ── Roughness & Metalness PBR maps ──
+    const rCanvas = document.createElement('canvas');
+    rCanvas.width = canvas.width;
+    rCanvas.height = canvas.height;
+    const rCtx = rCanvas.getContext('2d');
+    const mCanvas = document.createElement('canvas');
+    mCanvas.width = canvas.width;
+    mCanvas.height = canvas.height;
+    const mCtx = mCanvas.getContext('2d');
+    function fillPBRMap(ctx, t, val) {
+        ctx.fillStyle = `rgb(${val*255|0},${val*255|0},${val*255|0})`;
+        ctx.fillRect(t.x, t.y, t.w, t.h);
+    }
+    function addPBRNoise(ctx, t, strength) {
+        const img = ctx.getImageData(t.x, t.y, t.w, t.h);
+        for (let y = 0; y < t.h; y++) {
+            for (let x = 0; x < t.w; x++) {
+                const i = (y * t.w + x) * 4;
+                const n = (Math.sin((t.x+x)*(t.y+y)*0.001+1.0)*43758.5453 - Math.floor(Math.sin((t.x+x)*(t.y+y)*0.001+1.0)*43758.5453));
+                img.data[i] = Math.max(0, Math.min(255, img.data[i] + (n - 0.5) * strength * 255));
+            }
+        }
+        ctx.putImageData(img, t.x, t.y);
+    }
+    const pbrTiles = [
+        [0,0,0.90,0.00],[1,0,0.95,0.00],[2,0,0.80,0.05],[3,0,0.85,0.00],[4,0,0.30,0.00],[5,0,0.90,0.00],
+        [0,1,0.70,0.00],[1,1,0.70,0.00],[2,1,0.50,0.80],[3,1,0.20,1.00],[4,1,0.10,0.90],[5,1,0.30,0.00],
+        [0,2,0.10,0.00],[1,2,0.30,0.10],[2,2,0.85,0.00],[3,2,0.60,0.00],[4,2,0.50,0.00],[5,2,0.90,0.00],
+        [0,3,0.60,0.10],
+    ];
+    for (const [u, v, rough, metal] of pbrTiles) {
+        const t = tile(u, v);
+        fillPBRMap(rCtx, t, rough);
+        fillPBRMap(mCtx, t, metal);
+        addPBRNoise(rCtx, t, 0.15);
+        addPBRNoise(mCtx, t, 0.1);
+    }
+    const rTex = new THREE.CanvasTexture(rCanvas);
+    rTex.wrapS = rTex.wrapT = THREE.ClampToEdgeWrapping;
+    rTex.magFilter = THREE.LinearFilter;
+    rTex.minFilter = THREE.LinearMipmapLinearFilter;
+    rTex.generateMipmaps = true;
+    rTex.needsUpdate = true;
+    textureAtlas.userData.roughnessMap = rTex;
+    const mTex = new THREE.CanvasTexture(mCanvas);
+    mTex.wrapS = mTex.wrapT = THREE.ClampToEdgeWrapping;
+    mTex.magFilter = THREE.LinearFilter;
+    mTex.minFilter = THREE.LinearMipmapLinearFilter;
+    mTex.generateMipmaps = true;
+    mTex.needsUpdate = true;
+    textureAtlas.userData.metalnessMap = mTex;
+
     // ── Detail texture (tileable noise for micro-detail overlay) ──
-    const dSize = 64;
+    const dSize = 256;
     const dCanvas = document.createElement('canvas');
     dCanvas.width = dSize;
     dCanvas.height = dSize;
@@ -475,7 +530,7 @@ function createDetailOverlay(key, geometry) {
 window.threeBridgeInit = function (canvas) {
     if (!textureAtlas) generateTextureAtlas();
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
+    scene.background = new THREE.Color(0x87CEEB);
 
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 600;
@@ -524,6 +579,64 @@ window.threeBridgeInit = function (canvas) {
         ssaoPass = null;
     }
 
+    // Bokeh Depth of Field pass
+    try {
+        const bokehPass = new BokehPass(scene, camera, {
+            focus: 12.0,
+            aperture: 0.015,
+            maxblur: 0.008,
+        });
+        composer.addPass(bokehPass);
+    } catch (e) {
+        console.warn('BokehPass not available:', e.message);
+    }
+
+    // LUT colour grading pass
+    if (lutTexture) {
+        try {
+            const lutMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    tDiffuse: { value: null },
+                    lutTexture: { value: lutTexture },
+                    lutSize: { value: 32.0 },
+                },
+                vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+                fragmentShader: `
+                    uniform sampler2D tDiffuse;
+                    uniform sampler2D lutTexture;
+                    uniform float lutSize;
+                    varying vec2 vUv;
+                    void main() {
+                        vec4 col = texture2D(tDiffuse, vUv);
+                        vec3 c = clamp(col.rgb, 0.0, 1.0);
+                        float scale = (lutSize - 1.0) / lutSize;
+                        float offset = 0.5 / (lutSize * lutSize);
+                        vec3 lutCoord = c * scale + offset;
+                        float slice = floor(lutCoord.b * lutSize);
+                        float frac = lutCoord.b * lutSize - slice;
+                        vec2 uv1 = (lutCoord.rg + slice) / lutSize;
+                        vec2 uv2 = (lutCoord.rg + min(slice + 1.0, lutSize - 1.0)) / lutSize;
+                        vec3 r1 = texture2D(lutTexture, uv1).rgb;
+                        vec3 r2 = texture2D(lutTexture, uv2).rgb;
+                        gl_FragColor = vec4(mix(r1, r2, frac), col.a);
+                    }
+                `,
+            });
+            const lutPass = new ShaderPass(lutMat);
+            composer.addPass(lutPass);
+        } catch (e) {
+            console.warn('LUT pass not available:', e.message);
+        }
+    }
+
+    // SMAA anti-aliasing pass
+    try {
+        smaaPass = new SMAAPass(w, h);
+        composer.addPass(smaaPass);
+    } catch (e) {
+        console.warn('SMAAPass not available:', e.message);
+    }
+
     // Final output pass (copies to screen, enables SSR + SSAO pipeline)
     try {
         const copyMat = new THREE.ShaderMaterial({
@@ -547,6 +660,7 @@ window.threeBridgeInit = function (canvas) {
         renderer.setSize(rw, rh, false);
         composer.setSize(rw, rh);
         if (ssaoPass) ssaoPass.setSize(Math.floor(rw / 2), Math.floor(rh / 2));
+        if (smaaPass) smaaPass.setSize(rw, rh);
         camera.aspect = rw / rh;
         camera.updateProjectionMatrix();
     }).observe(canvas);
@@ -653,6 +767,8 @@ function getWindVegMaterial(hasColors) {
         fragmentShader: VEG_WIND_FRAGMENT,
         defines,
         side: THREE.FrontSide,
+        alphaTest: 0.05,
+        transparent: true,
     });
     return windVegMatCache;
 }
@@ -798,11 +914,14 @@ window.threeBridgeUploadMeshBatch = function (batchJson, positions, normals, ind
             mat = getWindVegMaterial(hasColors).clone();
             vegWindUniforms.push(mat.uniforms);
         } else {
+            const atlasUD = textureAtlas && textureAtlas.userData;
             mat = new THREE.MeshStandardMaterial({
                 color: 0xffffff,
                 vertexColors: hasColors,
                 map: hasUVs ? textureAtlas : undefined,
-                normalMap: hasUVs && textureAtlas && textureAtlas.userData ? textureAtlas.userData.normalMap : undefined,
+                normalMap: hasUVs && atlasUD ? atlasUD.normalMap : undefined,
+                roughnessMap: hasUVs && atlasUD ? atlasUD.roughnessMap : undefined,
+                metalnessMap: hasUVs && atlasUD ? atlasUD.metalnessMap : undefined,
                 roughness: isTerrain ? 0.8 : 0.6,
                 metalness: isTerrain ? 0.05 : 0.0,
                 envMapIntensity: 0.3,
@@ -842,11 +961,14 @@ window.threeBridgeUploadMesh = function (key, positions, normals, indices, color
         mat = getWindVegMaterial(hasColors).clone();
         vegWindUniforms.push(mat.uniforms);
     } else {
+        const atlasUD = textureAtlas && textureAtlas.userData;
         mat = new THREE.MeshStandardMaterial({
             color: 0xffffff,
             vertexColors: hasColors,
             map: hasUVs ? textureAtlas : undefined,
-            normalMap: hasUVs && textureAtlas && textureAtlas.userData ? textureAtlas.userData.normalMap : undefined,
+            normalMap: hasUVs && atlasUD ? atlasUD.normalMap : undefined,
+            roughnessMap: hasUVs && atlasUD ? atlasUD.roughnessMap : undefined,
+            metalnessMap: hasUVs && atlasUD ? atlasUD.metalnessMap : undefined,
             roughness: isTerrain ? 0.8 : 0.6,
             metalness: isTerrain ? 0.05 : 0.0,
             envMapIntensity: 0.3,
@@ -972,6 +1094,12 @@ window.threeBridgeSetMeshRotation = function (key, x, y, z) {
     const mesh = meshes.get(key);
     if (!mesh) return;
     mesh.rotation.set(x, y, z);
+};
+
+window.threeBridgeSetMeshScale = function (key, x, y, z) {
+    const mesh = meshes.get(key);
+    if (!mesh) return;
+    mesh.scale.set(x, y, z);
 };
 
 window.threeBridgeUpdateMeshPositions = function (key, positions) {
@@ -1215,14 +1343,14 @@ void main() {
     vec3 lambda4 = lambda * lambda * lambda * lambda;
     vec3 rayleighBeta = vec3(5.8e-6, 1.35e-5, 3.36e-5) * uRayleigh;
 
-    // Rayleigh scattering
+    // Rayleigh scattering (path length in meters through atmospheric column)
     float rayleighAngular = rayleighPhase(cosTheta);
-    float rayleighDepth = 1.0 / (1.0 + viewDir.y * 10.0);
+    float rayleighDepth = 8000.0 / (1.0 + viewDir.y * 10.0);
     vec3 rayleighColor = rayleighBeta * rayleighAngular * rayleighDepth * elev;
 
     // Mie scattering
     float mieAngular = miePhase(cosTheta, uMieG);
-    float mieDepth = 1.0 / (1.0 + viewDir.y * 5.0);
+    float mieDepth = 8000.0 / (1.0 + viewDir.y * 5.0);
     vec3 mieColor = vec3(1.0, 0.95, 0.9) * uMieCoeff * mieAngular * mieDepth * sunfade;
 
     // Sun disk
@@ -1327,11 +1455,11 @@ window.threeBridgeUploadSkyMesh = function (key, positions, normals, indices, co
         uniforms: {
             uSunDirection: { value: new THREE.Vector3(0.5, 0.8, 0.3) },
             uSunElevation: { value: 0.8 },
-            uTurbidity: { value: 2.0 },
-            uRayleigh: { value: 1.0 },
+            uTurbidity: { value: 1.0 },
+            uRayleigh: { value: 200.0 },
             uMieCoeff: { value: 0.005 },
             uMieG: { value: 0.8 },
-            uExposure: { value: 0.6 },
+            uExposure: { value: 1.5 },
             uNightColor: { value: new THREE.Color(0x050510) },
             uStarsOpacity: { value: 0.0 },
         },
@@ -1350,7 +1478,8 @@ window.threeBridgeUploadSkyMesh = function (key, positions, normals, indices, co
 };
 
 window.threeBridgeSetSky = function (r, g, b) {
-    // No longer used for background; kept for compatibility
+    if (!scene) return;
+    scene.background = new THREE.Color(r, g, b);
 };
 
 // ── Sun Glow ──
@@ -1439,9 +1568,9 @@ window.threeBridgeSetSunPosition = function (x, y, z, elevation) {
     }
 };
 
-window.threeBridgeSetNightParams = function (nightColor, starsOpacity) {
+window.threeBridgeSetNightParams = function (r, g, b, starsOpacity) {
     if (skyMesh && skyMesh.material.uniforms) {
-        skyMesh.material.uniforms.uNightColor.value.setRGB(nightColor[0], nightColor[1], nightColor[2]);
+        skyMesh.material.uniforms.uNightColor.value.setRGB(r, g, b);
         skyMesh.material.uniforms.uStarsOpacity.value = starsOpacity;
     }
 };

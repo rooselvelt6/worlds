@@ -15,34 +15,37 @@ WORLDS es un visualizador 3D de terreno procedural que corre en el navegador. El
 
 | Fase | Estado |
 |------|--------|
-| ✅ F5 — Persistencia (IndexedDB) | Completado |
-| ✅ F7 — Terreno Subterraneo (Marching Cubes) | Completado |
-| ✅ F8 — Ecosistemas Dinamicos | Completado |
-| ✅ F9 — Criaturas con IA | Completado |
-| ✅ F10 — Audio 3D Inmersivo | Completado |
+| ✅ F1 — Seguridad del Sistema | Completado |
+| ✅ F2 — Optimización del Motor | Completado |
+| ✅ F3 — Subsuelo Marching Cubes | Completado |
+| ✅ F4 — Criaturas Orgánicas | Completado |
+| ✅ F5 — Estructuras Poligonales | Completado |
+| ✅ F6 — Vegetación Orgánica | Completado |
+| ✅ F7 — Personajes Humanoides | Completado |
+| ✅ F8 — Rocas, Minerales y Portales | Completado |
+| ✅ F9 — PBR + Materiales | Completado |
+| ✅ F10 — Post-Procesado Final | Completado |
 | ✅ F11 — Portales (shader, fade, hub) | Completado |
+| ✅ F12 — Audio 3D Inmersivo | Completado |
 | ✅ F13 — Hidrologia (rios, cascadas, oleaje) | Completado |
 | ✅ F14 — Poderes Climaticos | Completado |
 | ✅ F15 — Codex / Bestiario | Completado |
 | ✅ F16 — Arquitectura & Civilizacion | Completado |
 | ✅ F17 — Modding API (biomas JSON, blueprints, paletas) | Completado |
 | ✅ F18 — Optimizacion & Pulido (LOD, frustum, PWA, i18n) | Completado |
-| 🚀 F19 — Web Workers | Pendiente |
-| 🚀 F20 — Mejoras Mobile | Pendiente |
-| 🚀 F21 — Bosses | Pendiente |
-| 🚀 F22 — Narrativa y Misiones | Pendiente |
 
 ## Tech Stack
 
 | Capa | Tecnologia |
 |------|-----------|
-| Motor 3D | Three.js r175 (local en `server/assets/three/`) |
-| Logica de terreno | Rust 2021 -> WASM (wasm-bindgen) |
+| Motor 3D | Three.js r175 (CDN `unpkg.com/three@0.175.0`) |
+| Logica de terreno | Rust 2021 → WASM (wasm-bindgen) |
 | Mesh subterraneo | Marching Cubes con SDF (cuevas, tuneles, cavernas) |
 | UI | Leptos 0.8 CSR |
 | Servidor | Axum (Rust, con WebSocket) |
 | Audio | Web Audio API (sintesis 100%) |
-| Post-procesado | EffectComposer + SSRPass + SSAOPass + UnrealBloomPass |
+| Materiales | PBR procedural (roughness + metalness maps + atlas de 19 tiles) |
+| Post-procesado | SMAA + SSAO + Bokeh DOF + LUT colour grading |
 
 ## Arquitectura
 
@@ -51,7 +54,7 @@ worlds/
 ├── client/                        # Motor Rust -> Wasm (Leptos CSR)
 │   ├── src/
 │   │   ├── engine/                # Nucleo del motor
-│   │   │   ├── mod.rs             # Game loop + fisica + colision
+│   │   │   ├── mod.rs             # Game loop + fisica + colision + character assembly
 │   │   │   ├── terrain.rs         # Altura FBM, zonas, SDF, colores
 │   │   │   ├── chunk.rs           # Surface mesh + Marching Cubes (LOD 3)
 │   │   │   ├── bridge.rs          # FFI -> JavaScript (Three.js bridge)
@@ -81,7 +84,7 @@ worlds/
 │   │   ├── i18n.rs                # Internacionalizacion
 │   │   ├── app.rs                 # UI Leptos
 │   │   └── lib.rs                 # Punto de entrada WASM
-│   ├── three_bridge.js            # Render Three.js + post-procesado (1925 lineas)
+│   ├── three_bridge.js            # Render Three.js + PBR + post-procesado
 │   ├── i18n/                      # Traducciones ES/EN/FR/DE/JA
 │   ├── manifest.json              # PWA manifest
 │   ├── service-worker.js          # Service worker v4
@@ -95,7 +98,7 @@ worlds/
 │   │       └── mod.rs             # WebSocket handler
 │   └── assets/                    # Frontend servido estaticamente
 │       ├── index.html             # Entry point produccion (local Three.js)
-│       ├── three_bridge.js        # Bridge Three.js (1869 lineas, con SSR/SSAO/Bloom)
+│       ├── three_bridge.js        # Bridge Three.js con PBR + SMAA + Bokeh DOF + LUT
 │       ├── worlds-app-*.js        # WASM JS loader (hash por build)
 │       ├── worlds-app-*_bg.wasm   # WASM compilado
 │       ├── game.js                # Logica cliente legacy
@@ -283,6 +286,13 @@ El subsuelo ya no usa voxel blocky: ahora es un **mesh continuo generado por Mar
 - **Burbujas**: partículas ascendentes bajo el agua
 - **Flora acuática**: algas, corales, kelp en zonas marinas
 - **Oleaje**: vertex displacement en el agua
+
+## Calidad de Código
+
+- **0 warnings, 0 dead code** — todo el código muerto eliminado (old block mesh emitter, funciones helper sin uso, variables fantasma, `#[allow(dead_code)]` genéricos reemplazados por anotaciones específicas)
+- **Sin panics en runtime** — todos los `web_sys::window().unwrap()` reemplazados por `expect()` con mensajes descriptivos
+- **Snake case** consistente en serialización (`hasCol` → `has_col`, `hasUv` → `has_uv`) con `#[serde(rename)]` para compatibilidad JS
+- **Perfiles de compilación** unificados en workspace root
 
 ## UI — Menús Deslizantes
 

@@ -62,7 +62,7 @@ impl Controls {
     }
 
     pub fn attach(&mut self, canvas: &HtmlCanvasElement) {
-        let doc = web_sys::window().unwrap().document().unwrap();
+        let doc = web_sys::window().expect("no window in attach").document().expect("no document in attach");
         let keys = self.keys.clone();
         let keys_mouse = self.keys.clone();
         let kbd_down = Closure::<dyn Fn(KeyboardEvent)>::new(move |e: KeyboardEvent| {
@@ -135,7 +135,7 @@ impl Controls {
 
         let me2 = self.mouse_enabled.clone();
         let pc = Closure::<dyn Fn(web_sys::Event)>::new(move |_: web_sys::Event| {
-            let doc2 = web_sys::window().unwrap().document().unwrap();
+            let doc2 = web_sys::window().expect("no window in pointerlockchange").document().expect("no document in pointerlockchange");
             me2.set(doc2.pointer_lock_element().is_some());
         });
         doc.add_event_listener_with_callback("pointerlockchange", pc.as_ref().unchecked_ref()).ok();

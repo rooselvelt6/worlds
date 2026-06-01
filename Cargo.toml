@@ -4,4 +4,5 @@ members = ["server", "client", "shared"]
 
 [profile.release]
 lto = true
+opt-level = "z"
 codegen-units = 1

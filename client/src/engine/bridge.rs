@@ -31,6 +31,9 @@ extern "C" {
     #[wasm_bindgen(js_name = threeBridgeSetMeshRotation)]
     pub fn set_mesh_rotation(key: &str, x: f64, y: f64, z: f64);
 
+    #[wasm_bindgen(js_name = threeBridgeSetMeshScale)]
+    pub fn set_mesh_scale(key: &str, x: f64, y: f64, z: f64);
+
     #[wasm_bindgen(js_name = threeBridgeUpdateMeshPositions)]
     pub fn update_mesh_positions(key: &str, positions: &js_sys::Float32Array);
 
