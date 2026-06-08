@@ -13,8 +13,8 @@ pub const ANIM_WALK: u8 = 1;
 pub const ANIM_RUN: u8 = 2;
 pub const ANIM_ATTACK: u8 = 3;
 
-const SEG: u32 = 6;
-const SEG2: u32 = 4;
+const SEG: u32 = 16;
+const SEG2: u32 = 10;
 
 #[derive(Clone)]
 pub struct CreatureInstance {
@@ -52,7 +52,7 @@ pub fn compute_chunk_creatures(params: &crate::state::WorldParams, cx: i32, cz: 
 
 pub fn compute_chunk_creatures_with_time(params: &crate::state::WorldParams, cx: i32, cz: i32, day_time: f64) -> CreatureData {
     let mut rng: u64 = (params.seed as u64).wrapping_mul(6364136223846793005)
-        .wrapping_add(cx as u64 * 924839).wrapping_add(cz as u64 * 729384);
+        .wrapping_add((cx as i64).wrapping_mul(924839) as u64).wrapping_add((cz as i64).wrapping_mul(729384) as u64);
     let zone = crate::engine::terrain::get_zone(params, cx as f64 * 24.0 + 12.0, cz as f64 * 24.0 + 12.0);
     let is_underwater = matches!(zone, Zone::CoralReef | Zone::KelpForest | Zone::RockyReef | Zone::SandyPlain | Zone::DeepOcean);
     let creature_types = creature_types_for_zone(zone);
@@ -170,6 +170,15 @@ fn creature_color_size(ct: u8) -> ([f32; 3], f32) {
 
 // ── Organic mesh helpers ──
 
+fn hash_color(cx: f32, cy: f32, cz: f32, nx: f32, _ny: f32, _nz: f32, base: [f32; 3]) -> [f32; 3] {
+    let h = (cx as u64).wrapping_mul(374761393)
+        .wrapping_add((cy as u64).wrapping_mul(668265263))
+        .wrapping_add((cz as u64).wrapping_mul(1274126177))
+        .wrapping_add((nx as u64).wrapping_mul(112345));
+    let f = (h & 0xFF) as f32 / 512.0 * 2.0 - 1.0;
+    [base[0] + f * 0.04, base[1] + f * 0.04, base[2] + f * 0.04]
+}
+
 fn push_ellipsoid_impl(
     pos: &mut Vec<f32>, norms: &mut Vec<f32>, idx: &mut Vec<u32>, cols: &mut Vec<f32>,
     cx: f32, cy: f32, cz: f32, rx: f32, ry: f32, rz: f32,
@@ -201,7 +210,8 @@ fn push_ellipsoid_impl(
             let rnx = nx * cos_rot - nz * sin_rot;
             let rnz = nx * sin_rot + nz * cos_rot;
             norms.push(rnx); norms.push(ny); norms.push(rnz);
-            cols.push(r); cols.push(g); cols.push(b);
+            let vc = hash_color(dx, dy, dz, rnx, ny, rnz, [r, g, b]);
+            cols.push(vc[0]); cols.push(vc[1]); cols.push(vc[2]);
         }
     }
     for j in 0..seg_lat {
@@ -292,21 +302,24 @@ fn push_cylinder_impl(
         let rnz = cp * sin_rot + sp * cos_rot;
         // Bottom
         pos.push(cx + rdx); pos.push(cy - ry); pos.push(cz + rdz);
-        norms.push(rnx); norms.push(0.0); norms.push(rnz);
-        cols.push(r); cols.push(g); cols.push(b);
+        let vc_bot = hash_color(dx, dz, -ry, rnx, 0.0, rnz, [r, g, b]);
+        cols.push(vc_bot[0]); cols.push(vc_bot[1]); cols.push(vc_bot[2]);
         // Top
         pos.push(cx + rdx); pos.push(cy + ry); pos.push(cz + rdz);
         norms.push(rnx); norms.push(0.0); norms.push(rnz);
-        cols.push(r); cols.push(g); cols.push(b);
+        let vc_top = hash_color(dx, dz, ry, rnx, 0.0, rnz, [r, g, b]);
+        cols.push(vc_top[0]); cols.push(vc_top[1]); cols.push(vc_top[2]);
     }
     // Bottom cap center
     pos.push(cx); pos.push(cy - ry); pos.push(cz);
     norms.push(0.0); norms.push(-1.0); norms.push(0.0);
-    cols.push(r); cols.push(g); cols.push(b);
+    let vc_bc = hash_color(0.0, -ry, 0.0, 0.0, -1.0, 0.0, [r, g, b]);
+    cols.push(vc_bc[0]); cols.push(vc_bc[1]); cols.push(vc_bc[2]);
     // Top cap center
     pos.push(cx); pos.push(cy + ry); pos.push(cz);
     norms.push(0.0); norms.push(1.0); norms.push(0.0);
-    cols.push(r); cols.push(g); cols.push(b);
+    let vc_tc = hash_color(0.0, ry, 0.0, 0.0, 1.0, 0.0, [r, g, b]);
+    cols.push(vc_tc[0]); cols.push(vc_tc[1]); cols.push(vc_tc[2]);
 
     let side = start;
     let bot_cap = start + (seg + 1) * 2;

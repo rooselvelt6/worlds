@@ -40,7 +40,7 @@ use terrain::Zone;
 use camera::Camera;
 use chunk::{ChunkData, CHUNK_SIZE};
 use controls::{Controls,
-    MASK_A, MASK_D, MASK_E, MASK_G, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
+    MASK_A, MASK_C, MASK_D, MASK_E, MASK_G, MASK_Q, MASK_R, MASK_RCLICK, MASK_S, MASK_SHIFT, MASK_SPACE, MASK_T, MASK_W};
 use creatures::generate_creature_mesh_from_data;
 use gamepad::poll_gamepad;
 use inventory::Inventory;
@@ -73,7 +73,9 @@ pub struct HudData {
     pub yaw_deg: i32,
     pub speed: f64,
     pub fly_mode: bool,
-    pub formula: String,
+    pub headlamp: bool,
+    pub oxygen: f32,
+    pub health: f32,
     pub observer_mode: bool,
     pub gamepad_connected: bool,
     pub waypoints: Vec<(f64, f64, f64, String)>,
@@ -369,6 +371,11 @@ struct GameState {
     total_distance: f64,
     weather_power_idx: u8,
     weather_cooldown: f64,
+    prev_c: bool,
+    headlamp_active: bool,
+    oxygen: f32,
+    health: f32,
+    prev_fp: bool,
     creature_persistent: std::collections::HashMap<(i32, i32), creatures::CreatureData>,
     // ── R10 Living World ──
     footprints: FootprintSystem,
@@ -394,6 +401,7 @@ struct GameState {
     target_fps: u32,
     gerstner_cache: Option<(f64, f64, f64, Vec<f32>, Vec<f32>, Vec<f32>)>,
     save_dirty: bool,
+    prev_shadow_res: u32,
 }
 
 pub struct Engine {
@@ -416,10 +424,11 @@ fn make_mesh(
 }
 
 fn cylinder_mesh(radius: f64, height: f64, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let seg = if segments < 12 { 12 } else { segments };
     let r = radius as f32;
     let hh = (height * 0.5) as f32;
     make_mesh(|pos, norms, idx, bi| {
-        push_cylinder_rot(pos, norms, idx, &mut vec![], 0.0, 0.0, 0.0, r, hh, r, 0.0, 0.0, 0.0, bi, segments, 0.0);
+        push_cylinder_rot(pos, norms, idx, &mut vec![], 0.0, 0.0, 0.0, r, hh, r, 0.0, 0.0, 0.0, bi, seg, 0.0);
     })
 }
 
@@ -482,8 +491,8 @@ fn gerstner_wave(wx: f64, wz: f64, time: f64, steepness: f64) -> (f64, f64, f64,
 }
 
 fn torso_mesh(width: f64, height: f64, depth: f64) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
-    let seg = 12;
-    let rings = 6;
+    let seg = 20;
+    let rings = 10;
     let w = width as f32;
     let h = height as f32;
     let d = depth as f32;
@@ -535,6 +544,7 @@ fn torso_mesh(width: f64, height: f64, depth: f64) -> (Vec<f32>, Vec<f32>, Vec<u
 }
 
 fn tapered_limb(top_r: f64, bot_r: f64, height: f64, seg: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
+    let seg = if seg < 12 { 12 } else { seg };
     let tr = top_r as f32;
     let br = bot_r as f32;
     let h = height as f32;
@@ -580,7 +590,7 @@ fn build_tentacle(length: f64, segments: u32) -> (Vec<f32>, Vec<f32>, Vec<u32>) 
         let y = -t * len;
         let r = 0.05 * (1.0 - t * 0.8);
         let sway = t.sin() * 0.1;
-        push_ellipsoid_rot(&mut all_pos, &mut all_norms, &mut all_idx, &mut cols, sway, y, 0.0, r, r * 0.6, r, 0.0, 0.0, 0.0, &mut bi, 4, 4, 0.0);
+        push_ellipsoid_rot(&mut all_pos, &mut all_norms, &mut all_idx, &mut cols, sway, y, 0.0, r, r * 0.6, r, 0.0, 0.0, 0.0, &mut bi, 8, 8, 0.0);
     }
     (all_pos, all_norms, all_idx)
 }
@@ -702,10 +712,6 @@ fn upload_part(key: &str, pos: &[f32], norm: &[f32], idx: &[u32], col: &[f32]) {
     let c_arr = js_sys::Float32Array::from(col);
     let u_arr = empty_uv_arr();
     bridge::upload_mesh(key, &p_arr, &n_arr, &i_arr, &c_arr, &u_arr);
-}
-
-fn part_position(part_key: &str, char_pos: [f64; 3], ox: f64, oy: f64, oz: f64) {
-    bridge::set_mesh_position(part_key, char_pos[0] + ox, char_pos[1] + oy, char_pos[2] + oz);
 }
 
 fn regenerate_all(s: &mut GameState) {
@@ -1210,8 +1216,8 @@ impl Engine {
         bridge::upload_water_mesh("water", &w_p, &w_n, &w_i, &w_a);
 
         // Fog, sky background, and sun
-        bridge::set_fog(0.6, 0.75, 0.92, 0.006);
-        bridge::set_sky(0.6, 0.75, 0.92);
+        bridge::set_fog(0.55, 0.70, 0.85, 0.004);
+        bridge::set_sky(0.35, 0.60, 0.90);
         bridge::set_sun_light(50.0, 80.0, 50.0, 1.0, 0.95, 0.85, 2.0);
 
         // Particle system (initialized with default zone, will update on first frame)
@@ -1310,6 +1316,10 @@ impl Engine {
             total_distance: 0.0,
             weather_power_idx: 0,
             weather_cooldown: 0.0,
+            prev_c: false,
+            headlamp_active: false,
+            oxygen: 10.0,
+            health: 100.0,
             creature_persistent: std::collections::HashMap::new(),
             footprints: FootprintSystem::new(),
             meteors: MeteorSystem::new(),
@@ -1334,6 +1344,8 @@ impl Engine {
             target_fps: 60,
             gerstner_cache: None,
             save_dirty: false,
+            prev_fp: true,
+            prev_shadow_res: 0,
         }));
 
         {
@@ -1597,7 +1609,25 @@ impl Engine {
                         s.char_pos[1] = ground_y;
                         s.vel_y = 0.0;
                     }
+                    // ── F11 Oxygen depletion while underwater ──
+                    s.oxygen -= delta as f32;
+                    if s.oxygen <= 0.0 {
+                        s.oxygen = 0.0;
+                        s.health -= delta as f32 * 8.0;
+                        if s.health < 0.0 { s.health = 0.0; }
+                        if s.frame_count as i32 % 15 == 0 {
+                            audio::play_tone(200.0, 0.1);
+                        }
+                    }
                 } else {
+                    // Above water: replenish oxygen
+                    if s.oxygen < 10.0 {
+                        s.oxygen = (s.oxygen + delta as f32 * 4.0).min(10.0);
+                    }
+                    // Regen health slowly
+                    if s.health < 100.0 {
+                        s.health = (s.health + delta as f32 * 1.0).min(100.0);
+                    }
                     // Normal ground movement
                     if keys & MASK_SPACE != 0 && s.char_pos[1] <= ground_y + 0.1 {
                         s.vel_y = s.params.jump_speed;
@@ -1687,21 +1717,6 @@ impl Engine {
                     }
                 }
 
-                // Position and rotate character parts
-                part_position("char_body", s.char_pos, 0.0, 1.0, 0.0);
-                part_position("char_head", s.char_pos, 0.0, 1.8, 0.0);
-                part_position("char_arm_l", s.char_pos, -0.45, 1.5, 0.0);
-                part_position("char_arm_r", s.char_pos, 0.45, 1.5, 0.0);
-                part_position("char_leg_l", s.char_pos, -0.2, 0.9, 0.0);
-                part_position("char_leg_r", s.char_pos, 0.2, 0.9, 0.0);
-
-                if s.params.character == CharacterPreset::Kraken {
-                    let tent_offsets = [(-0.35, 0.7, -0.3), (0.35, 0.7, -0.3), (-0.35, 0.7, 0.3), (0.35, 0.7, 0.3)];
-                    for (i, &(ox, oy, oz)) in tent_offsets.iter().enumerate() {
-                        part_position(&format!("char_tent_{}", i + 1), s.char_pos, ox, oy, oz);
-                    }
-                }
-
                 // Walk/run animation with stretch/squash
                 if moving {
                     s.walk_time += delta;
@@ -1712,36 +1727,37 @@ impl Engine {
                 let cyaw = s.char_yaw;
                 let leg_l = amp * t.sin();
                 let leg_r = amp * (t + std::f64::consts::PI).sin();
-                bridge::set_mesh_rotation("char_body", 0.0, cyaw, 0.0);
-                bridge::set_mesh_rotation("char_head", 0.0, cyaw, 0.0);
-                bridge::set_mesh_rotation("char_leg_l", leg_l, cyaw, 0.0);
-                bridge::set_mesh_rotation("char_leg_r", leg_r, cyaw, 0.0);
-                bridge::set_mesh_rotation("char_arm_l", -leg_r, cyaw, 0.0);
-                bridge::set_mesh_rotation("char_arm_r", -leg_l, cyaw, 0.0);
 
                 // Stretch/squash deformation
                 let body_cyc = (2.0 * t).cos();
                 let body_sy = 1.0 + BODY_BOUNCE * body_cyc;
                 let body_sx = 1.0 - BODY_BOUNCE * 0.5 * body_cyc;
-                bridge::set_mesh_scale("char_body", body_sx, body_sy, body_sx);
 
                 let lf = if amp > 0.0 { (leg_l / amp).abs() } else { 0.0 };
                 let rf = if amp > 0.0 { (leg_r / amp).abs() } else { 0.0 };
                 let af_l = if amp > 0.0 { (-leg_r / amp).abs() } else { 0.0 };
                 let af_r = if amp > 0.0 { (-leg_l / amp).abs() } else { 0.0 };
-                bridge::set_mesh_scale("char_leg_l", 1.0 - LIMB_SQUASH * lf, 1.0 + LIMB_STRETCH * lf, 1.0 - LIMB_SQUASH * lf);
-                bridge::set_mesh_scale("char_leg_r", 1.0 - LIMB_SQUASH * rf, 1.0 + LIMB_STRETCH * rf, 1.0 - LIMB_SQUASH * rf);
-                bridge::set_mesh_scale("char_arm_l", 1.0 - LIMB_SQUASH * af_l, 1.0 + LIMB_STRETCH * af_l, 1.0 - LIMB_SQUASH * af_l);
-                bridge::set_mesh_scale("char_arm_r", 1.0 - LIMB_SQUASH * af_r, 1.0 + LIMB_STRETCH * af_r, 1.0 - LIMB_SQUASH * af_r);
 
                 let head_cyc = (2.0 * t + std::f64::consts::PI).sin();
-                bridge::set_mesh_scale("char_head", 1.0, 1.0 + 0.015 * head_cyc, 1.0);
+
+                // Combined position + rotation + scale (3 bridge calls → 1 per part)
+                let px = s.char_pos[0];
+                let py = s.char_pos[1];
+                let pz = s.char_pos[2];
+                bridge::set_mesh_transform("char_body", px, py + 1.0, pz, 0.0, cyaw, 0.0, body_sx, body_sy, body_sx);
+                bridge::set_mesh_transform("char_head", px, py + 1.8, pz, 0.0, cyaw, 0.0, 1.0, 1.0 + 0.015 * head_cyc, 1.0);
+                bridge::set_mesh_transform("char_leg_l", px - 0.2, py + 0.9, pz, leg_l, cyaw, 0.0, 1.0 - LIMB_SQUASH * lf, 1.0 + LIMB_STRETCH * lf, 1.0 - LIMB_SQUASH * lf);
+                bridge::set_mesh_transform("char_leg_r", px + 0.2, py + 0.9, pz, leg_r, cyaw, 0.0, 1.0 - LIMB_SQUASH * rf, 1.0 + LIMB_STRETCH * rf, 1.0 - LIMB_SQUASH * rf);
+                bridge::set_mesh_transform("char_arm_l", px - 0.45, py + 1.5, pz, -leg_r, cyaw, 0.0, 1.0 - LIMB_SQUASH * af_l, 1.0 + LIMB_STRETCH * af_l, 1.0 - LIMB_SQUASH * af_l);
+                bridge::set_mesh_transform("char_arm_r", px + 0.45, py + 1.5, pz, -leg_l, cyaw, 0.0, 1.0 - LIMB_SQUASH * af_r, 1.0 + LIMB_STRETCH * af_r, 1.0 - LIMB_SQUASH * af_r);
 
                 if s.params.character == CharacterPreset::Kraken {
                     let tent_phases = [0.0, 1.57, 3.14, 4.71];
+                    let tent_offsets = [(-0.35, 0.7, -0.3), (0.35, 0.7, -0.3), (-0.35, 0.7, 0.3), (0.35, 0.7, 0.3)];
                     for i in 0..4 {
                         let sway = (s.time * 2.0 + tent_phases[i]).sin() * 0.3;
-                        bridge::set_mesh_rotation(&format!("char_tent_{}", i + 1), sway, cyaw, 0.0);
+                        let (ox, oy, oz) = tent_offsets[i];
+                        bridge::set_mesh_transform(&format!("char_tent_{}", i + 1), px + ox, py + oy, pz + oz, sway, cyaw, 0.0, 1.0, 1.0, 1.0);
                     }
                 }
 
@@ -1749,19 +1765,22 @@ impl Engine {
                     s.walk_time *= 0.9;
                 }
 
-                // Hide character in first-person mode
+                // Hide character in first-person mode (cached — only crosses FFI when mode toggles)
                 let fp = s.params.camera_mode == CameraMode::FirstPerson;
-                bridge::set_mesh_visible("char_body", !fp);
-                bridge::set_mesh_visible("char_head", !fp);
-                bridge::set_mesh_visible("char_arm_l", !fp);
-                bridge::set_mesh_visible("char_arm_r", !fp);
-                bridge::set_mesh_visible("char_leg_l", !fp);
-                bridge::set_mesh_visible("char_leg_r", !fp);
-                if s.params.character == CharacterPreset::Kraken {
-                    bridge::set_mesh_visible("char_tent_1", !fp);
-                    bridge::set_mesh_visible("char_tent_2", !fp);
-                    bridge::set_mesh_visible("char_tent_3", !fp);
-                    bridge::set_mesh_visible("char_tent_4", !fp);
+                if fp != s.prev_fp {
+                    s.prev_fp = fp;
+                    bridge::set_mesh_visible("char_body", !fp);
+                    bridge::set_mesh_visible("char_head", !fp);
+                    bridge::set_mesh_visible("char_arm_l", !fp);
+                    bridge::set_mesh_visible("char_arm_r", !fp);
+                    bridge::set_mesh_visible("char_leg_l", !fp);
+                    bridge::set_mesh_visible("char_leg_r", !fp);
+                    if s.params.character == CharacterPreset::Kraken {
+                        bridge::set_mesh_visible("char_tent_1", !fp);
+                        bridge::set_mesh_visible("char_tent_2", !fp);
+                        bridge::set_mesh_visible("char_tent_3", !fp);
+                        bridge::set_mesh_visible("char_tent_4", !fp);
+                    }
                 }
 
                 if s.char_dirty {
@@ -1812,19 +1831,23 @@ impl Engine {
                     (tu.pos[0], tu.pos[1], tu.pos[2], tu.yaw, tu.pitch)
                 } else if s.params.camera_mode == CameraMode::FirstPerson {
                     let pitch = tour_pitch_cp.max(-1.5).min(1.5);
-                    let eye_y = s.char_pos[1] + 1.6;
+                    let cs = s.params.char_scale;
+                    let eye_y = s.char_pos[1] + 1.6 * cs;
                     s.cam_pos = [s.char_pos[0], eye_y, s.char_pos[2]];
                     (s.cam_pos[0], s.cam_pos[1], s.cam_pos[2], -tour_yaw_cp, pitch)
                 } else {
+                    let cs = s.params.char_scale;
                     let pitch_clamped = tour_pitch_cp.max(-0.6).min(1.0);
                     let (sp_c, cp_c) = pitch_clamped.sin_cos();
-                    let target_x = s.char_pos[0] + ARM_LENGTH * cp_c * cam_yaw.sin();
-                    let target_z = s.char_pos[2] + ARM_LENGTH * cp_c * cam_yaw.cos();
-                    let target_y = (s.char_pos[1] + ARM_HEIGHT + ARM_LENGTH * sp_c)
+                    let arm_len = ARM_LENGTH * cs;
+                    let arm_h = ARM_HEIGHT * cs;
+                    let target_x = s.char_pos[0] + arm_len * cp_c * cam_yaw.sin();
+                    let target_z = s.char_pos[2] + arm_len * cp_c * cam_yaw.cos();
+                    let target_y = (s.char_pos[1] + arm_h + arm_len * sp_c)
                         .max(terrain::get_height(&s.params, target_x, target_z) + 0.5);
                     s.cam_pos = [target_x, target_y, target_z];
                     let dx = s.char_pos[0] - s.cam_pos[0];
-                    let dy = s.char_pos[1] + 1.0 - s.cam_pos[1];
+                    let dy = s.char_pos[1] + 1.0 * cs - s.cam_pos[1];
                     let dz = s.char_pos[2] - s.cam_pos[2];
                     let dist_h = (dx * dx + dz * dz).sqrt().max(0.001);
                     let ly = dx.atan2(-dz);
@@ -1832,6 +1855,20 @@ impl Engine {
                     (s.cam_pos[0], s.cam_pos[1], s.cam_pos[2], ly, lp)
                 };
                 bridge::set_camera(cam_x, cam_y, cam_z, look_yaw, look_pitch);
+
+                // ── F12 Headlamp follows camera direction ──
+                {
+                    let hp = look_pitch;
+                    let hy = look_yaw;
+                    let (sp, cp) = hp.sin_cos();
+                    let (sy, cy) = hy.sin_cos();
+                    let hlen = 2.0;
+                    let htx = cam_x + hlen * cp * sy;
+                    let hty = cam_y + hlen * sp;
+                    let htz = cam_z + hlen * cp * cy;
+                    let hintensity = if s.headlamp_active { 2.5 } else { 0.0 };
+                    bridge::set_headlamp(s.headlamp_active, cam_x, cam_y, cam_z, htx, hty, htz, hintensity);
+                }
 
                 // Update sky dome position to follow camera
                 bridge::set_mesh_position("sky_dome", s.cam_pos[0], s.cam_pos[1], s.cam_pos[2]);
@@ -1880,7 +1917,7 @@ impl Engine {
                     }
                     None => true,
                 };
-                let (wp, wn, wa) = if needs_recompute {
+                if needs_recompute {
                     let mut wp = Vec::with_capacity(nv as usize * 3);
                     let mut wn = Vec::with_capacity(nv as usize * 3);
                     let mut wa = Vec::with_capacity(nv as usize);
@@ -1904,12 +1941,8 @@ impl Engine {
                         }
                     }
                     s.gerstner_cache = Some((quantized_px, quantized_pz, s.time, wp, wn, wa));
-                    let (_, _, _, ref wp, ref wn, ref wa) = s.gerstner_cache.as_ref().unwrap();
-                    (wp.clone(), wn.clone(), wa.clone())
-                } else {
-                    let (_, _, _, ref wp, ref wn, ref wa) = s.gerstner_cache.as_ref().unwrap();
-                    (wp.clone(), wn.clone(), wa.clone())
-                };
+                }
+                let (_, _, _, ref wp, ref wn, ref wa) = s.gerstner_cache.as_ref().unwrap();
                 let w_p_arr = js_sys::Float32Array::from(&wp[..]);
                 let w_n_arr = js_sys::Float32Array::from(&wn[..]);
                 let w_a_arr = js_sys::Float32Array::from(&wa[..]);
@@ -1918,7 +1951,7 @@ impl Engine {
 
                 // Underwater detection
                 let eye_y = if s.params.camera_mode == CameraMode::FirstPerson {
-                    s.char_pos[1] + 1.6
+                    s.char_pos[1] + 1.6 * s.params.char_scale
                 } else {
                     s.cam_pos[1]
                 };
@@ -1926,7 +1959,8 @@ impl Engine {
                     let (_, y, _, _, _, _) = gerstner_wave(s.char_pos[0], s.char_pos[2], s.time, steepness);
                     water_level + y
                 };
-                bridge::set_underwater(eye_y < wave_y_at_player);
+                let is_underwater = eye_y < wave_y_at_player;
+                bridge::set_underwater(is_underwater);
 
                 // Day/night cycle
                 s.day_time += delta * s.params.day_speed;
@@ -1971,7 +2005,34 @@ impl Engine {
                 let fog_r = fog_r * (1.0 - s.weather_power * 0.5) + 0.4 * s.weather_power;
                 let fog_g = fog_g * (1.0 - s.weather_power * 0.5) + 0.4 * s.weather_power;
                 let fog_b = fog_b * (1.0 - s.weather_power * 0.4) + 0.45 * s.weather_power;
-                bridge::set_fog(fog_r.max(0.0), fog_g.max(0.0), fog_b.max(0.0), fog_density);
+                if is_underwater {
+                    bridge::set_underwater_fog(
+                        true,
+                        (fog_r * 0.15).max(0.0),
+                        (fog_g * 0.35).max(0.0),
+                        (fog_b * 0.55).max(0.0),
+                        (fog_density * 4.0).min(0.08),
+                    );
+                } else {
+                    bridge::set_underwater_fog(false, 0.0, 0.0, 0.0, 0.0);
+                    bridge::set_fog(fog_r.max(0.0), fog_g.max(0.0), fog_b.max(0.0), fog_density);
+                }
+
+                // Dynamic shadow LOD: reduce resolution at night, in weather, or when flying high
+                let shadow_res = if s.params.fly_mode && s.char_pos[1] > 30.0 {
+                    512
+                } else if night_factor > 0.5 {
+                    512
+                } else if night_factor > 0.2 || s.weather_power > 0.5 {
+                    1024
+                } else {
+                    2048
+                };
+                if shadow_res != s.prev_shadow_res {
+                    s.prev_shadow_res = shadow_res;
+                    let shadow_extent = 40.0 + (s.params.render_distance as f64 * CHUNK_SIZE * 0.5);
+                    bridge::set_shadow_quality(shadow_res, 0.5, 300.0, -shadow_extent, shadow_extent, shadow_extent, -shadow_extent);
+                }
 
                 // Stars opacity (reduced by weather)
                 let stars_opac = (sun_elev * -3.0 - 0.5).clamp(0.0, 1.0) * (1.0 - s.weather_power * 0.8);
@@ -2073,6 +2134,14 @@ impl Engine {
                     audio::play_tone(500.0 + s.weather_power_idx as f32 * 100.0, 0.15);
                 }
                 s.g_prev = g_pressed;
+
+                // ── F12 Headlamp toggle (C key) ──
+                let c_pressed = keys & MASK_C != 0;
+                if c_pressed && !s.prev_c {
+                    s.headlamp_active = !s.headlamp_active;
+                    audio::play_tone(if s.headlamp_active { 800.0 } else { 400.0 }, 0.08);
+                }
+                s.prev_c = c_pressed;
 
                 // Wind system (natural variation over time)
                 let wind_seed = s.time * 0.1;
@@ -2450,6 +2519,9 @@ impl Engine {
                     profiling_draw_calls: s.draw_calls,
                     profiling_memory_mb: s.memory_mb,
                     profiling_worker_pending: bridge::worker_pending(),
+                    headlamp: s.headlamp_active,
+                    oxygen: s.oxygen,
+                    health: s.health,
                     ..Default::default()
                 };
             }));
@@ -2741,15 +2813,15 @@ impl Engine {
     }
 
     pub fn chat_messages(&self) -> Vec<(String, String)> {
-        self.state.borrow().chat_messages.iter().cloned().collect()
+        self.state.try_borrow().map(|s| s.chat_messages.iter().cloned().collect()).unwrap_or_default()
     }
 
     pub fn is_ws_connected(&self) -> bool {
-        self.state.borrow().ws_connected
+        self.state.try_borrow().map(|s| s.ws_connected).unwrap_or(false)
     }
 
     pub fn visited_seeds(&self) -> Vec<u32> {
-        self.state.borrow().visited_seeds.clone()
+        self.state.try_borrow().map(|s| s.visited_seeds.clone()).unwrap_or_default()
     }
 }
 

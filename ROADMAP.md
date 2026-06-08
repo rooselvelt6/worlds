@@ -202,3 +202,143 @@ Efectos visuales cinematográficos para realismo total.
 - **Fases 1–10 completadas al 100%** ✅
 - Única tarea pendiente: **4.7** (morph targets animación criaturas) — mejora opcional futura
 - Cada fase incluye eliminar el código muerto de las primitivas reemplazadas
+
+---
+
+# WORLDS — Roadmap V2: Mundo Libre y Realista
+
+> **Objetivo:** Exploración inmersiva total — poder adentrarse en cualquier espacio (agua, cuevas, montañas) con un mundo vivo, realista e interactivo.
+
+---
+
+## Fase 11 — 🌊 Exploración Submarina Inmersiva
+**Esfuerzo:** 20-25h | **Prioridad:** Alta
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 11.1 | Sistema de buceo — barra de oxígeno, daño por ahogamiento, burbujas desde el jugador | `client/src/engine/mod.rs`, `client/three_bridge.js` |
+| 11.2 | Cáusticas subacuáticas — proyección de ondas de luz en el fondo marino | `client/three_bridge.js` |
+| 11.3 | Niebla subacuática — visibilidad reducida, color azul-verdoso, transición suave al salir | `client/three_bridge.js` |
+| 11.4 | Flora acuática animada — algas, kelp, corales con sway por corriente | `client/src/engine/vegetation.rs`, `client/three_bridge.js` |
+| 11.5 | Peces en cardúmenes — bancos de peces con IA de flocking | `client/src/engine/creatures.rs` |
+| 11.6 | Efectos de profundidad — presión, oscuridad creciente, partículas de sedimentos | `client/src/engine/mod.rs`, `client/three_bridge.js` |
+| 11.7 | Audio submarino — sonido ambiente muffled, burbujeo, latidos a presión | `client/src/engine/audio.rs` |
+
+---
+
+## Fase 12 — 🕯️ Iluminación y Exploración de Cuevas
+**Esfuerzo:** 20-25h | **Prioridad:** Alta | **Depende de:** F11 (parcial)
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 12.1 | Sistema de linterna / antorcha — objeto craftable que emite luz 3D (PointLight) | `client/src/engine/inventory.rs`, `client/three_bridge.js`, `client/src/engine/mod.rs` |
+| 12.2 | Linterna frontal en 1ª persona — luz que sigue la mirada del jugador | `client/three_bridge.js` |
+| 12.3 | Cuevas más oscuras — eliminar el `min 0.25` de brightness, luz solo de fuentes | `client/src/engine/terrain.rs` |
+| 12.4 | Estalactitas y estalagmitas — generación procedural en techos/suelos de cueva (SDF) | `client/src/engine/chunk.rs` |
+| 12.5 | Ríos subterráneos — agua fluyendo dentro de cuevas | `client/src/engine/terrain.rs`, `client/src/engine/chunk.rs` |
+| 12.6 | Lagos subterráneos — masas de agua en cámaras grandes | `client/src/engine/terrain.rs` |
+| 12.7 | Cristales bioluminiscentes — emisivos que iluminan cuevas | `client/src/engine/minerals.rs` |
+| 12.8 | Sonido de cueva — goteo, eco, reverberación | `client/src/engine/audio.rs` |
+
+---
+
+## Fase 13 — 🧗 Movimiento Vertical y Escalada
+**Esfuerzo:** 15-20h | **Prioridad:** Media
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 13.1 | Escalada de paredes — agarrarse a superficies verticales (pendiente > 0.8) | `client/src/engine/mod.rs` |
+| 13.2 | Salto de presa — agarrarse a bordes al saltar | `client/src/engine/mod.rs` |
+| 13.3 | Deslizamiento por pendientes — física de deslizamiento en nieve/grava | `client/src/engine/mod.rs` |
+| 13.4 | Natación contracorriente — nadar contra cascadas/ríos con esfuerzo | `client/src/engine/mod.rs` |
+| 13.5 | Salto expandido — salto más alto con impulso (carrera + salto) | `client/src/engine/mod.rs` |
+
+---
+
+## Fase 14 — ⛏️ Interacción con el Terreno (Minería / Excavación)
+**Esfuerzo:** 20-25h | **Prioridad:** Alta | **Depende de:** F12 (linterna)
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 14.1 | Sistema de minería — click izquierdo con pico destruye bloque apuntado | `client/src/engine/mod.rs`, `client/three_bridge.js` |
+| 14.2 | Raycast para apuntado — detectar qué bloque/terreno mira el jugador | `client/three_bridge.js`, `client/src/engine/bridge.rs` |
+| 14.3 | Partículas de rotura — escombros, polvo al minar | `client/src/engine/particles.rs` |
+| 14.4 | Herramientas con durabilidad — picos se desgastan con uso | `client/src/engine/inventory.rs` |
+| 14.5 | Colocación de bloques — construir estructuras en modo construcción (mejorar base existente) | `client/src/engine/mod.rs` |
+| 14.6 | Sistema de crafteo expandido — antorchas, escaleras, cuerdas, botes | `client/src/engine/inventory.rs` |
+
+---
+
+## Fase 15 — 🌍 Mundo Vivo y Realista
+**Esfuerzo:** 20-25h | **Prioridad:** Media
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 15.1 | Sistema de temperatura — frío en tundra/alta montaña, calor en desierto/lava | `client/src/engine/mod.rs` |
+| 15.2 | Efectos de altitud — nieve en picos, viento fuerte, niebla de montaña | `client/src/engine/terrain.rs`, `client/three_bridge.js` |
+| 15.3 | Erosión avanzada — barrancos, acantilados, deltas de ríos más realistas | `client/src/engine/erosion.rs` |
+| 15.4 | Transiciones de bioma suaves — mezcla gradual entre zonas | `client/src/engine/terrain.rs` |
+| 15.5 | Nubes volumétricas — nubes 3D que proyectan sombras | `client/three_bridge.js` |
+| 15.6 | Niebla de valle — niebla baja en valles y cerca del agua al amanecer | `client/three_bridge.js` |
+
+---
+
+## Fase 16 — 📟 Interfaz y HUD de Exploración
+**Esfuerzo:** 10-15h | **Prioridad:** Media | **Depende de:** F11, F12, F15
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 16.1 | Brújula — dirección cardinal en HUD | `client/src/app.rs`, `client/src/engine/mod.rs` |
+| 16.2 | Altímetro — altitud actual sobre el nivel del mar | `client/src/app.rs` |
+| 16.3 | Barra de oxígeno — al bucear | `client/src/app.rs` |
+| 16.4 | Barra de temperatura — frío/calor | `client/src/app.rs` |
+| 16.5 | Minimapa mejorado — con topografía, cuevas, waypoints | `client/src/engine/minimap.rs` |
+| 16.6 | Indicador de herramientas — qué item está equipado | `client/src/app.rs` |
+
+---
+
+## Fase 17 — 🏆 Sistema de Progresión
+**Esfuerzo:** 10-15h | **Prioridad:** Baja | **Depende de:** F14, F16
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 17.1 | Logros de exploración — descubrir cuevas, puntos profundos, cimas | `client/src/engine/achievements.rs` |
+| 17.2 | Mapa del mundo — mapa desbloqueable que se dibuja al explorar | `client/src/engine/minimap.rs`, `client/three_bridge.js` |
+| 17.3 | Puntos de viaje rápido — tótems/altares que permiten teletransporte | `client/src/engine/structures.rs` |
+| 17.4 | Mejoras de equipo — pico mejorado, botas de escalada, aletas de buceo | `client/src/engine/inventory.rs` |
+
+---
+
+## Fase 18 — ⚡ Optimización para Mundo Abierto
+**Esfuerzo:** 10-15h | **Prioridad:** Media | **Depende de:** F11–F15
+
+| # | Tarea | Archivos |
+|---|-------|----------|
+| 18.1 | LOD adaptativo por bioma — menos detalle en áreas lejanas/subacuáticas | `client/src/engine/chunk.rs` |
+| 18.2 | Culling de agua — no renderizar agua cuando el jugador está muy arriba | `client/three_bridge.js` |
+| 18.3 | Occlusion culling para cuevas — no renderizar chunks subterráneos no visibles | `client/src/engine/chunk.rs` |
+| 18.4 | Instancing de estalactitas — reducir draw calls en cuevas | `client/src/engine/chunk.rs`, `client/three_bridge.js` |
+
+---
+
+## Tabla Resumen V2
+
+| Fase | Área | Esfuerzo | Depende de |
+|------|------|----------|------------|
+| ⬜ | 🌊 Exploración Submarina | 20-25h | — |
+| ⬜ | 🕯️ Iluminación de Cuevas | 20-25h | F11 (parcial) |
+| ⬜ | 🧗 Movimiento Vertical | 15-20h | — |
+| ⬜ | ⛏️ Minería y Terreno | 20-25h | F12 |
+| ⬜ | 🌍 Mundo Vivo | 20-25h | — |
+| ⬜ | 📟 HUD de Exploración | 10-15h | F11, F12, F15 |
+| ⬜ | 🏆 Progresión | 10-15h | F14, F16 |
+| ⬜ | ⚡ Optimización | 10-15h | F11–F15 |
+| | **Total V2** | **~125-165h** | |
+
+## Prioridad de Implementación
+
+1. **Fase 11** (Submarina) + **Fase 12** (Cuevas) — la base de la exploración
+2. **Fase 14** (Minería) — interactuar con el mundo
+3. **Fase 13** (Escalada) — acceso vertical
+4. **Fase 15** (Mundo vivo) + **Fase 16** (HUD)
+5. **Fase 17** (Progresión) + **Fase 18** (Optimización)

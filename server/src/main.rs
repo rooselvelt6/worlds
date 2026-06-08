@@ -90,6 +90,7 @@ async fn serve_index(State(state): State<AppState>) -> impl IntoResponse {
         Ok(s) => {
             let mut res = axum::response::Response::new(axum::body::Body::from(s));
             res.headers_mut().insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+            res.headers_mut().insert(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate".parse().unwrap());
             for (name, value) in security_headers() {
                 res.headers_mut().insert(name, value);
             }
@@ -137,6 +138,10 @@ async fn serve_asset(State(state): State<AppState>, Path(path): Path<String>) ->
     let body = axum::body::Body::from(bytes);
     let mut res = axum::http::Response::new(body);
     res.headers_mut().insert(axum::http::header::CONTENT_TYPE, mime.parse().unwrap());
+    // Hashed assets are immutable; index.html is handled separately with no-cache
+    if !clean.contains("index.html") {
+        res.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=31536000, immutable".parse().unwrap());
+    }
     res.headers_mut().insert(
         axum::http::HeaderName::from_static("cross-origin-opener-policy"),
         "same-origin".parse().unwrap(),

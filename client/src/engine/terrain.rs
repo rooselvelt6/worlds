@@ -351,14 +351,14 @@ fn block_name_for_type(block_type: u8) -> &'static str {
 
 pub fn block_color(block_type: u8, _params: &WorldParams, wx: f64, wy: f64, wz: f64, zone: Zone, surface_h: f64, max_h: f64) -> [f32; 3] {
     let depth = (surface_h - wy) as f32;
-    // Darken with depth but with a higher floor (min 0.25 brightness so caves aren't totally black)
-    let darken = (1.0 - (depth / 20.0).clamp(0.0, 0.75)).max(0.25);
+    // Darken with depth — caves can be pitch black (player needs light source)
+    let darken = (1.0 - (depth / 20.0).clamp(0.0, 0.75)).max(0.02);
 
     let block_name = block_name_for_type(block_type);
     let palette_color = crate::engine::modding::ModContext::with(|ctx| ctx.get_palette_color(block_name));
     if let Some(pc) = palette_color {
         return if block_emits_light(block_type) { pc } else {
-            let d = darken.max(0.5);
+            let d = darken.max(0.05);
             [pc[0] * d, pc[1] * d, pc[2] * d]
         };
     }
@@ -789,7 +789,7 @@ pub fn sdf_color(params: &WorldParams, wx: f64, wy: f64, wz: f64) -> [f32; 3] {
     let surface_h = get_height(params, wx, wz);
     let depth = surface_h - wy;
     let rock = zone_rock_color(zone);
-    let darken = (1.0 - (depth / 20.0).clamp(0.0, 0.75)).max(0.25) as f32;
+    let darken = (1.0 - (depth / 20.0).clamp(0.0, 0.75)).max(0.02) as f32;
     [rock[0] * darken, rock[1] * darken, rock[2] * darken]
 }
 

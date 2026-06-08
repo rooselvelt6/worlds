@@ -6,7 +6,7 @@ use crate::math::{hsl_to_rgb, rgb_to_hsl};
 use crate::state::WorldParams;
 
 pub const CHUNK_SIZE: f64 = 24.0;
-pub const BLOCK_RES: u32 = 48;
+pub const BLOCK_RES: u32 = 24;
 const BLOCK_SIZE: f64 = CHUNK_SIZE / BLOCK_RES as f64;
 const UNDERGROUND_LAYERS: i32 = 32;
 

@@ -1,0 +1,15 @@
+{
+  "name": "WORLDS — Procedural Explorer",
+  "short_name": "WORLDS",
+  "description": "Explora mundos procedurales infinitos con biomas únicos, criaturas, y construcción",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a12",
+  "theme_color": "#0a0a12",
+  "orientation": "landscape",
+  "scope": "/",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

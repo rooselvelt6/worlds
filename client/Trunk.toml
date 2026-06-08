@@ -1,5 +1,5 @@
-[[assets]]
-source = "three_bridge.js"
-
-[[assets]]
-source = "worker.js"
+[serve]
+csp = [
+    "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' 'nonce-{{NONCE}}' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com",
+    "style-src 'self' 'unsafe-inline' 'nonce-{{NONCE}}' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com",
+]

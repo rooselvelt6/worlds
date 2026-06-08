@@ -100,7 +100,7 @@ impl Default for WorldParams {
             param_a: 0.5,
             param_b: 0.5,
             volume: 0.3,
-            day_speed: 0.0,
+            day_speed: 0.005,
             season_speed: 0.01,
             season: 0,
             gravity: 20.0,

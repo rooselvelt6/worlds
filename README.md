@@ -355,6 +355,17 @@ sed -i "s/worlds-app-[a-f0-9]*/worlds-app-$HASH/g" ../server/assets/index.html
 cargo check -p worlds-app
 ```
 
+## Cambios Recientes
+
+| Fecha | Cambio | Archivos |
+|-------|--------|----------|
+| Jun 2026 | **Incremento de polígonos** — criaturas (SEG 6→16), vegetación (trunks 8→12, canopies 6→12), estructuras (seg 6→10), personajes (tapered_limb 8→12) | `creatures.rs`, `vegetation.rs`, `structures.rs`, `mod.rs` |
+| Jun 2026 | **Fix overflow entero** en cómputo de grass (`.wrapping_add`/`.wrapping_mul`) | `vegetation.rs` |
+| Jun 2026 | **Bridge functions faltantes** — implementadas `threeBridgeSetMeshTransform`, `threeBridgeSetHeadlamp`, `threeBridgeSetShadowQuality`, `threeBridgeSetUnderwaterFog` | `three_bridge.js` |
+| Jun 2026 | **Fix RefCell panic** — `is_ws_connected()`/`chat_messages()` ahora usan `try_borrow()` en vez de `borrow()` | `engine/mod.rs` |
+| Jun 2026 | **Fix `undefined`→`null`** en parámetros de `MeshStandardMaterial` (map, normalMap, roughnessMap, metalnessMap) | `three_bridge.js` |
+| Jun 2026 | **Renderizado en bloque** — simplificado a `MeshStandardMaterial` con PBR completo, eliminado `MeshPhysicalMaterial` problemático | `three_bridge.js` |
+
 ## Licencia
 
 MIT — ver [LICENSE](LICENSE) para detalles.

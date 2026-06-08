@@ -34,6 +34,9 @@ extern "C" {
     #[wasm_bindgen(js_name = threeBridgeSetMeshScale)]
     pub fn set_mesh_scale(key: &str, x: f64, y: f64, z: f64);
 
+    #[wasm_bindgen(js_name = threeBridgeSetMeshTransform)]
+    pub fn set_mesh_transform(key: &str, px: f64, py: f64, pz: f64, rx: f64, ry: f64, rz: f64, sx: f64, sy: f64, sz: f64);
+
     #[wasm_bindgen(js_name = threeBridgeUpdateMeshPositions)]
     pub fn update_mesh_positions(key: &str, positions: &js_sys::Float32Array);
 
@@ -81,6 +84,9 @@ extern "C" {
     #[wasm_bindgen(js_name = threeBridgeSetUnderwater)]
     pub fn set_underwater(active: bool);
 
+    #[wasm_bindgen(js_name = threeBridgeSetUnderwaterFog)]
+    pub fn set_underwater_fog(active: bool, r: f64, g: f64, b: f64, density: f64);
+
     #[wasm_bindgen(js_name = threeBridgeSetWaterColor)]
     pub fn set_water_color(r: f64, g: f64, b: f64);
 
@@ -98,6 +104,9 @@ extern "C" {
 
     #[wasm_bindgen(js_name = threeBridgeSetSunLight)]
     pub fn set_sun_light(x: f64, y: f64, z: f64, r: f64, g: f64, b: f64, intensity: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetShadowQuality)]
+    pub fn set_shadow_quality(resolution: u32, near: f64, far: f64, left: f64, right: f64, top: f64, bottom: f64);
 
     #[wasm_bindgen(js_name = threeBridgeRenderFrame)]
     pub fn render_frame();
@@ -205,9 +214,25 @@ extern "C" {
     #[wasm_bindgen(js_name = threeBridgeRemoveMeteor)]
     pub fn remove_meteor(key: &str);
 
+    #[wasm_bindgen(js_name = threeBridgeSetHeadlamp)]
+    pub fn set_headlamp(active: bool, x: f64, y: f64, z: f64, tx: f64, ty: f64, tz: f64, intensity: f64);
+
     #[wasm_bindgen(js_name = threeBridgePushFlora)]
     pub fn push_flora(key: &str, push_x: f64, push_z: f64, strength: f64);
 
     #[wasm_bindgen(js_name = threeBridgeResetFlora)]
     pub fn reset_flora(key: &str);
+
+    // ── GLTF Model System ──
+    #[wasm_bindgen(js_name = threeBridgeLoadModel)]
+    pub fn load_model(key: &str, url: &str, on_ready: &js_sys::Function);
+
+    #[wasm_bindgen(js_name = threeBridgeSpawnModel)]
+    pub fn spawn_model(key: &str, url: &str, x: f64, y: f64, z: f64, scale: f64, rot_y: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeSetModelTransform)]
+    pub fn set_model_transform(key: &str, x: f64, y: f64, z: f64, rot_y: f64);
+
+    #[wasm_bindgen(js_name = threeBridgeRemoveModel)]
+    pub fn remove_model(key: &str);
 }

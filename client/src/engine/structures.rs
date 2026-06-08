@@ -225,7 +225,7 @@ fn emit_struct(
 ) {
     let s = scale;
     let c = struct_color(st, cv);
-    let seg = 6;
+    let seg = 10;
     match st {
         StructType::Hut => {
             let hw = s * 0.5; let hh = s * 0.3; let hd = s * 0.5;
@@ -241,14 +241,14 @@ fn emit_struct(
         }
         StructType::Ruins => {
             let hw = s * 0.4; let hh = s * 0.3; let hd = s * 0.4;
-            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.1, y + hh, z - s * 0.05, hw, hh, hd, c[0], c[1], c[2], base_idx, 5, rot);
-            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.15, y + hh * 0.6, z + s * 0.1, hw * 0.6, hh * 0.6, hd * 0.6, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 5, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.1, y + hh, z - s * 0.05, hw, hh, hd, c[0], c[1], c[2], base_idx, 8, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.15, y + hh * 0.6, z + s * 0.1, hw * 0.6, hh * 0.6, hd * 0.6, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 8, rot);
         }
         StructType::Arch => {
             let pw = s * 0.1; let ph = s * 0.5; let pd = s * 0.15;
-            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.3, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
-            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.3, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.35, s * 0.06, pd, c[0], c[1], c[2], base_idx, 5, 5, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.3, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 10, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.3, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 10, rot);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.35, s * 0.06, pd, c[0], c[1], c[2], base_idx, 8, 8, rot);
         }
         StructType::Pillar => {
             let pw = s * 0.15; let ph = s * 0.6; let pd = s * 0.15;
@@ -262,60 +262,60 @@ fn emit_struct(
         }
         StructType::Pyramid => {
             let bw = s * 0.4; let bh = s * 0.15; let bd = s * 0.4;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + bh, z, bw, bh, bd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + bh, z, bw, bh, bd, c[0], c[1], c[2], base_idx, 10, rot);
             let mw = s * 0.28; let mh = s * 0.2; let md = s * 0.28;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + bh * 2.0 + mh, z, mw, mh, md, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + bh * 2.0 + mh, z, mw, mh, md, c[0], c[1], c[2], base_idx, 10, rot);
             let tw = s * 0.14; let th = s * 0.25; let td = s * 0.14;
             push_ellipsoid_rot(pos, norms, idx, cols, x, y + bh * 2.0 + mh * 2.0 + th, z, tw, th, td, c[0], c[1], c[2], base_idx, seg, seg, rot);
         }
         StructType::CrystalSpire => {
             let sw = s * 0.07; let sh = s * 0.7; let sd = s * 0.07;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + sh, z, sw, sh, sd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + sh, z, sw, sh, sd, c[0], c[1], c[2], base_idx, 10, rot);
             let bw = s * 0.18; let bh = s * 0.05; let bd = s * 0.18;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh * 2.0 - bh, z, bw, bh, bd, c[0] * 1.1, c[1] * 1.1, c[2] * 1.1, base_idx, 5, 5, rot);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh * 2.0 - bh, z, bw, bh, bd, c[0] * 1.1, c[1] * 1.1, c[2] * 1.1, base_idx, 8, 8, rot);
         }
         StructType::MushroomHut => {
             let sw = s * 0.07; let sh = s * 0.3; let sd = s * 0.07;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + sh, z, sw, sh, sd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + sh, z, sw, sh, sd, c[0], c[1], c[2], base_idx, 10, rot);
             let cw = s * 0.5; let ch = s * 0.15; let cd = s * 0.5;
             push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh * 2.0 + ch, z, cw, ch, cd, 0.75, 0.2, 0.2, base_idx, seg, seg, rot);
         }
         StructType::Obelisk => {
             let ow = s * 0.09; let oh = s * 0.7; let od = s * 0.09;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + oh, z, ow, oh, od, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + oh, z, ow, oh, od, c[0], c[1], c[2], base_idx, 10, rot);
             let tw = s * 0.03; let th = s * 0.15; let td = s * 0.03;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + oh * 2.0 + th, z, tw, th, td, c[0], c[1], c[2], base_idx, 5, 5, rot);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + oh * 2.0 + th, z, tw, th, td, c[0], c[1], c[2], base_idx, 8, 8, rot);
         }
         StructType::Plaza => {
             let pw = s * 0.6; let ph = s * 0.08; let pd = s * 0.6;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 8, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 10, rot);
             let rw = pw * 0.5; let rh = ph * 0.4; let rd = pd * 0.5;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + ph * 2.0 + rh, z, rw, rh, rd, c[0] * 1.1, c[1] * 1.1, c[2] * 0.9, base_idx, 6, 6, rot);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + ph * 2.0 + rh, z, rw, rh, rd, c[0] * 1.1, c[1] * 1.1, c[2] * 0.9, base_idx, 8, 8, rot);
             let cw = s * 0.07; let ch = s * 0.2; let cd = s * 0.07;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + ph * 2.0 + ch, z, cw, ch, cd, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + ph * 2.0 + ch, z, cw, ch, cd, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, base_idx, 10, rot);
         }
         StructType::Muralla => {
             let hw = s * 0.4; let hh = s * 0.25; let hd = s * 0.06;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + hh, z, hw, hh, hd, c[0], c[1], c[2], base_idx, 10, rot);
             let ch = s * 0.08; let cw = s * 0.08;
             let num_cren = 3;
             for i in 0..num_cren {
                 let cx2 = x - hw + (i as f32 + 0.5) * (hw * 2.0 / num_cren as f32);
-                push_cylinder_rot(pos, norms, idx, cols, cx2, y + hh * 2.0 + ch, z, cw, ch, hd, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, base_idx, 5, rot);
+                push_cylinder_rot(pos, norms, idx, cols, cx2, y + hh * 2.0 + ch, z, cw, ch, hd, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, base_idx, 8, rot);
             }
         }
         StructType::DungeonEntrance => {
             let pw = s * 0.15; let ph = s * 0.35; let pd = s * 0.15;
-            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.2, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
-            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.2, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 6, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x - s * 0.2, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 10, rot);
+            push_cylinder_rot(pos, norms, idx, cols, x + s * 0.2, y + ph, z, pw, ph, pd, c[0], c[1], c[2], base_idx, 10, rot);
             let ah = s * 0.06;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s * 0.85, z, s * 0.18, ah, pd, c[0], c[1], c[2], base_idx, 5, 5, rot);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s * 0.85, z, s * 0.18, ah, pd, c[0], c[1], c[2], base_idx, 8, 8, rot);
             for i in 0..3 {
                 let step_y = y - (i as f32) * s * 0.06;
                 let step_z = z + (i as f32 + 1.0) * s * 0.1;
-                push_cylinder_rot(pos, norms, idx, cols, x, step_y, step_z, s * 0.1, s * 0.03, s * 0.05, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 4, rot);
+                push_cylinder_rot(pos, norms, idx, cols, x, step_y, step_z, s * 0.1, s * 0.03, s * 0.05, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 6, rot);
             }
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + ph * 0.6, z + pd * 0.5, pw * 0.8, ph * 0.6, pd * 0.3, 0.05, 0.05, 0.08, base_idx, 5, 5, rot);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + ph * 0.6, z + pd * 0.5, pw * 0.8, ph * 0.6, pd * 0.3, 0.05, 0.05, 0.08, base_idx, 8, 8, rot);
         }
     }
 }
@@ -461,30 +461,28 @@ pub fn generate_road_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option<(Vec
             push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                 mid_x, bridge_y + 0.04, mid_z,
                 0.5, 0.04, 0.5,
-                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 8, 0.0);
-            // Railings
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 10, 0.0);
             let rail_h = 0.25;
             let rail_w = 0.03;
             let r_offset = 0.45;
             push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                 mid_x + nx * r_offset, bridge_y + 0.08 + rail_h, mid_z + nz * r_offset,
                 rail_w, rail_h, rail_w,
-                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx, 5, 0.0);
+                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx, 8, 0.0);
             push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                 mid_x - nx * r_offset, bridge_y + 0.08 + rail_h, mid_z - nz * r_offset,
                 rail_w, rail_h, rail_w,
-                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx, 5, 0.0);
-            // Bridge supports at ends
+                bridge_color[0] * 0.8, bridge_color[1] * 0.8, bridge_color[2] * 0.8, &mut base_idx, 8, 0.0);
             let sup_h = (bridge_y - seg.y1).max(0.1);
             push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                 seg.x1, seg.y1 + sup_h * 0.5, seg.z1,
                 0.05, sup_h * 0.5, 0.05,
-                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 5, 0.0);
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 8, 0.0);
             let sup_h2 = (bridge_y - seg.y2).max(0.1);
             push_cylinder_rot(&mut pos, &mut norms, &mut idx, &mut cols,
                 seg.x2, seg.y2 + sup_h2 * 0.5, seg.z2,
                 0.05, sup_h2 * 0.5, 0.05,
-                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 5, 0.0);
+                bridge_color[0], bridge_color[1], bridge_color[2], &mut base_idx, 8, 0.0);
         } else {
                     push_road_quad(
                         &mut pos, &mut norms, &mut idx, &mut cols,
@@ -553,7 +551,7 @@ pub fn generate_blueprint_mesh(params: &WorldParams, cx: i32, cz: i32) -> Option
                         wz as f32 + block.z,
                         block.w * 0.5, block.h * 0.5, block.d * 0.5,
                         block.color[0], block.color[1], block.color[2],
-                        &mut base_idx, 4, 4, 0.0);
+                        &mut base_idx, 8, 8, 0.0);
                 }
                 placed = true;
             }

@@ -115,7 +115,7 @@
             -webkit-backdrop-filter: blur(24px) saturate(1.4);
         }
     </style>
-<link rel="modulepreload" href="/worlds-app-f14ad4fae1148653.js"><link rel="preload" href="/worlds-app-f14ad4fae1148653_bg.wasm" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/worlds-app-576168537f94905d.js"><link rel="preload" href="/worlds-app-576168537f94905d_bg.wasm" as="fetch" type="application/wasm"></head>
 <body class="bg-[#0a0a12]">
 
 <div id="loading-screen" style="position:fixed;inset:0;z-index:99999;background:#0a0a12;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;transition:opacity 0.5s;pointer-events:auto">
@@ -147,8 +147,8 @@ const done = () => {
 
 try {
     status('Compilando WebAssembly...');
-    const bindings = await import('/worlds-app-f14ad4fae1148653.js');
-    const wasm = await bindings.default({ module_or_path: '/worlds-app-f14ad4fae1148653_bg.wasm' });
+    const bindings = await import('/worlds-app-576168537f94905d.js');
+    const wasm = await bindings.default({ module_or_path: '/worlds-app-576168537f94905d_bg.wasm' });
 
     window.wasmBindings = bindings;
     status('Inicializando motor gr\u00e1fico...');

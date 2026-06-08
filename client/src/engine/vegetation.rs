@@ -328,8 +328,8 @@ fn emit_veg(
             let canopy_radius = size * 0.3;
             let canopy_center_y = trunk_height + canopy_radius;
             let canopy = tree_canopy_color(season);
-            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, 0.4, 0.25, 0.1, base_idx, 8, 0.0);
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + canopy_center_y, z, canopy_radius, canopy_radius, canopy_radius, canopy[0], canopy[1], canopy[2], base_idx, 6, 8, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, 0.4, 0.25, 0.1, base_idx, 12, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + canopy_center_y, z, canopy_radius, canopy_radius, canopy_radius, canopy[0], canopy[1], canopy[2], base_idx, 12, 16, 0.0);
             if season == 1 || season == 2 {
                 let fruit_color = if season == 1 { [0.9, 0.2, 0.1] } else { [1.0, 0.5, 0.1] };
                 let fruit_r = canopy_radius * 0.15;
@@ -338,78 +338,78 @@ fn emit_veg(
                     let fx = x + angle.cos() * canopy_radius * 0.6;
                     let fz = z + angle.sin() * canopy_radius * 0.6;
                     let fy = y + trunk_height + canopy_radius * 0.3 + (fi as f32 * 0.1);
-                    push_ellipsoid_rot(pos, norms, idx, cols, fx, fy, fz, fruit_r, fruit_r, fruit_r, fruit_color[0], fruit_color[1], fruit_color[2], base_idx, 4, 4, 0.0);
+                    push_ellipsoid_rot(pos, norms, idx, cols, fx, fy, fz, fruit_r, fruit_r, fruit_r, fruit_color[0], fruit_color[1], fruit_color[2], base_idx, 6, 6, 0.0);
                 }
             }
         }
         VegType::DeadTree => {
             let trunk_height = size * 0.7;
             let trunk_radius = size * 0.05;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, c[0], c[1], c[2], base_idx, 8, 0.0);
-            push_ellipsoid_rot(pos, norms, idx, cols, x + size * 0.1, y + trunk_height * 0.6, z + size * 0.05, trunk_radius * 0.5, size * 0.15, trunk_radius * 0.5, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, c[0], c[1], c[2], base_idx, 12, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x + size * 0.1, y + trunk_height * 0.6, z + size * 0.05, trunk_radius * 0.5, size * 0.15, trunk_radius * 0.5, c[0], c[1], c[2], base_idx, 6, 6, 0.0);
         }
         VegType::Bush => {
             let r = size * 0.35;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + r, z, r, r, r, c[0], c[1], c[2], base_idx, 4, 6, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + r, z, r, r, r, c[0], c[1], c[2], base_idx, 8, 10, 0.0);
         }
         VegType::Rock => {
             let s = size * 0.35;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.9, s * 0.7, s * 0.8, c[0], c[1], c[2], base_idx, 4, 5, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.9, s * 0.7, s * 0.8, c[0], c[1], c[2], base_idx, 8, 8, 0.0);
         }
         VegType::Cactus => {
             let trunk_height = size * 0.7;
             let trunk_radius = size * 0.05;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, c[0], c[1], c[2], base_idx, 8, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + trunk_height * 0.5, z, trunk_radius, trunk_height * 0.5, trunk_radius, c[0], c[1], c[2], base_idx, 12, 0.0);
             let arm_height = size * 0.3;
             let arm_radius = size * 0.04;
-            push_cylinder_rot(pos, norms, idx, cols, x + size * 0.12, y + trunk_height * 0.6 + arm_height * 0.5, z, arm_radius, arm_height * 0.5, arm_radius, c[0], c[1], c[2], base_idx, 8, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x + size * 0.12, y + trunk_height * 0.6 + arm_height * 0.5, z, arm_radius, arm_height * 0.5, arm_radius, c[0], c[1], c[2], base_idx, 12, 0.0);
         }
         VegType::Mushroom => {
             let stem_height = size * 0.5;
             let stem_radius = size * 0.04;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + stem_height * 0.5, z, stem_radius, stem_height * 0.5, stem_radius, 0.9, 0.85, 0.75, base_idx, 8, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + stem_height * 0.5, z, stem_radius, stem_height * 0.5, stem_radius, 0.9, 0.85, 0.75, base_idx, 12, 0.0);
             let cap_radius = size * 0.25;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + stem_height + cap_radius * 0.6, z, cap_radius, cap_radius * 0.6, cap_radius, c[0], c[1], c[2], base_idx, 4, 6, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + stem_height + cap_radius * 0.6, z, cap_radius, cap_radius * 0.6, cap_radius, c[0], c[1], c[2], base_idx, 8, 10, 0.0);
         }
         VegType::Crystal => {
             let s = size * 0.3;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.4, s, s * 0.4, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s * 0.4, s, s * 0.4, c[0], c[1], c[2], base_idx, 8, 8, 0.0);
         }
         VegType::Flower => {
             let sh = size * 0.4;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + sh * 0.25, z, 0.02, sh * 0.25, 0.02, 0.3, 0.6, 0.2, base_idx, 4, 0.0);
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh + size * 0.08, z, size * 0.08, size * 0.08, size * 0.08, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + sh * 0.25, z, 0.02, sh * 0.25, 0.02, 0.3, 0.6, 0.2, base_idx, 8, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + sh + size * 0.08, z, size * 0.08, size * 0.08, size * 0.08, c[0], c[1], c[2], base_idx, 6, 6, 0.0);
         }
         VegType::Coral => {
             let s = size * 0.25;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
-            push_ellipsoid_rot(pos, norms, idx, cols, x + s * 0.5, y + s * 0.8, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx, 8, 8, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x + s * 0.5, y + s * 0.8, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx, 8, 8, 0.0);
         }
         VegType::Kelp => {
             let h = size * 0.5;
             let w = size * 0.02;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx, 4, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx, 8, 0.0);
         }
         VegType::Seaweed => {
             let h = size * 0.35;
             let w = size * 0.015;
-            push_cylinder_rot(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx, 4, 0.0);
-            push_cylinder_rot(pos, norms, idx, cols, x + w * 2.0, y + h * 0.6, z, w, h * 0.6, w, c[0] * 0.8, c[1] * 1.1, c[2] * 0.8, base_idx, 4, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x, y + h, z, w, h, w, c[0], c[1], c[2], base_idx, 8, 0.0);
+            push_cylinder_rot(pos, norms, idx, cols, x + w * 2.0, y + h * 0.6, z, w, h * 0.6, w, c[0] * 0.8, c[1] * 1.1, c[2] * 0.8, base_idx, 8, 0.0);
         }
         VegType::Anemone => {
             let s = size * 0.2;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s * 0.5, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s * 0.5, z, s * 0.5, s * 0.5, s * 0.5, c[0], c[1], c[2], base_idx, 6, 6, 0.0);
             for di in 0..4 {
                 let angle = di as f32 * std::f32::consts::PI * 0.5;
                 let tx = x + angle.cos() * s * 0.6;
                 let tz = z + angle.sin() * s * 0.6;
-                push_cylinder_rot(pos, norms, idx, cols, tx, y + s * 0.5 + s * 0.4, tz, s * 0.08, s * 0.4, s * 0.08, c[0] * 0.9, c[1] * 0.8, c[2] * 1.1, base_idx, 4, 0.0);
+                push_cylinder_rot(pos, norms, idx, cols, tx, y + s * 0.5 + s * 0.4, tz, s * 0.08, s * 0.4, s * 0.08, c[0] * 0.9, c[1] * 0.8, c[2] * 1.1, base_idx, 6, 0.0);
             }
         }
         VegType::Sponge => {
             let s = size * 0.2;
-            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx, 4, 4, 0.0);
-            push_ellipsoid_rot(pos, norms, idx, cols, x - s * 0.2, y + s * 0.7, z - s * 0.2, s * 0.4, s * 0.4, s * 0.4, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 4, 4, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x, y + s, z, s, s, s, c[0], c[1], c[2], base_idx, 8, 8, 0.0);
+            push_ellipsoid_rot(pos, norms, idx, cols, x - s * 0.2, y + s * 0.7, z - s * 0.2, s * 0.4, s * 0.4, s * 0.4, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, base_idx, 8, 8, 0.0);
         }
     }
 }
@@ -492,7 +492,10 @@ pub fn compute_chunk_grass(params: &WorldParams, cx: i32, cz: i32, _season: u8) 
 
     for i in 0..MAX_GRASS {
         let r = (rng_seed.wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407 + i as u64 + (cx as u64).wrapping_mul(1000) + (cz as u64).wrapping_mul(2000))) as f64
+            .wrapping_add(1442695040888963407u64)
+            .wrapping_add(i as u64)
+            .wrapping_add((cx as u64).wrapping_mul(1000))
+            .wrapping_add((cz as u64).wrapping_mul(2000))) as f64
             / u64::MAX as f64;
 
         if r >= density as f64 { continue; }

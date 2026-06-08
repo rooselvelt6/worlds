@@ -207,10 +207,7 @@ pub fn App() -> impl IntoView {
             }
         }
 
-        // Register service worker for PWA
-        if let Some(win) = web_sys::window() {
-            let _ = win.navigator().service_worker().register("/service-worker.js");
-        }
+        // Service worker eliminado: causaba errores de caché con hashes variables
 
         wasm_bindgen_futures::spawn_local(async move {
             // Inicializar IndexedDB y migrar datos existentes de localStorage
@@ -482,6 +479,13 @@ pub fn App() -> impl IntoView {
                             view! { <span></span> }.into_any()
                         }
                     }}
+                    {move || {
+                        if hud.get().headlamp {
+                            view! { <span class="text-[10px] max-sm:text-[8px] font-mono text-yellow-200 bg-yellow-600/30 px-2 py-0.5 rounded-full max-sm:px-1">{String::from("🔦")}</span> }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
                     <span class="text-[10px] max-sm:text-[8px] font-mono text-white/70 bg-white/[0.12] px-2 py-0.5 rounded-full max-sm:hidden"
                         title="Season / Estación">
                         {move || {
@@ -489,6 +493,34 @@ pub fn App() -> impl IntoView {
                             match s { 0 => "🌸Spr", 1 => "☀️Sum", 2 => "🍂Aut", _ => "❄️Win" }
                         }}
                     </span>
+                    {move || {
+                        let h = hud.get();
+                        if h.health < 100.0 {
+                            let pct = (h.health / 100.0 * 100.0) as u32;
+                            let color = if h.health > 50.0 { "text-green-300" } else if h.health > 25.0 { "text-yellow-300" } else { "text-red-400" };
+                            view! {
+                                <span class=format!("text-[10px] max-sm:text-[8px] font-mono {} bg-red-900/30 px-2 py-0.5 rounded-full max-sm:px-1", color)>
+                                    {format!("❤️{}%", pct)}
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
+                    {move || {
+                        let h = hud.get();
+                        if h.oxygen < 8.0 {
+                            let pct = (h.oxygen / 10.0 * 100.0) as u32;
+                            let color = if h.oxygen > 4.0 { "text-cyan-300" } else { "text-red-400" };
+                            view! {
+                                <span class=format!("text-[10px] max-sm:text-[8px] font-mono {} bg-cyan-900/30 px-2 py-0.5 rounded-full max-sm:px-1", color)>
+                                    {format!("🫧{}%", pct)}
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
                 </div>
             </div>
 
